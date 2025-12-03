@@ -211,6 +211,10 @@ async def race(
     pending_tasks: list[asyncio.Task[T]] = [
         asyncio.create_task(cast(Coroutine[Any, Any, T], t())) for t in tasks
     ]
+    # Map task to original index for error reporting
+    task_to_index: dict[asyncio.Task[T], int] = {
+        task: i for i, task in enumerate(pending_tasks)
+    }
     last_error: Exception | None = None
 
     try:
@@ -236,7 +240,8 @@ async def race(
                 except Exception as e:
                     last_error = e
                     if on_error:
-                        on_error(e, 0)
+                        task_index = task_to_index.get(task, -1)
+                        on_error(e, task_index)
 
             # Only cancel and return after checking all done tasks
             if found_success:

@@ -252,6 +252,31 @@ class TestRace:
         result = await race([fast_fail, slow_success])
         assert result == "success"
 
+    @pytest.mark.asyncio
+    async def test_on_error_receives_correct_task_index(self):
+        """Test that on_error callback receives the correct task index."""
+        error_indices: list[int] = []
+
+        async def task0_fail():
+            raise ValueError("Task 0 failed")
+
+        async def task1_fail():
+            await asyncio.sleep(0.01)
+            raise ValueError("Task 1 failed")
+
+        async def task2_success():
+            await asyncio.sleep(0.02)
+            return "success"
+
+        def on_error(e: Exception, index: int):
+            error_indices.append(index)
+
+        result = await race([task0_fail, task1_fail, task2_success], on_error=on_error)
+        assert result == "success"
+        # Both failing tasks should report their correct indices
+        assert 0 in error_indices
+        assert 1 in error_indices
+
 
 class TestSequential:
     @pytest.mark.asyncio
