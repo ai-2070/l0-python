@@ -269,16 +269,20 @@ class TestMultimodal:
     def test_image_with_url(self):
         """Test Multimodal.image() with URL."""
         event = Multimodal.image(url="https://example.com/image.png")
+        assert event.payload is not None
         assert event.payload.url == "https://example.com/image.png"
 
     def test_image_custom_mime_type(self):
         """Test Multimodal.image() with custom MIME type."""
         event = Multimodal.image(base64="abc", mime_type="image/jpeg")
+        assert event.payload is not None
         assert event.payload.mime_type == "image/jpeg"
 
     def test_image_extra_metadata(self):
         """Test Multimodal.image() with extra metadata."""
         event = Multimodal.image(base64="abc", prompt="a cat", steps=50)
+        assert event.payload is not None
+        assert event.payload.metadata is not None
         assert event.payload.metadata["prompt"] == "a cat"
         assert event.payload.metadata["steps"] == 50
 
