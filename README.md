@@ -87,13 +87,12 @@ async def main():
             messages=[{"role": "user", "content": "Hello!"}],
             stream=True,
         ),
-        guardrails=[l0.json_rule()],
+        guardrails=l0.Guardrails.recommended(),
     )
 
-    # Iterate directly - result IS the iterator
     async for event in result:
-        if event.type == l0.EventType.TOKEN:
-            print(event.value, end="", flush=True)
+        if event.is_token:
+            print(event.text, end="", flush=True)
 
 asyncio.run(main())
 ```
@@ -107,13 +106,12 @@ import l0
 
 async def main():
     result = await l0.run(
-        # LiteLLM supports 100+ providers with unified interface
         stream=lambda: litellm.acompletion(
             model="anthropic/claude-3-haiku-20240307",
             messages=[{"role": "user", "content": "Hello!"}],
             stream=True,
         ),
-        guardrails=[l0.json_rule()],
+        guardrails=l0.Guardrails.recommended(),
     )
 
     # Or just get full text
@@ -121,6 +119,39 @@ async def main():
     print(text)
 
 asyncio.run(main())
+```
+
+### Simple Wrapping (No Lambda)
+
+```python
+import l0
+import litellm
+
+async def main():
+    # Create your stream
+    stream = litellm.acompletion(
+        model="gpt-4o",
+        messages=[{"role": "user", "content": "Hello!"}],
+        stream=True,
+    )
+
+    # l0.wrap() returns immediately - no await needed!
+    result = l0.wrap(stream, guardrails=l0.Guardrails.recommended())
+    
+    # Read full text
+    text = await result.read()
+    print(text)
+
+    # Or stream events
+    async for event in l0.wrap(stream):
+        if event.is_token:
+            print(event.text, end="")
+
+    # Or use context manager
+    async with l0.wrap(stream) as result:
+        async for event in result:
+            if event.is_token:
+                print(event.text, end="")
 ```
 
 ### Expanded Configuration
@@ -149,25 +180,26 @@ result = await l0.run(
         ),
     ],
 
-    # Optional: Guardrails (default: none)
-    guardrails=[l0.json_rule(), l0.pattern_rule()],
-    # Or use presets:
-    # guardrails=l0.recommended_guardrails()
-    # guardrails=l0.strict_guardrails()
+    # Optional: Guardrails
+    guardrails=l0.Guardrails.recommended(),
+    # Or strict:
+    # guardrails=l0.Guardrails.strict(),
+    # Or custom:
+    # guardrails=[l0.json_rule(), l0.pattern_rule()],
 
     # Optional: Retry configuration (defaults shown)
     retry=l0.Retry(
         attempts=3,                              # LLM errors only
         max_retries=6,                           # Total (LLM + network)
-        base_delay_ms=1000,
-        max_delay_ms=10000,
+        base_delay=1.0,                          # Seconds
+        max_delay=10.0,                          # Seconds
         strategy=l0.BackoffStrategy.FIXED_JITTER,
     ),
 
     # Optional: Timeout configuration (defaults shown)
     timeout=l0.Timeout(
-        initial_token_ms=5000,   # 5s to first token
-        inter_token_ms=10000,    # 10s between tokens
+        initial_token=5.0,   # Seconds to first token
+        inter_token=10.0,    # Seconds between tokens
     ),
 
     # Optional: Event callback for observability
@@ -177,10 +209,14 @@ result = await l0.run(
     meta={"user_id": "123", "session": "abc"},
 )
 
-# Iterate directly (Pythonic!)
+# Stream events with Pythonic properties
 async for event in result:
-    if event.type == l0.EventType.TOKEN:
-        print(event.value, end="")
+    if event.is_token:
+        print(event.text, end="")
+    elif event.is_tool_call:
+        print(f"Tool: {event.data}")
+    elif event.is_complete:
+        print(f"\nUsage: {event.usage}")
 
 # Access state anytime
 print(f"\nTokens: {result.state.token_count}")
@@ -218,24 +254,22 @@ result = await l0.run(
         messages=[{"role": "user", "content": prompt}],
         stream=True,
     ),
-    # Optional: Timeouts (ms)
     timeout=l0.Timeout(
-        initial_token_ms=5000,   # 5s to first token
-        inter_token_ms=10000,    # 10s between tokens
+        initial_token=5.0,   # Seconds to first token
+        inter_token=10.0,    # Seconds between tokens
     ),
 )
 
-# Unified event format - iterate directly
+# Unified event format with Pythonic properties
 async for event in result:
-    match event.type:
-        case l0.EventType.TOKEN:
-            print(event.value, end="")
-        case l0.EventType.TOOL_CALL:
-            print(f"Tool: {event.data}")
-        case l0.EventType.COMPLETE:
-            print("\nComplete")
-        case l0.EventType.ERROR:
-            print(f"Error: {event.error}")
+    if event.is_token:
+        print(event.text, end="")
+    elif event.is_tool_call:
+        print(f"Tool: {event.data}")
+    elif event.is_complete:
+        print("\nComplete")
+    elif event.is_error:
+        print(f"Error: {event.error}")
 
 # Access state anytime
 print(result.state.content)       # Full accumulated content
@@ -256,10 +290,10 @@ result = await l0.run(
     stream=lambda: client.chat.completions.create(..., stream=True),
     retry=l0.Retry(
         attempts=3,                              # Model errors only (default: 3)
-        max_retries=6,                           # Absolute cap across all error types (default: 6)
-        base_delay_ms=1000,
-        max_delay_ms=10000,
-        strategy=l0.BackoffStrategy.FIXED_JITTER,  # or EXPONENTIAL, LINEAR, FIXED, FULL_JITTER
+        max_retries=6,                           # Absolute cap (default: 6)
+        base_delay=1.0,                          # Seconds (default: 1.0)
+        max_delay=10.0,                          # Seconds (default: 10.0)
+        strategy=l0.BackoffStrategy.FIXED_JITTER,
     ),
 )
 ```
@@ -442,21 +476,14 @@ result = await l0.race([
 Pure functions that validate streaming output without rewriting it:
 
 ```python
-from l0 import (
-    json_rule,           # Validates JSON structure
-    strict_json_rule,    # Validates complete JSON
-    pattern_rule,        # Detects "As an AI..." patterns
-    zero_output_rule,    # Detects empty output
-    stall_rule,          # Detects token stalls
-    repetition_rule,     # Detects model looping
-)
+import l0
 
 result = await l0.run(
     stream=my_stream,
     guardrails=[
-        json_rule(),
-        pattern_rule(),
-        zero_output_rule(),
+        l0.json_rule(),           # Validates JSON structure
+        l0.pattern_rule(),        # Detects "As an AI..." patterns
+        l0.zero_output_rule(),    # Detects empty output
     ],
 )
 ```
@@ -464,14 +491,31 @@ result = await l0.run(
 ### Presets
 
 ```python
-from l0 import recommended_guardrails, strict_guardrails
+import l0
 
 # Recommended: JSON + pattern + zero_output
-guardrails = recommended_guardrails()
+guardrails = l0.Guardrails.recommended()
 
 # Strict: All rules including drift detection
-guardrails = strict_guardrails()
+guardrails = l0.Guardrails.strict()
+
+# JSON only
+guardrails = l0.Guardrails.json_only()
+
+# None
+guardrails = l0.Guardrails.none()
 ```
+
+### Available Rules
+
+| Rule | Description |
+| ---- | ----------- |
+| `json_rule()` | Validates JSON structure (balanced braces) |
+| `strict_json_rule()` | Validates complete, parseable JSON |
+| `pattern_rule()` | Detects "As an AI..." and similar patterns |
+| `zero_output_rule()` | Detects empty output |
+| `stall_rule()` | Detects token stalls |
+| `repetition_rule()` | Detects model looping |
 
 ### Custom Guardrails
 
@@ -608,8 +652,10 @@ L0 supports custom adapters for integrating any LLM provider:
 ### Building Custom Adapters
 
 ```python
-from l0 import Adapter, register_adapter, Event, EventType
-from typing import Any, AsyncIterator
+from collections.abc import AsyncIterator
+from typing import Any
+import l0
+from l0 import Event, EventType, register_adapter
 
 class MyProviderAdapter:
     name = "my_provider"
@@ -625,7 +671,7 @@ class MyProviderAdapter:
         async for chunk in stream:
             # Emit text tokens
             if chunk.text:
-                yield Event(type=EventType.TOKEN, value=chunk.text)
+                yield Event(type=EventType.TOKEN, text=chunk.text)
             
             # Emit tool calls
             if chunk.tool_calls:
@@ -661,7 +707,8 @@ Adapters MUST:
 - Emit complete event exactly once at end
 
 ```python
-from typing import Protocol, Any, AsyncIterator
+from typing import Protocol, Any
+from collections.abc import AsyncIterator
 
 class Adapter(Protocol):
     name: str
@@ -682,7 +729,7 @@ class Adapter(Protocol):
 Central event bus for all L0 observability:
 
 ```python
-from l0 import EventBus, ObservabilityEvent, ObservabilityEventType
+from l0 import ObservabilityEvent, ObservabilityEventType
 
 def on_event(event: ObservabilityEvent):
     print(f"[{event.type}] stream={event.stream_id}")
@@ -706,48 +753,6 @@ result = await l0.run(
 | Guardrail | `GUARDRAIL_PHASE_START` → `GUARDRAIL_RULE_RESULT` → `GUARDRAIL_PHASE_END` | Validation |
 | Network | `NETWORK_ERROR` → `NETWORK_RECOVERY` | Connection lifecycle |
 | Completion | `COMPLETE` / `ERROR` | Final status |
-
-### Full Event Type List
-
-```python
-class ObservabilityEventType(str, Enum):
-    # Session
-    SESSION_START = "SESSION_START"
-    SESSION_END = "SESSION_END"
-    
-    # Stream
-    STREAM_INIT = "STREAM_INIT"
-    STREAM_READY = "STREAM_READY"
-    
-    # Retry
-    RETRY_START = "RETRY_START"
-    RETRY_ATTEMPT = "RETRY_ATTEMPT"
-    RETRY_END = "RETRY_END"
-    RETRY_GIVE_UP = "RETRY_GIVE_UP"
-    
-    # Fallback
-    FALLBACK_START = "FALLBACK_START"
-    FALLBACK_END = "FALLBACK_END"
-    
-    # Guardrail
-    GUARDRAIL_PHASE_START = "GUARDRAIL_PHASE_START"
-    GUARDRAIL_RULE_RESULT = "GUARDRAIL_RULE_RESULT"
-    GUARDRAIL_PHASE_END = "GUARDRAIL_PHASE_END"
-    
-    # Drift
-    DRIFT_CHECK_RESULT = "DRIFT_CHECK_RESULT"
-    
-    # Network
-    NETWORK_ERROR = "NETWORK_ERROR"
-    NETWORK_RECOVERY = "NETWORK_RECOVERY"
-    
-    # Checkpoint
-    CHECKPOINT_SAVED = "CHECKPOINT_SAVED"
-    
-    # Completion
-    COMPLETE = "COMPLETE"
-    ERROR = "ERROR"
-```
 
 ---
 
