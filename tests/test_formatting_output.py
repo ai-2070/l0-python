@@ -232,6 +232,21 @@ class TestCleanOutput:
         result = clean_output("Sure, here is the result:\n```json\n{}\n```")
         assert result == "{}"
 
+    def test_clean_yaml_code_block(self):
+        """Test that non-json language tags are also stripped."""
+        result = clean_output("```yaml\nkey: value\n```")
+        assert result == "key: value"
+
+    def test_clean_python_code_block(self):
+        """Test that python code blocks are stripped."""
+        result = clean_output("```python\nprint('hello')\n```")
+        assert result == "print('hello')"
+
+    def test_clean_unlabeled_code_block(self):
+        """Test that unlabeled code blocks are stripped."""
+        result = clean_output("```\n{}\n```")
+        assert result == "{}"
+
 
 class TestValidateJsonOutput:
     """Tests for validate_json_output function."""

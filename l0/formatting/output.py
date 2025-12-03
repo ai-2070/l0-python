@@ -303,7 +303,7 @@ def create_output_format_section(
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Pattern for code blocks
-_CODE_BLOCK_PATTERN = re.compile(r"```(?:json|JSON)?\s*\n?(.*?)\n?```", re.DOTALL)
+_CODE_BLOCK_PATTERN = re.compile(r"```(?:[^\n`]*)?\s*\n?(.*?)\n?```", re.DOTALL)
 
 # Common prefixes to remove
 _COMMON_PREFIXES = [
