@@ -170,6 +170,24 @@ class ConsensusPreset:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+def _stable_repr(value: Any) -> str:
+    """Get a stable string representation for equality comparison.
+
+    Handles dicts with consistent key ordering and other types that may
+    have inconsistent string representations.
+    """
+    if isinstance(value, dict):
+        # Sort keys for consistent ordering
+        return str(dict(sorted(value.items())))
+    elif isinstance(value, BaseModel):
+        # Use model_dump with sorted keys
+        return str(dict(sorted(value.model_dump().items())))
+    elif isinstance(value, (list, tuple)):
+        return str([_stable_repr(v) for v in value])
+    else:
+        return str(value)
+
+
 def _calculate_similarity(a: str, b: str) -> float:
     """Calculate similarity between two strings (0-1)."""
     return SequenceMatcher(None, a, b).ratio()
@@ -223,7 +241,10 @@ def _group_by_similarity(
         for j, (idx2, val2, weight2) in enumerate(values):
             if j in used:
                 continue
-            if _calculate_similarity(str(val), str(val2)) >= threshold:
+            if (
+                _calculate_similarity(_stable_repr(val), _stable_repr(val2))
+                >= threshold
+            ):
                 group.append((idx2, val2, weight2))
                 used.add(j)
 
@@ -240,11 +261,11 @@ def _resolve_conflict(
     """Resolve conflict between values."""
     if resolution == "vote":
         # Take most common
-        counter = Counter(str(v) for _, v, _ in values)
+        counter = Counter(_stable_repr(v) for _, v, _ in values)
         winner = counter.most_common(1)[0][0]
         count = counter.most_common(1)[0][1]
         for _, v, _ in values:
-            if str(v) == winner:
+            if _stable_repr(v) == winner:
                 return v, count / len(values)
         return values[0][1], 1.0 / len(values)
 
@@ -296,7 +317,7 @@ def _compute_field_consensus(
             continue
 
         # Count occurrences
-        counter = Counter(str(fv) for _, fv in field_values)
+        counter = Counter(_stable_repr(fv) for _, fv in field_values)
         most_common, count = counter.most_common(1)[0]
         agreement = count / len(field_values)
 
@@ -304,7 +325,7 @@ def _compute_field_consensus(
         winning_value = None
         indices = []
         for i, fv in field_values:
-            if str(fv) == most_common:
+            if _stable_repr(fv) == most_common:
                 if winning_value is None:
                     winning_value = fv
                 indices.append(i)
@@ -476,7 +497,7 @@ class Consensus:
             raise ValueError("All tasks failed, no consensus possible")
 
         # Convert to strings for comparison
-        string_outputs = [str(v) for _, v, _ in successful_values]
+        string_outputs = [_stable_repr(v) for _, v, _ in successful_values]
 
         # Build similarity matrix
         similarity_matrix = _build_similarity_matrix(string_outputs)
@@ -570,7 +591,7 @@ class Consensus:
                         ratio=ratio,
                         indices=[i for i, _, _ in largest_group],
                         type="exact"
-                        if len(set(str(v) for _, v, _ in largest_group)) == 1
+                        if len(set(_stable_repr(v) for _, v, _ in largest_group)) == 1
                         else "similar",
                     )
                 )
@@ -829,7 +850,7 @@ class Consensus:
         if not outputs:
             return False
 
-        counter = Counter(str(o) for o in outputs)
+        counter = Counter(_stable_repr(o) for o in outputs)
         most_common_count = counter.most_common(1)[0][1]
         ratio = most_common_count / len(outputs)
         return ratio >= threshold
@@ -847,12 +868,12 @@ class Consensus:
         if not outputs:
             return None
 
-        counter = Counter(str(o) for o in outputs)
+        counter = Counter(_stable_repr(o) for o in outputs)
         winner = counter.most_common(1)[0][0]
 
         # Return the actual object, not the string
         for o in outputs:
-            if str(o) == winner:
+            if _stable_repr(o) == winner:
                 return o
         return outputs[0]
 

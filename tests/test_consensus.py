@@ -240,6 +240,14 @@ class TestHelperFunctions:
     def test_quick_empty(self):
         assert not Consensus.quick([])
 
+    def test_quick_with_dicts_different_order(self):
+        """Test that dicts with same content but different insertion order are equal."""
+        dict1 = {"a": 1, "b": 2}
+        dict2 = {"b": 2, "a": 1}
+        dict3 = {"a": 1, "b": 2}
+        outputs = [dict1, dict2, dict3]
+        assert Consensus.quick(outputs, 1.0)  # All should be considered equal
+
     def test_get_value(self):
         outputs = ["a", "a", "b"]
         assert Consensus.get_value(outputs) == "a"
@@ -250,6 +258,15 @@ class TestHelperFunctions:
     def test_get_value_integers(self):
         outputs = [1, 2, 1, 1]
         assert Consensus.get_value(outputs) == 1
+
+    def test_get_value_with_dicts_different_order(self):
+        """Test that get_value handles dicts with different key ordering."""
+        dict1 = {"x": 10, "y": 20}
+        dict2 = {"y": 20, "x": 10}
+        dict3 = {"x": 10, "y": 20}
+        outputs = [dict1, dict2, dict3]
+        result = Consensus.get_value(outputs)
+        assert result == {"x": 10, "y": 20}
 
     @pytest.mark.asyncio
     async def test_validate_passes(self):
