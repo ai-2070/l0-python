@@ -27,18 +27,20 @@ A clean Python implementation of L0 - a reliability layer for AI/LLM streaming.
 l0/
 ├── __init__.py           # Public API exports
 ├── py.typed              # PEP 561 marker
+├── version.py            # Semantic version string
+├── logging.py            # Internal debug logs (disabled by default)
 │
 ├── types.py              # All type definitions
 ├── events.py             # Central event bus + event types
 ├── errors.py             # Error categorization
 │
-├── core.py               # Main l0() function
+├── runtime.py            # Main l0() function (execution engine)
 ├── retry.py              # RetryManager (own implementation)
 ├── state.py              # L0State management
 ├── stream.py             # Stream utilities
 │
 ├── adapters.py           # All adapters in one file (simple)
-├── guardrails.py         # Engine + built-in rules
+├── guardrails.py         # Engine + built-in rules + drift detection
 │
 ├── structured.py         # Structured output with Pydantic
 ├── parallel.py           # parallel(), race(), batched()
@@ -53,7 +55,29 @@ l0/
 
 ## Phase 1: Foundation
 
-### 1.1 Types (`l0/types.py`)
+### 1.1 Version (`l0/version.py`)
+
+```python
+__version__ = "0.1.0"
+```
+
+### 1.2 Logging (`l0/logging.py`)
+
+```python
+import logging
+
+logger = logging.getLogger("l0")
+logger.addHandler(logging.NullHandler())  # Disabled by default
+
+def enable_debug() -> None:
+    """Enable debug logging for L0."""
+    logger.setLevel(logging.DEBUG)
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter("[l0] %(levelname)s: %(message)s"))
+    logger.addHandler(handler)
+```
+
+### 1.3 Types (`l0/types.py`)
 
 Core types using dataclasses and enums:
 
@@ -61,11 +85,13 @@ Core types using dataclasses and enums:
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Literal, Callable, AsyncIterator, Any
+import time
 
 class EventType(str, Enum):
     TOKEN = "token"
     MESSAGE = "message"
     DATA = "data"
+    TOOL_CALL = "tool_call"
     ERROR = "error"
     COMPLETE = "complete"
 
@@ -85,11 +111,13 @@ class BackoffStrategy(str, Enum):
 
 @dataclass
 class L0Event:
+    """Unified event from LLM stream."""
     type: EventType
-    value: str | None = None
-    error: Exception | None = None
-    usage: dict[str, int] | None = None
-    timestamp: float = field(default_factory=time.time)
+    text: str | None = None                    # Token/message text content
+    data: dict[str, Any] | None = None         # Tool calls, metadata, structured data
+    error: Exception | None = None             # Error details
+    usage: dict[str, int] | None = None        # Token usage stats
+    ts: float = field(default_factory=time.time)
 
 @dataclass
 class L0State:
@@ -106,12 +134,24 @@ class L0State:
     last_token_at: float | None = None
 
 @dataclass
+class RetryConfig:
+    max_attempts: int = 3
+    base_delay: float = 1.0
+    max_delay: float = 30.0
+    strategy: BackoffStrategy = BackoffStrategy.FIXED_JITTER
+
+@dataclass
+class TimeoutConfig:
+    initial_token: float = 30.0   # Max wait for first token
+    inter_token: float = 10.0     # Max wait between tokens
+
+@dataclass
 class L0Options:
     stream: Callable[[], AsyncIterator[Any]]
     fallbacks: list[Callable[[], AsyncIterator[Any]]] = field(default_factory=list)
     guardrails: list["GuardrailRule"] = field(default_factory=list)
-    retry: "RetryConfig | None" = None
-    timeout: "TimeoutConfig | None" = None
+    retry: RetryConfig | None = None
+    timeout: TimeoutConfig | None = None
     adapter: "Adapter | str | None" = None
     on_event: Callable[["ObservabilityEvent"], None] | None = None
 
@@ -122,14 +162,16 @@ class L0Result:
     abort: Callable[[], None]
 ```
 
-### 1.2 Central Event Bus (`l0/events.py`)
+### 1.4 Central Event Bus (`l0/events.py`)
 
 Single event system for all observability:
 
 ```python
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
-from typing import Callable
+from typing import Callable, Any
+import time
+import uuid
 
 class ObservabilityEventType(str, Enum):
     # Session
@@ -153,6 +195,9 @@ class ObservabilityEventType(str, Enum):
     GUARDRAIL_CHECK = "guardrail_check"
     GUARDRAIL_VIOLATION = "guardrail_violation"
     
+    # Drift
+    DRIFT_DETECTED = "drift_detected"
+    
     # Errors
     ERROR_NETWORK = "error_network"
     ERROR_MODEL = "error_model"
@@ -161,7 +206,7 @@ class ObservabilityEventType(str, Enum):
 @dataclass
 class ObservabilityEvent:
     type: ObservabilityEventType
-    timestamp: float
+    ts: float
     session_id: str
     data: dict[str, Any] = field(default_factory=dict)
 
@@ -172,18 +217,22 @@ class EventBus:
         self._handler = handler
         self._session_id = str(uuid.uuid4())
     
+    @property
+    def session_id(self) -> str:
+        return self._session_id
+    
     def emit(self, event_type: ObservabilityEventType, **data: Any) -> None:
         if self._handler:
             event = ObservabilityEvent(
                 type=event_type,
-                timestamp=time.time(),
+                ts=time.time(),
                 session_id=self._session_id,
                 data=data
             )
             self._handler(event)
 ```
 
-### 1.3 Error Categorization (`l0/errors.py`)
+### 1.5 Error Categorization (`l0/errors.py`)
 
 ```python
 import re
@@ -242,16 +291,9 @@ Own implementation - no tenacity:
 ```python
 import asyncio
 import random
-from dataclasses import dataclass
-from .types import ErrorCategory, BackoffStrategy
+from .types import ErrorCategory, BackoffStrategy, RetryConfig
 from .errors import categorize_error
-
-@dataclass
-class RetryConfig:
-    max_attempts: int = 3           # Model errors only
-    base_delay: float = 1.0         # seconds
-    max_delay: float = 30.0         # seconds
-    strategy: BackoffStrategy = BackoffStrategy.FIXED_JITTER
+from .logging import logger
 
 class RetryManager:
     """Manages retry logic with error-aware backoff."""
@@ -263,6 +305,7 @@ class RetryManager:
     
     def should_retry(self, error: Exception) -> bool:
         category = categorize_error(error)
+        logger.debug(f"Error category: {category}, model_attempts: {self.model_attempts}")
         
         if category == ErrorCategory.FATAL:
             return False
@@ -299,6 +342,7 @@ class RetryManager:
             case BackoffStrategy.FULL_JITTER:
                 delay = random.random() * min(base * (2 ** attempt), cap)
         
+        logger.debug(f"Retry delay: {delay:.2f}s (strategy: {self.config.strategy})")
         return delay
     
     async def wait(self, error: Exception) -> None:
@@ -308,10 +352,9 @@ class RetryManager:
 
 ### 2.2 State (`l0/state.py`)
 
-Simple state container - no state machine needed:
+Simple state container:
 
 ```python
-from dataclasses import dataclass, field
 import time
 from .types import L0State
 
@@ -336,15 +379,18 @@ def append_token(state: L0State, token: str) -> None:
 ### 2.3 Stream Utilities (`l0/stream.py`)
 
 ```python
-from typing import AsyncIterator
+from typing import AsyncIterator, TYPE_CHECKING
 from .types import L0Event, EventType
+
+if TYPE_CHECKING:
+    from .types import L0Result
 
 async def consume_stream(stream: AsyncIterator[L0Event]) -> str:
     """Consume stream and return full text."""
     content = ""
     async for event in stream:
-        if event.type == EventType.TOKEN and event.value:
-            content += event.value
+        if event.type == EventType.TOKEN and event.text:
+            content += event.text
     return content
 
 async def get_text(result: "L0Result") -> str:
@@ -354,19 +400,20 @@ async def get_text(result: "L0Result") -> str:
 
 ---
 
-## Phase 3: Core Function
+## Phase 3: Runtime Engine
 
-### 3.1 Main l0() Function (`l0/core.py`)
+### 3.1 Main l0() Function (`l0/runtime.py`)
 
 ```python
 import asyncio
 from typing import AsyncIterator
-from .types import L0Options, L0Result, L0State, L0Event, EventType
-from .retry import RetryManager, RetryConfig
+from .types import L0Options, L0Result, L0State, L0Event, EventType, RetryConfig
+from .retry import RetryManager
 from .state import create_state, append_token, update_checkpoint
 from .events import EventBus, ObservabilityEventType
-from .adapters import detect_adapter, wrap_stream
+from .adapters import detect_adapter
 from .guardrails import check_guardrails
+from .logging import logger
 
 async def l0(options: L0Options) -> L0Result:
     """Main L0 wrapper function."""
@@ -376,9 +423,12 @@ async def l0(options: L0Options) -> L0Result:
     event_bus = EventBus(options.on_event)
     aborted = False
     
+    logger.debug(f"Starting L0 session: {event_bus.session_id}")
+    
     def abort():
         nonlocal aborted
         aborted = True
+        logger.debug("Abort requested")
     
     async def run_stream() -> AsyncIterator[L0Event]:
         nonlocal state
@@ -389,6 +439,7 @@ async def l0(options: L0Options) -> L0Result:
             state.fallback_index = fallback_idx
             
             if fallback_idx > 0:
+                logger.debug(f"Trying fallback {fallback_idx}")
                 event_bus.emit(ObservabilityEventType.FALLBACK_START, index=fallback_idx)
             
             while True:
@@ -397,36 +448,42 @@ async def l0(options: L0Options) -> L0Result:
                     raw_stream = await stream_fn()
                     adapter = detect_adapter(raw_stream, options.adapter)
                     
-                    async for event in wrap_stream(raw_stream, adapter):
+                    async for event in adapter.wrap(raw_stream):
                         if aborted:
                             state.aborted = True
                             return
                         
-                        if event.type == EventType.TOKEN and event.value:
-                            append_token(state, event.value)
+                        if event.type == EventType.TOKEN and event.text:
+                            append_token(state, event.text)
                             
                             # Check guardrails periodically
-                            if state.token_count % 10 == 0:
+                            if state.token_count % 10 == 0 and options.guardrails:
                                 violations = check_guardrails(state, options.guardrails)
                                 if violations:
                                     state.violations.extend(violations)
-                                    event_bus.emit(ObservabilityEventType.GUARDRAIL_VIOLATION, 
-                                                 violations=violations)
+                                    event_bus.emit(
+                                        ObservabilityEventType.GUARDRAIL_VIOLATION,
+                                        violations=[v.__dict__ for v in violations]
+                                    )
                         
                         yield event
                     
                     # Success
                     state.completed = True
                     event_bus.emit(ObservabilityEventType.STREAM_COMPLETE)
+                    logger.debug(f"Stream complete: {state.token_count} tokens")
                     return
                     
                 except Exception as e:
+                    logger.debug(f"Stream error: {e}")
                     event_bus.emit(ObservabilityEventType.ERROR_NETWORK, error=str(e))
                     
                     if retry_mgr.should_retry(e):
                         retry_mgr.record_attempt(e)
-                        event_bus.emit(ObservabilityEventType.RETRY_ATTEMPT,
-                                     attempt=retry_mgr.model_attempts)
+                        event_bus.emit(
+                            ObservabilityEventType.RETRY_ATTEMPT,
+                            attempt=retry_mgr.model_attempts
+                        )
                         await retry_mgr.wait(e)
                         update_checkpoint(state)
                         continue
@@ -449,14 +506,16 @@ async def l0(options: L0Options) -> L0Result:
 
 ## Phase 4: Adapters
 
-### 4.1 Simple Adapters (`l0/adapters.py`)
+### 4.1 Adapters (`l0/adapters.py`)
 
-Unified in one file - Python SDKs are simpler:
+Adapters handle their own metadata extraction (usage, tool calls):
 
 ```python
-from typing import AsyncIterator, Any, Protocol
+from typing import AsyncIterator, Any, Protocol, runtime_checkable
 from .types import L0Event, EventType
+from .logging import logger
 
+@runtime_checkable
 class Adapter(Protocol):
     name: str
     def detect(self, stream: Any) -> bool: ...
@@ -466,52 +525,107 @@ class OpenAIAdapter:
     name = "openai"
     
     def detect(self, stream: Any) -> bool:
-        return hasattr(stream, "__aiter__") and "openai" in type(stream).__module__
+        # Check for OpenAI stream types
+        type_name = type(stream).__module__
+        return "openai" in type_name
     
     async def wrap(self, stream: Any) -> AsyncIterator[L0Event]:
+        usage = None
         async for chunk in stream:
+            # Handle content
             if hasattr(chunk, "choices") and chunk.choices:
-                delta = chunk.choices[0].delta
-                if hasattr(delta, "content") and delta.content:
-                    yield L0Event(type=EventType.TOKEN, value=delta.content)
-        yield L0Event(type=EventType.COMPLETE)
+                choice = chunk.choices[0]
+                delta = getattr(choice, "delta", None)
+                
+                if delta:
+                    # Text content
+                    if hasattr(delta, "content") and delta.content:
+                        yield L0Event(type=EventType.TOKEN, text=delta.content)
+                    
+                    # Tool calls
+                    if hasattr(delta, "tool_calls") and delta.tool_calls:
+                        for tc in delta.tool_calls:
+                            yield L0Event(
+                                type=EventType.TOOL_CALL,
+                                data={
+                                    "id": getattr(tc, "id", None),
+                                    "name": getattr(tc.function, "name", None) if hasattr(tc, "function") else None,
+                                    "arguments": getattr(tc.function, "arguments", None) if hasattr(tc, "function") else None,
+                                }
+                            )
+            
+            # Extract usage if present
+            if hasattr(chunk, "usage") and chunk.usage:
+                usage = {
+                    "prompt_tokens": getattr(chunk.usage, "prompt_tokens", 0),
+                    "completion_tokens": getattr(chunk.usage, "completion_tokens", 0),
+                }
+        
+        yield L0Event(type=EventType.COMPLETE, usage=usage)
 
 class AnthropicAdapter:
     name = "anthropic"
     
     def detect(self, stream: Any) -> bool:
-        return hasattr(stream, "__aiter__") and "anthropic" in type(stream).__module__
+        type_name = type(stream).__module__
+        return "anthropic" in type_name
     
     async def wrap(self, stream: Any) -> AsyncIterator[L0Event]:
+        usage = None
         async for event in stream:
-            if hasattr(event, "type"):
-                if event.type == "content_block_delta":
-                    if hasattr(event.delta, "text"):
-                        yield L0Event(type=EventType.TOKEN, value=event.delta.text)
-                elif event.type == "message_stop":
-                    yield L0Event(type=EventType.COMPLETE)
+            event_type = getattr(event, "type", None)
+            
+            if event_type == "content_block_delta":
+                delta = getattr(event, "delta", None)
+                if delta and hasattr(delta, "text"):
+                    yield L0Event(type=EventType.TOKEN, text=delta.text)
+            
+            elif event_type == "content_block_start":
+                block = getattr(event, "content_block", None)
+                if block and getattr(block, "type", None) == "tool_use":
+                    yield L0Event(
+                        type=EventType.TOOL_CALL,
+                        data={
+                            "id": getattr(block, "id", None),
+                            "name": getattr(block, "name", None),
+                        }
+                    )
+            
+            elif event_type == "message_delta":
+                msg_usage = getattr(event, "usage", None)
+                if msg_usage:
+                    usage = {
+                        "prompt_tokens": getattr(msg_usage, "input_tokens", 0),
+                        "completion_tokens": getattr(msg_usage, "output_tokens", 0),
+                    }
+            
+            elif event_type == "message_stop":
+                yield L0Event(type=EventType.COMPLETE, usage=usage)
 
 # Registry
 _adapters: list[Adapter] = [OpenAIAdapter(), AnthropicAdapter()]
 
 def register_adapter(adapter: Adapter) -> None:
+    """Register a custom adapter (takes priority)."""
     _adapters.insert(0, adapter)
 
-def detect_adapter(stream: Any, hint: Adapter | str | None = None) -> Adapter:
-    if isinstance(hint, Adapter):
+def detect_adapter(stream: Any, hint: "Adapter | str | None" = None) -> Adapter:
+    """Detect or lookup adapter for stream."""
+    if hint is not None and not isinstance(hint, str):
         return hint
+    
     if isinstance(hint, str):
         for a in _adapters:
             if a.name == hint:
                 return a
+        raise ValueError(f"Unknown adapter: {hint}")
+    
     for a in _adapters:
         if a.detect(stream):
+            logger.debug(f"Detected adapter: {a.name}")
             return a
+    
     raise ValueError("No adapter found for stream")
-
-async def wrap_stream(stream: Any, adapter: Adapter) -> AsyncIterator[L0Event]:
-    async for event in adapter.wrap(stream):
-        yield event
 ```
 
 ---
@@ -520,14 +634,17 @@ async def wrap_stream(stream: Any, adapter: Adapter) -> AsyncIterator[L0Event]:
 
 ### 5.1 Guardrails (`l0/guardrails.py`)
 
-Engine and rules in one file:
+Engine, built-in rules, and drift detection:
 
 ```python
 import re
 import json
 from dataclasses import dataclass
-from typing import Callable, Literal
-from .types import L0State
+from typing import Callable, Literal, TYPE_CHECKING
+from .logging import logger
+
+if TYPE_CHECKING:
+    from .types import L0State
 
 Severity = Literal["warning", "error", "fatal"]
 
@@ -540,21 +657,26 @@ class GuardrailViolation:
 @dataclass
 class GuardrailRule:
     name: str
-    check: Callable[[L0State], list[GuardrailViolation]]
+    check: Callable[["L0State"], list[GuardrailViolation]]
     severity: Severity = "error"
 
-def check_guardrails(state: L0State, rules: list[GuardrailRule]) -> list[GuardrailViolation]:
+def check_guardrails(state: "L0State", rules: list[GuardrailRule]) -> list[GuardrailViolation]:
     """Run all guardrail rules against current state."""
     violations = []
     for rule in rules:
-        violations.extend(rule.check(state))
+        result = rule.check(state)
+        if result:
+            logger.debug(f"Guardrail '{rule.name}' triggered: {len(result)} violations")
+        violations.extend(result)
     return violations
 
-# Built-in rules
+# ─────────────────────────────────────────────────────────────────────────────
+# Built-in Rules
+# ─────────────────────────────────────────────────────────────────────────────
 
 def json_rule() -> GuardrailRule:
     """Check for balanced JSON braces."""
-    def check(state: L0State) -> list[GuardrailViolation]:
+    def check(state: "L0State") -> list[GuardrailViolation]:
         content = state.content
         opens = content.count("{") + content.count("[")
         closes = content.count("}") + content.count("]")
@@ -565,7 +687,7 @@ def json_rule() -> GuardrailRule:
 
 def strict_json_rule() -> GuardrailRule:
     """Validate complete JSON on completion."""
-    def check(state: L0State) -> list[GuardrailViolation]:
+    def check(state: "L0State") -> list[GuardrailViolation]:
         if not state.completed:
             return []
         try:
@@ -586,7 +708,7 @@ def pattern_rule(patterns: list[str] | None = None) -> GuardrailRule:
     ]
     patterns = patterns or default_patterns
     
-    def check(state: L0State) -> list[GuardrailViolation]:
+    def check(state: "L0State") -> list[GuardrailViolation]:
         violations = []
         for pattern in patterns:
             if re.search(pattern, state.content, re.IGNORECASE):
@@ -598,15 +720,70 @@ def pattern_rule(patterns: list[str] | None = None) -> GuardrailRule:
 
 def zero_output_rule() -> GuardrailRule:
     """Detect empty or whitespace-only output."""
-    def check(state: L0State) -> list[GuardrailViolation]:
+    def check(state: "L0State") -> list[GuardrailViolation]:
         if state.completed and not state.content.strip():
             return [GuardrailViolation("zero_output", "Empty output", "error")]
         return []
     return GuardrailRule(name="zero_output", check=check)
 
-# Preset collections
+# ─────────────────────────────────────────────────────────────────────────────
+# Drift Detection
+# ─────────────────────────────────────────────────────────────────────────────
+
+def stall_rule(max_gap: float = 5.0) -> GuardrailRule:
+    """Detect token stalls (no tokens for too long)."""
+    import time
+    
+    def check(state: "L0State") -> list[GuardrailViolation]:
+        if state.last_token_at is None:
+            return []
+        gap = time.time() - state.last_token_at
+        if gap > max_gap:
+            return [GuardrailViolation("stall", f"Token stall: {gap:.1f}s", "warning")]
+        return []
+    return GuardrailRule(name="stall", check=check, severity="warning")
+
+def repetition_rule(window: int = 100, threshold: float = 0.5) -> GuardrailRule:
+    """Detect repetitive output (model looping)."""
+    def check(state: "L0State") -> list[GuardrailViolation]:
+        content = state.content
+        if len(content) < window * 2:
+            return []
+        
+        recent = content[-window:]
+        previous = content[-window*2:-window]
+        
+        # Simple similarity: count matching characters
+        matches = sum(1 for a, b in zip(recent, previous) if a == b)
+        similarity = matches / window
+        
+        if similarity > threshold:
+            return [GuardrailViolation(
+                "repetition",
+                f"Repetitive output detected ({similarity:.0%} similar)",
+                "error"
+            )]
+        return []
+    return GuardrailRule(name="repetition", check=check)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Presets
+# ─────────────────────────────────────────────────────────────────────────────
+
 def recommended_guardrails() -> list[GuardrailRule]:
+    """Recommended set of guardrails."""
     return [json_rule(), pattern_rule(), zero_output_rule()]
+
+def strict_guardrails() -> list[GuardrailRule]:
+    """Strict guardrails including drift detection."""
+    return [
+        json_rule(),
+        strict_json_rule(),
+        pattern_rule(),
+        zero_output_rule(),
+        stall_rule(),
+        repetition_rule(),
+    ]
 ```
 
 ---
@@ -618,7 +795,7 @@ def recommended_guardrails() -> list[GuardrailRule]:
 ```python
 from typing import TypeVar, Type
 from pydantic import BaseModel, ValidationError
-from .core import l0
+from .runtime import l0
 from .types import L0Options
 from .stream import consume_stream
 from ._utils import auto_correct_json
@@ -678,11 +855,25 @@ async def race(tasks: list[Callable[[], Awaitable[T]]]) -> T:
     for task in pending:
         task.cancel()
     return done.pop().result()
+
+async def batched(
+    items: list[T],
+    handler: Callable[[T], Awaitable[T]],
+    batch_size: int = 10
+) -> list[T]:
+    """Process items in batches."""
+    results = []
+    for i in range(0, len(items), batch_size):
+        batch = items[i:i + batch_size]
+        batch_results = await asyncio.gather(*[handler(item) for item in batch])
+        results.extend(batch_results)
+    return results
 ```
 
 ### 7.2 Consensus (`l0/consensus.py`)
 
 ```python
+import asyncio
 from typing import TypeVar, Callable, Awaitable, Literal
 from collections import Counter
 
@@ -746,6 +937,99 @@ def auto_correct_json(text: str) -> str:
 
 ---
 
+## Phase 9: Public API
+
+### 9.1 Package Init (`l0/__init__.py`)
+
+```python
+"""L0 - Reliability layer for AI/LLM streaming."""
+
+from .version import __version__
+from .types import (
+    L0Event,
+    L0State,
+    L0Options,
+    L0Result,
+    RetryConfig,
+    TimeoutConfig,
+    EventType,
+    ErrorCategory,
+    BackoffStrategy,
+)
+from .events import ObservabilityEvent, ObservabilityEventType, EventBus
+from .runtime import l0
+from .stream import consume_stream, get_text
+from .adapters import Adapter, register_adapter, detect_adapter
+from .guardrails import (
+    GuardrailRule,
+    GuardrailViolation,
+    check_guardrails,
+    json_rule,
+    strict_json_rule,
+    pattern_rule,
+    zero_output_rule,
+    stall_rule,
+    repetition_rule,
+    recommended_guardrails,
+    strict_guardrails,
+)
+from .structured import structured
+from .parallel import parallel, race, batched
+from .consensus import consensus
+from .logging import enable_debug
+
+__all__ = [
+    # Version
+    "__version__",
+    # Core
+    "l0",
+    "L0Event",
+    "L0State",
+    "L0Options",
+    "L0Result",
+    "RetryConfig",
+    "TimeoutConfig",
+    "EventType",
+    "ErrorCategory",
+    "BackoffStrategy",
+    # Events
+    "ObservabilityEvent",
+    "ObservabilityEventType",
+    "EventBus",
+    # Stream
+    "consume_stream",
+    "get_text",
+    # Adapters
+    "Adapter",
+    "register_adapter",
+    "detect_adapter",
+    # Guardrails
+    "GuardrailRule",
+    "GuardrailViolation",
+    "check_guardrails",
+    "json_rule",
+    "strict_json_rule",
+    "pattern_rule",
+    "zero_output_rule",
+    "stall_rule",
+    "repetition_rule",
+    "recommended_guardrails",
+    "strict_guardrails",
+    # Structured
+    "structured",
+    # Parallel
+    "parallel",
+    "race",
+    "batched",
+    # Consensus
+    "consensus",
+    # Debug
+    "enable_debug",
+]
+```
+
+---
+
 ## Dependencies
 
 Update `pyproject.toml`:
@@ -777,22 +1061,18 @@ dev = [
 ]
 ```
 
-**Removed:**
-- `anyio` - Using pure asyncio
-- `tenacity` - Own retry implementation
-- `regex` - Standard `re` is sufficient
-- `uuid6` - Standard `uuid` is fine
-
 ---
 
 ## Implementation Order
 
 ### Sprint 1: Core
-1. `l0/types.py` - All types
-2. `l0/errors.py` - Error categorization
-3. `l0/events.py` - Central event bus
-4. `l0/_utils.py` - Internal utilities
-5. Unit tests
+1. `l0/version.py` - Version string
+2. `l0/logging.py` - Debug logging
+3. `l0/types.py` - All types
+4. `l0/errors.py` - Error categorization
+5. `l0/events.py` - Central event bus
+6. `l0/_utils.py` - Internal utilities
+7. Unit tests
 
 ### Sprint 2: Runtime
 1. `l0/retry.py` - RetryManager
@@ -800,13 +1080,13 @@ dev = [
 3. `l0/stream.py` - Stream utilities
 4. Unit tests
 
-### Sprint 3: Core + Adapters
-1. `l0/core.py` - Main l0() function
+### Sprint 3: Runtime + Adapters
+1. `l0/runtime.py` - Main l0() function
 2. `l0/adapters.py` - All adapters
 3. Integration tests
 
 ### Sprint 4: Features
-1. `l0/guardrails.py` - Engine + rules
+1. `l0/guardrails.py` - Engine + rules + drift
 2. `l0/structured.py` - Pydantic integration
 3. `l0/parallel.py` - Concurrency utilities
 4. `l0/consensus.py` - Multi-model consensus
@@ -814,9 +1094,10 @@ dev = [
 
 ### Sprint 5: Polish
 1. `l0/__init__.py` - Public exports
-2. Documentation
-3. Examples
-4. Final test coverage
+2. `l0/py.typed` - PEP 561 marker
+3. Documentation
+4. Examples
+5. Final test coverage
 
 ---
 
@@ -828,3 +1109,4 @@ dev = [
 4. Type-safe with mypy
 5. Test coverage >80%
 6. Clean, flat structure
+7. Drift detection included
