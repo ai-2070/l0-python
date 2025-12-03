@@ -332,10 +332,16 @@ def extract_json_from_output(output: str) -> str:
         >>> extract_json_from_output('```json\\n{"name": "John"}\\n```')
         '{"name": "John"}'
     """
-    # First, try to extract from code blocks
-    match = _CODE_BLOCK_PATTERN.search(output)
-    if match:
-        return match.group(1).strip()
+    # First, try to extract from code blocks - find the first valid JSON block
+    for block in _CODE_BLOCK_PATTERN.finditer(output):
+        candidate = block.group(1).strip()
+        if not candidate:
+            continue
+        try:
+            json.loads(candidate)
+            return candidate
+        except json.JSONDecodeError:
+            continue
 
     # Try to find JSON object or array
     # Look for { ... } or [ ... ]

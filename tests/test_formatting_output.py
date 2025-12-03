@@ -208,6 +208,40 @@ class TestExtractJsonFromOutput:
         result = extract_json_from_output('Result: {"key": "value"} That is all.')
         assert result == '{"key": "value"}'
 
+    def test_extract_skips_non_json_code_blocks(self):
+        """Test that non-JSON code blocks are skipped."""
+        output = """Here's some code:
+```python
+def hello():
+    print("Hello")
+```
+
+And here's the JSON:
+```json
+{"name": "John"}
+```
+"""
+        result = extract_json_from_output(output)
+        assert result == '{"name": "John"}'
+
+    def test_extract_first_valid_json_block(self):
+        """Test that the first valid JSON code block is returned."""
+        output = """
+```
+not valid json
+```
+
+```json
+{"first": true}
+```
+
+```json
+{"second": true}
+```
+"""
+        result = extract_json_from_output(output)
+        assert result == '{"first": true}'
+
 
 class TestCleanOutput:
     """Tests for clean_output function."""
