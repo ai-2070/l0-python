@@ -403,8 +403,8 @@ class DocumentWindow:
 
         async def process_chunk(chunk: DocumentChunk) -> ChunkResult[Any]:
             async with semaphore:
-                config = processor(chunk)
                 try:
+                    config = processor(chunk)
                     result = await _internal_run(
                         stream=config.stream,
                         fallbacks=config.fallbacks,
@@ -444,8 +444,8 @@ class DocumentWindow:
         results: list[ChunkResult[Any]] = []
 
         for chunk in self._chunks:
-            config = processor(chunk)
             try:
+                config = processor(chunk)
                 result = await _internal_run(
                     stream=config.stream,
                     fallbacks=config.fallbacks,
