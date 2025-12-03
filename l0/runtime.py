@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 from typing import AsyncIterator
 
 from .adapters import detect_adapter
@@ -52,7 +53,8 @@ async def l0(options: L0Options) -> L0Result:
                     raw_stream = stream_fn()
 
                     # Handle both sync and async stream factories
-                    if hasattr(raw_stream, "__await__"):
+                    # stream_fn() might return a coroutine or an async iterator directly
+                    if inspect.iscoroutine(raw_stream):
                         raw_stream = await raw_stream
 
                     adapter = detect_adapter(raw_stream, options.adapter)

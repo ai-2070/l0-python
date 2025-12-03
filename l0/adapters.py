@@ -25,7 +25,7 @@ class Adapter(Protocol):
         """Check if this adapter can handle the given stream."""
         ...
 
-    async def wrap(self, stream: Any) -> AsyncIterator[L0Event]:
+    def wrap(self, stream: Any) -> AsyncIterator[L0Event]:
         """Wrap raw stream into L0Event stream."""
         ...
 
