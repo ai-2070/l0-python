@@ -121,7 +121,9 @@ async def parallel(
         concurrency = concurrency or 5
 
     if not tasks:
-        return ParallelResult(results=[], errors=[], success_count=0, failure_count=0)
+        return ParallelResult[T](
+            results=[], errors=[], success_count=0, failure_count=0
+        )
 
     start_time = time.time()
     semaphore = asyncio.Semaphore(concurrency)
@@ -167,7 +169,7 @@ async def parallel(
 
     duration = time.time() - start_time
 
-    return ParallelResult(
+    return ParallelResult[T](
         results=results,
         errors=errors,
         success_count=success_count,
