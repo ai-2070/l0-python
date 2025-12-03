@@ -107,7 +107,7 @@ class TestState:
 class TestRetry:
     def test_default_values(self):
         config = Retry()
-        assert config.max_attempts == 3
+        assert config.attempts == 3
         assert config.max_retries == 6
         assert config.base_delay == 1.0  # seconds
         assert config.max_delay == 10.0  # seconds
@@ -115,11 +115,11 @@ class TestRetry:
 
     def test_custom_values(self):
         config = Retry(
-            max_attempts=5,
+            attempts=5,
             base_delay=0.5,
             strategy=BackoffStrategy.EXPONENTIAL,
         )
-        assert config.max_attempts == 5
+        assert config.attempts == 5
         assert config.base_delay == 0.5
         assert config.strategy == BackoffStrategy.EXPONENTIAL
 

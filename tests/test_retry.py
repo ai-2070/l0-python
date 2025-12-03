@@ -9,7 +9,7 @@ from l0.types import BackoffStrategy, ErrorCategory, Retry
 class TestRetryManager:
     def test_default_config(self):
         mgr = RetryManager()
-        assert mgr.config.max_attempts == 3
+        assert mgr.config.attempts == 3
         assert mgr.model_retry_count == 0
         assert mgr.network_retry_count == 0
 
@@ -27,7 +27,7 @@ class TestRetryManager:
 
     def test_should_retry_model_error_limited(self):
         """Model errors should respect attempt limit."""
-        mgr = RetryManager(Retry(max_attempts=2))
+        mgr = RetryManager(Retry(attempts=2))
         error = Exception("Model error")
 
         assert mgr.should_retry(error) is True

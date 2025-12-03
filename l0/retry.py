@@ -35,7 +35,7 @@ class RetryManager:
             return True  # Always retry, doesn't count toward model limit
 
         # MODEL or CONTENT - counts toward limit
-        return self.model_retry_count < self.config.max_attempts
+        return self.model_retry_count < self.config.attempts
 
     def record_attempt(self, error: Exception) -> None:
         category = categorize_error(error)
