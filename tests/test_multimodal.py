@@ -338,6 +338,7 @@ class TestMultimodal:
         data = {"result": "success", "count": 42}
         event = Multimodal.json(data, model="gpt-4o")
         assert event.type == EventType.DATA
+        assert event.payload is not None
         assert event.payload.content_type == ContentType.JSON
         assert event.payload.json == data
         assert event.payload.mime_type == "application/json"
@@ -354,6 +355,7 @@ class TestMultimodal:
         event = Multimodal.complete(
             usage={"prompt_tokens": 10, "completion_tokens": 20}
         )
+        assert event.usage is not None
         assert event.usage["prompt_tokens"] == 10
         assert event.usage["completion_tokens"] == 20
 

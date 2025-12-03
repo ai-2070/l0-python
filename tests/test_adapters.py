@@ -1,5 +1,8 @@
 """Tests for l0.adapters module."""
 
+from collections.abc import AsyncIterator
+from typing import Any
+
 import pytest
 
 from l0.adapters import Adapters, OpenAIAdapter
@@ -236,13 +239,13 @@ class TestAdaptersList:
         """Test listing after registering an adapter."""
 
         class FakeAdapter:
-            name = "fake"
+            name: str = "fake"
 
-            def detect(self, s):
+            def detect(self, stream: Any) -> bool:
                 return False
 
-            def wrap(self, s):
-                pass
+            async def wrap(self, stream: Any) -> AsyncIterator[Event]:
+                yield Event(type=EventType.COMPLETE)
 
         Adapters.register(FakeAdapter())
         names = Adapters.list()
@@ -262,13 +265,13 @@ class TestAdaptersUnregister:
         """Test unregistering an existing adapter."""
 
         class FakeAdapter:
-            name = "fake"
+            name: str = "fake"
 
-            def detect(self, s):
+            def detect(self, stream: Any) -> bool:
                 return False
 
-            def wrap(self, s):
-                pass
+            async def wrap(self, stream: Any) -> AsyncIterator[Event]:
+                yield Event(type=EventType.COMPLETE)
 
         Adapters.register(FakeAdapter())
         assert "fake" in Adapters.list()
@@ -312,13 +315,13 @@ class TestAdaptersReset:
         """Test that reset removes custom adapters."""
 
         class FakeAdapter:
-            name = "fake"
+            name: str = "fake"
 
-            def detect(self, s):
+            def detect(self, stream: Any) -> bool:
                 return False
 
-            def wrap(self, s):
-                pass
+            async def wrap(self, stream: Any) -> AsyncIterator[Event]:
+                yield Event(type=EventType.COMPLETE)
 
         Adapters.register(FakeAdapter())
         assert "fake" in Adapters.list()
