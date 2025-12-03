@@ -263,3 +263,11 @@ class Stream:
 
         self._content = self.state.content
         return self._content
+
+    async def collect(self) -> str:
+        """Alias for read() - collect all tokens into a string.
+
+        Some async libraries use collect() pattern. This is an alias
+        for read() to support that convention.
+        """
+        return await self.read()
