@@ -57,6 +57,7 @@ class TestSerializeError:
         serialized = serialize_error(captured_error)
 
         # Stack should contain the actual traceback, not 'NoneType: None'
+        assert serialized.stack is not None
         assert "NoneType" not in serialized.stack
         assert "ValueError" in serialized.stack
         assert "test with traceback" in serialized.stack
@@ -465,13 +466,13 @@ class TestEventSourcing:
             content="Hello",
             token_count=1,
             completed=True,
-            violations=["violation_a"],
+            violations=[{"rule": "violation_a"}],
         )
         state2 = ReplayedState(
             content="Hello",
             token_count=1,
             completed=True,
-            violations=["violation_b"],
+            violations=[{"rule": "violation_b"}],
         )
 
         comparison = EventSourcing.compare(state1, state2)
