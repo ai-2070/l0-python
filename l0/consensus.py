@@ -270,16 +270,40 @@ def _resolve_conflict(
         return values[0][1], 1.0 / len(values)
 
     elif resolution == "merge":
-        # For strings, concatenate unique parts (simplified)
+        # Merge values based on their type
+        first_value = values[0][1]
+
+        # For dicts, merge keys (later values override earlier)
+        if isinstance(first_value, dict):
+            merged: dict[str, Any] = {}
+            for _, v, _ in values:
+                if isinstance(v, dict):
+                    merged.update(v)
+            return merged, 0.5
+
+        # For lists, concatenate unique items
+        if isinstance(first_value, list):
+            merged_list: list[Any] = []
+            seen_reprs: set[str] = set()
+            for _, v, _ in values:
+                if isinstance(v, list):
+                    for item in v:
+                        repr_item = _stable_repr(item)
+                        if repr_item not in seen_reprs:
+                            merged_list.append(item)
+                            seen_reprs.add(repr_item)
+            return merged_list, 0.5
+
+        # For strings, concatenate unique parts
         unique_parts = []
-        seen = set()
+        seen: set[str] = set()
         for _, v, _ in values:
             s = str(v)
             if s not in seen:
                 unique_parts.append(s)
                 seen.add(s)
-        merged = " | ".join(unique_parts)
-        return merged, 0.5
+        merged_str = " | ".join(unique_parts)
+        return merged_str, 0.5
 
     elif resolution == "best":
         # Take highest weighted

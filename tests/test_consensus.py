@@ -209,6 +209,256 @@ class TestConflictResolution:
         assert result.consensus in ("a", "b")
         assert result.confidence == 0.0
 
+    @pytest.mark.asyncio
+    async def test_resolve_merge_with_dicts(self):
+        """Test that merge resolution properly merges dict values."""
+
+        async def task_a():
+            return {"name": "Alice", "age": 30}
+
+        async def task_b():
+            return {"name": "Bob", "city": "NYC"}
+
+        # Use unanimous strategy to force conflict resolution when values differ
+        result = await Consensus.run(
+            [task_a, task_b],
+            strategy="unanimous",
+            resolve_conflicts="merge",
+        )
+        # Should merge dicts (later overrides earlier for same keys)
+        assert isinstance(result.consensus, dict)
+        assert result.consensus["city"] == "NYC"
+        assert result.consensus["age"] == 30
+        # "name" should be from task_b since it runs later
+        assert result.consensus["name"] == "Bob"
+
+    @pytest.mark.asyncio
+    async def test_resolve_merge_with_lists(self):
+        """Test that merge resolution properly merges list values."""
+
+        async def task_a():
+            return [1, 2, 3]
+
+        async def task_b():
+            return [2, 3, 4]
+
+        # Use unanimous strategy to force conflict resolution when values differ
+        result = await Consensus.run(
+            [task_a, task_b],
+            strategy="unanimous",
+            resolve_conflicts="merge",
+        )
+        # Should concatenate unique items
+        assert isinstance(result.consensus, list)
+        assert set(result.consensus) == {1, 2, 3, 4}
+
+    @pytest.mark.asyncio
+    async def test_resolve_merge_with_strings(self):
+        """Test that merge resolution properly joins string values."""
+
+        async def task_a():
+            return "hello"
+
+        async def task_b():
+            return "world"
+
+        # Use unanimous strategy to force conflict resolution when values differ
+        result = await Consensus.run(
+            [task_a, task_b],
+            strategy="unanimous",
+            resolve_conflicts="merge",
+        )
+        # Should join with " | "
+        assert isinstance(result.consensus, str)
+        assert "hello" in result.consensus
+        assert "world" in result.consensus
+        assert " | " in result.consensus
+
+    @pytest.mark.asyncio
+    async def test_resolve_merge_majority_with_dicts(self):
+        """Test merge resolution with majority strategy when no majority exists."""
+
+        async def task_a():
+            return {"name": "Alice", "age": 30}
+
+        async def task_b():
+            return {"name": "Bob", "city": "NYC"}
+
+        async def task_c():
+            return {"name": "Charlie", "country": "USA"}
+
+        # Three different values, no majority - should trigger merge
+        result = await Consensus.run(
+            [task_a, task_b, task_c],
+            strategy="majority",
+            resolve_conflicts="merge",
+            minimum_agreement=0.5,  # No single value will reach 50%
+        )
+        assert isinstance(result.consensus, dict)
+        # All keys should be merged
+        assert "age" in result.consensus
+        assert "city" in result.consensus
+        assert "country" in result.consensus
+
+    @pytest.mark.asyncio
+    async def test_resolve_merge_majority_with_lists(self):
+        """Test merge resolution with majority strategy for lists."""
+
+        # Use very different lists that won't be grouped as similar
+        async def task_a():
+            return ["apple", "banana", "cherry"]
+
+        async def task_b():
+            return [100, 200, 300, 400, 500]
+
+        async def task_c():
+            return ["x"]
+
+        result = await Consensus.run(
+            [task_a, task_b, task_c],
+            strategy="majority",
+            resolve_conflicts="merge",
+            minimum_agreement=0.5,
+        )
+        assert isinstance(result.consensus, list)
+        # All unique items should be merged
+        assert "apple" in result.consensus
+        assert 100 in result.consensus
+        assert "x" in result.consensus
+
+    @pytest.mark.asyncio
+    async def test_resolve_merge_majority_with_strings(self):
+        """Test merge resolution with majority strategy for strings."""
+
+        async def task_a():
+            return "alpha"
+
+        async def task_b():
+            return "beta"
+
+        async def task_c():
+            return "gamma"
+
+        result = await Consensus.run(
+            [task_a, task_b, task_c],
+            strategy="majority",
+            resolve_conflicts="merge",
+            minimum_agreement=0.5,
+        )
+        assert isinstance(result.consensus, str)
+        assert "alpha" in result.consensus
+        assert "beta" in result.consensus
+        assert "gamma" in result.consensus
+
+    @pytest.mark.asyncio
+    async def test_resolve_merge_with_integers(self):
+        """Test that merge resolution converts integers to strings and joins them."""
+
+        async def task_a():
+            return 42
+
+        async def task_b():
+            return 100
+
+        # Use unanimous strategy to force conflict resolution
+        result = await Consensus.run(
+            [task_a, task_b],
+            strategy="unanimous",
+            resolve_conflicts="merge",
+        )
+        # Numbers fall through to string handling
+        assert isinstance(result.consensus, str)
+        assert "42" in result.consensus
+        assert "100" in result.consensus
+        assert " | " in result.consensus
+
+    @pytest.mark.asyncio
+    async def test_resolve_merge_with_floats(self):
+        """Test that merge resolution converts floats to strings and joins them."""
+
+        async def task_a():
+            return 3.14
+
+        async def task_b():
+            return 2.71
+
+        result = await Consensus.run(
+            [task_a, task_b],
+            strategy="unanimous",
+            resolve_conflicts="merge",
+        )
+        # Numbers fall through to string handling
+        assert isinstance(result.consensus, str)
+        assert "3.14" in result.consensus
+        assert "2.71" in result.consensus
+
+    @pytest.mark.asyncio
+    async def test_resolve_merge_majority_with_numbers(self):
+        """Test merge resolution with majority strategy for numbers."""
+
+        async def task_a():
+            return 10
+
+        async def task_b():
+            return 20
+
+        async def task_c():
+            return 30
+
+        result = await Consensus.run(
+            [task_a, task_b, task_c],
+            strategy="majority",
+            resolve_conflicts="merge",
+            minimum_agreement=0.5,
+        )
+        assert isinstance(result.consensus, str)
+        assert "10" in result.consensus
+        assert "20" in result.consensus
+        assert "30" in result.consensus
+
+    @pytest.mark.asyncio
+    async def test_resolve_merge_with_small_integers(self):
+        """Test merge with small integers like 1 and 2."""
+
+        async def task_a():
+            return 1
+
+        async def task_b():
+            return 2
+
+        result = await Consensus.run(
+            [task_a, task_b],
+            strategy="unanimous",
+            resolve_conflicts="merge",
+        )
+        assert isinstance(result.consensus, str)
+        assert "1" in result.consensus
+        assert "2" in result.consensus
+
+    @pytest.mark.asyncio
+    async def test_resolve_merge_majority_with_small_integers(self):
+        """Test merge with small integers using majority strategy."""
+
+        async def task_a():
+            return 1
+
+        async def task_b():
+            return 2
+
+        async def task_c():
+            return 3
+
+        result = await Consensus.run(
+            [task_a, task_b, task_c],
+            strategy="majority",
+            resolve_conflicts="merge",
+            minimum_agreement=0.5,
+        )
+        assert isinstance(result.consensus, str)
+        assert "1" in result.consensus
+        assert "2" in result.consensus
+        assert "3" in result.consensus
+
 
 class TestConsensusResult:
     @pytest.mark.asyncio
