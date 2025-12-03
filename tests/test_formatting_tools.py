@@ -124,6 +124,7 @@ class TestFormatToolJsonSchema:
             ],
         )
         result = format_tool(tool, {"style": "json-schema"})
+        assert isinstance(result, dict)
         assert result["name"] == "get_weather"
         assert result["description"] == "Get weather"
         assert "parameters" in result
@@ -142,6 +143,7 @@ class TestFormatToolJsonSchema:
             ],
         )
         result = format_tool(tool, {"style": "json-schema"})
+        assert isinstance(result, dict)
         assert result["parameters"]["properties"]["color"]["enum"] == ["red", "blue"]
 
     def test_format_without_description(self):
@@ -149,6 +151,7 @@ class TestFormatToolJsonSchema:
         result = format_tool(
             tool, {"style": "json-schema", "include_description": False}
         )
+        assert isinstance(result, dict)
         assert "description" not in result
 
 
