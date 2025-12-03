@@ -27,7 +27,7 @@ from .guardrails import (
 )
 from .logging import enable_debug
 from .parallel import batched, parallel, race
-from .runtime import _internal_run
+from .runtime import TimeoutError, _internal_run
 from .stream import consume_stream, get_text
 from .structured import structured
 from .types import (
@@ -202,6 +202,7 @@ __all__ = [
     # Config
     "Retry",
     "Timeout",
+    "TimeoutError",
     "BackoffStrategy",
     "ErrorCategory",
     # Events

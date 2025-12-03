@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 from typing import TYPE_CHECKING, Any, AsyncIterator, Callable
 
@@ -11,6 +12,16 @@ from .logging import logger
 from .retry import RetryManager
 from .state import append_token, create_state, mark_completed, update_checkpoint
 from .types import Event, EventType, Retry, State, Stream, Timeout
+
+
+class TimeoutError(Exception):
+    """Raised when a timeout occurs during streaming."""
+
+    def __init__(self, message: str, timeout_type: str, timeout_seconds: float):
+        super().__init__(message)
+        self.timeout_type = timeout_type  # "initial_token" or "inter_token"
+        self.timeout_seconds = timeout_seconds
+
 
 if TYPE_CHECKING:
     from .events import ObservabilityEvent
@@ -90,11 +101,49 @@ async def _internal_run(
                     detected_adapter = detect_adapter(raw_stream, adapter)
                     event_bus.emit(ObservabilityEventType.STREAM_READY)
 
-                    async for event in detected_adapter.wrap(raw_stream):
+                    # Set up timeout tracking
+                    first_token_received = False
+                    initial_timeout = timeout.initial_token if timeout else None
+                    inter_timeout = timeout.inter_token if timeout else None
+
+                    async def get_next_event() -> Event:
+                        return await detected_adapter.wrap(raw_stream).__anext__()
+
+                    adapted_stream = detected_adapter.wrap(raw_stream)
+
+                    while True:
                         if aborted:
                             return
 
+                        # Determine which timeout to use
+                        current_timeout = (
+                            inter_timeout if first_token_received else initial_timeout
+                        )
+
+                        try:
+                            if current_timeout is not None:
+                                event = await asyncio.wait_for(
+                                    adapted_stream.__anext__(), timeout=current_timeout
+                                )
+                            else:
+                                event = await adapted_stream.__anext__()
+                        except StopAsyncIteration:
+                            break
+                        except asyncio.TimeoutError:
+                            timeout_type = (
+                                "inter_token"
+                                if first_token_received
+                                else "initial_token"
+                            )
+                            raise TimeoutError(
+                                f"Timeout waiting for {'next' if first_token_received else 'first'} token "
+                                f"(timeout={current_timeout}s)",
+                                timeout_type=timeout_type,
+                                timeout_seconds=current_timeout,
+                            )
+
                         if event.type == EventType.TOKEN and event.text:
+                            first_token_received = True
                             append_token(state, event.text)
 
                             # Check guardrails periodically
