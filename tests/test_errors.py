@@ -11,8 +11,6 @@ from l0.errors import (
     NetworkErrorType,
     RecoveryPolicy,
     RecoveryStrategy,
-    categorize_error,
-    is_retryable,
 )
 from l0.types import ErrorCategory, ErrorTypeDelays, Retry
 
@@ -223,13 +221,13 @@ class TestErrorIsinstance:
         assert isinstance(error, Exception)
 
 
-class TestIsRetryable:
-    """Tests for is_retryable() function."""
+class TestErrorIsRetryable:
+    """Tests for Error.is_retryable() static method."""
 
     def test_network_errors_retryable(self):
         """Test network errors are retryable."""
-        assert is_retryable(Exception("Connection reset"))
-        assert is_retryable(Exception("Timeout"))
+        assert Error.is_retryable(Exception("Connection reset"))
+        assert Error.is_retryable(Exception("Timeout"))
 
     def test_fatal_errors_not_retryable(self):
         """Test fatal errors are not retryable."""
@@ -237,7 +235,7 @@ class TestIsRetryable:
         class AuthError(Exception):
             status_code = 401
 
-        assert not is_retryable(AuthError())
+        assert not Error.is_retryable(AuthError())
 
     def test_transient_errors_retryable(self):
         """Test transient errors are retryable."""
@@ -245,7 +243,7 @@ class TestIsRetryable:
         class RateLimitError(Exception):
             status_code = 429
 
-        assert is_retryable(RateLimitError())
+        assert Error.is_retryable(RateLimitError())
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -253,7 +251,9 @@ class TestIsRetryable:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-class TestCategorizeError:
+class TestErrorCategorize:
+    """Tests for Error.categorize() static method."""
+
     def test_network_errors(self):
         """Test network error patterns are detected."""
         network_errors = [
@@ -271,14 +271,14 @@ class TestCategorizeError:
             Exception("Host unreachable"),
         ]
         for error in network_errors:
-            assert categorize_error(error) == ErrorCategory.NETWORK, (
+            assert Error.categorize(error) == ErrorCategory.NETWORK, (
                 f"Failed for: {error}"
             )
 
     def test_rate_limit_transient(self):
         """Test rate limit errors are transient."""
         error = Exception("Rate limit exceeded")
-        assert categorize_error(error) == ErrorCategory.TRANSIENT
+        assert Error.categorize(error) == ErrorCategory.TRANSIENT
 
     def test_http_429_transient(self):
         """Test HTTP 429 is transient."""
@@ -286,7 +286,7 @@ class TestCategorizeError:
         class HTTPError(Exception):
             status_code = 429
 
-        assert categorize_error(HTTPError()) == ErrorCategory.TRANSIENT
+        assert Error.categorize(HTTPError()) == ErrorCategory.TRANSIENT
 
     def test_http_503_transient(self):
         """Test HTTP 503 is transient."""
@@ -294,7 +294,7 @@ class TestCategorizeError:
         class HTTPError(Exception):
             status_code = 503
 
-        assert categorize_error(HTTPError()) == ErrorCategory.TRANSIENT
+        assert Error.categorize(HTTPError()) == ErrorCategory.TRANSIENT
 
     def test_http_401_fatal(self):
         """Test HTTP 401 is fatal."""
@@ -302,7 +302,7 @@ class TestCategorizeError:
         class HTTPError(Exception):
             status_code = 401
 
-        assert categorize_error(HTTPError()) == ErrorCategory.FATAL
+        assert Error.categorize(HTTPError()) == ErrorCategory.FATAL
 
     def test_http_403_fatal(self):
         """Test HTTP 403 is fatal."""
@@ -310,12 +310,12 @@ class TestCategorizeError:
         class HTTPError(Exception):
             status_code = 403
 
-        assert categorize_error(HTTPError()) == ErrorCategory.FATAL
+        assert Error.categorize(HTTPError()) == ErrorCategory.FATAL
 
     def test_unknown_error_is_model(self):
         """Test unknown errors default to MODEL category."""
         error = Exception("Some unknown error")
-        assert categorize_error(error) == ErrorCategory.MODEL
+        assert Error.categorize(error) == ErrorCategory.MODEL
 
 
 class TestNetworkErrorDetection:

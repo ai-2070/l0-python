@@ -209,6 +209,52 @@ class Error(Exception):
     def __repr__(self) -> str:
         return f"Error(code={self.code.value!r}, message={self.args[0]!r})"
 
+    # ─────────────────────────────────────────────────────────────────────────
+    # Static Methods for Any Exception
+    # ─────────────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def categorize(error: Exception) -> ErrorCategory:
+        """Categorize any exception for retry decisions.
+
+        Args:
+            error: Any exception
+
+        Returns:
+            ErrorCategory (NETWORK, TRANSIENT, MODEL, FATAL, etc.)
+
+        Usage:
+            from l0 import Error, ErrorCategory
+
+            category = Error.categorize(error)
+            if category == ErrorCategory.NETWORK:
+                # Retry forever with backoff
+                pass
+            elif category == ErrorCategory.FATAL:
+                # Don't retry
+                pass
+        """
+        return _categorize_error(error)
+
+    @staticmethod
+    def is_retryable(error: Exception) -> bool:
+        """Check if any exception should trigger a retry.
+
+        Args:
+            error: Any exception
+
+        Returns:
+            True if error is retryable, False otherwise
+
+        Usage:
+            from l0 import Error
+
+            if Error.is_retryable(error):
+                # retry logic
+                pass
+        """
+        return _is_retryable(error)
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Network Error Types
@@ -702,8 +748,8 @@ class NetworkError:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def categorize_error(error: Exception) -> ErrorCategory:
-    """Categorize error for retry decisions."""
+def _categorize_error(error: Exception) -> ErrorCategory:
+    """Categorize error for retry decisions (internal)."""
     msg = str(error).lower()
 
     # Check network patterns first
@@ -727,7 +773,12 @@ def categorize_error(error: Exception) -> ErrorCategory:
     return ErrorCategory.MODEL
 
 
-def is_retryable(error: Exception) -> bool:
-    """Determine if error should trigger retry."""
-    category = categorize_error(error)
+def _is_retryable(error: Exception) -> bool:
+    """Determine if error should trigger retry (internal)."""
+    category = _categorize_error(error)
     return category not in (ErrorCategory.FATAL, ErrorCategory.INTERNAL)
+
+
+# Legacy aliases for backwards compatibility
+categorize_error = _categorize_error
+is_retryable = _is_retryable

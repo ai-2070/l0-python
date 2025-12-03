@@ -30,7 +30,7 @@ from .consensus import (
     validate_consensus,
 )
 from .errors import (
-    # L0 Error
+    # L0 Error (with .categorize() and .is_retryable() static methods)
     Error,
     ErrorCode,
     ErrorContext,
@@ -42,9 +42,6 @@ from .errors import (
     NetworkErrorType,
     RecoveryPolicy,
     RecoveryStrategy,
-    # Utilities
-    categorize_error,
-    is_retryable,
 )
 from .events import EventBus, ObservabilityEvent, ObservabilityEventType
 from .format import Format
@@ -312,8 +309,6 @@ __all__ = [
     "NetworkError",  # Class with .check(), .analyze(), .is_timeout(), etc.
     "NetworkErrorType",
     "NetworkErrorAnalysis",
-    "categorize_error",
-    "is_retryable",
     # Events
     "ObservabilityEvent",
     "ObservabilityEventType",
