@@ -8,15 +8,20 @@ from l0.logging import enable_debug, logger
 class TestEnableDebug:
     def test_enable_debug_sets_level(self):
         """Test that enable_debug sets DEBUG level."""
-        # Store original level
+        # Store original state
         original_level = logger.level
+        original_handlers = logger.handlers[:]
 
         try:
             enable_debug()
             assert logger.level == logging.DEBUG
         finally:
-            # Restore original level
+            # Restore original state
             logger.setLevel(original_level)
+            for h in logger.handlers[:]:
+                logger.removeHandler(h)
+            for h in original_handlers:
+                logger.addHandler(h)
 
     def test_logger_name(self):
         """Test that logger has correct name."""
