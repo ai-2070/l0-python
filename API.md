@@ -31,9 +31,59 @@ Complete API reference for L0 Python.
 
 ## Core Functions
 
+### wrap(stream, *, guardrails, retry, timeout, adapter, on_event, meta)
+
+Wrap a raw LLM stream with L0 reliability. **Returns immediately (no await needed).**
+
+This is the preferred API for simple cases - takes a raw stream directly, no lambda needed. Like `httpx.AsyncClient()` or `aiohttp.ClientSession()`.
+
+```python
+import l0
+
+# Create your stream
+stream = client.chat.completions.create(
+    model="gpt-4o",
+    messages=[{"role": "user", "content": "Hello!"}],
+    stream=True,
+)
+
+# wrap() returns immediately - no await!
+result = l0.wrap(stream, guardrails=l0.Guardrails.recommended())
+
+# Read full text
+text = await result.read()
+
+# Or stream events
+async for event in l0.wrap(stream):
+    if event.is_token:
+        print(event.text, end="")
+
+# Or use context manager
+async with l0.wrap(stream) as result:
+    async for event in result:
+        if event.is_token:
+            print(event.text, end="")
+```
+
+**Parameters:**
+
+| Parameter | Type | Default | Description |
+| --------- | ---- | ------- | ----------- |
+| `stream` | `AsyncIterator` | required | Raw async LLM stream |
+| `guardrails` | `list[GuardrailRule]` | `None` | Guardrail rules to apply |
+| `retry` | `Retry` | `None` | Retry configuration |
+| `timeout` | `Timeout` | `None` | Timeout configuration |
+| `adapter` | `str \| Adapter` | `None` | Adapter hint or instance |
+| `on_event` | `Callable` | `None` | Observability callback |
+| `meta` | `dict` | `None` | Metadata for events |
+
+**Returns:** `LazyStream` - Async iterator with attached state (starts lazily on first use)
+
+---
+
 ### run(stream, *, fallbacks, guardrails, retry, timeout, adapter, on_event, meta)
 
-Main streaming runtime with guardrails and retry logic.
+Run L0 with a stream factory. Use when you need **retries or fallbacks** (which require re-creating the stream).
 
 > **Note:** `l0()` is an alias to `run()` for convenience. Both work identically.
 
@@ -41,7 +91,7 @@ Main streaming runtime with guardrails and retry logic.
 import l0
 
 result = await l0.run(
-    # Required: Stream factory
+    # Required: Stream factory (lambda for retries)
     stream=lambda: client.chat.completions.create(
         model="gpt-4o",
         messages=[{"role": "user", "content": prompt}],
@@ -58,21 +108,21 @@ result = await l0.run(
     ],
 
     # Optional: Guardrails
-    guardrails=[l0.json_rule(), l0.pattern_rule()],
+    guardrails=l0.Guardrails.recommended(),
 
     # Optional: Retry configuration (defaults shown)
     retry=l0.Retry(
         attempts=3,                              # LLM errors only
         max_retries=6,                           # Total (LLM + network)
-        base_delay_ms=1000,
-        max_delay_ms=10000,
+        base_delay=1.0,                          # Seconds
+        max_delay=10.0,                          # Seconds
         strategy=l0.BackoffStrategy.FIXED_JITTER,
     ),
 
     # Optional: Timeout configuration (defaults shown)
     timeout=l0.Timeout(
-        initial_token_ms=5000,   # 5s to first token
-        inter_token_ms=10000,    # 10s between tokens
+        initial_token=5.0,   # Seconds to first token
+        inter_token=10.0,    # Seconds between tokens
     ),
 
     # Optional: Adapter hint
@@ -85,18 +135,17 @@ result = await l0.run(
     meta={"user_id": "123"},
 )
 
-# Iterate directly - result IS the async iterator
+# Iterate with Pythonic event properties
 async for event in result:
-    match event.type:
-        case l0.EventType.TOKEN:
-            print(event.value, end="")
-        case l0.EventType.TOOL_CALL:
-            print(f"Tool call: {event.data}")
-        case l0.EventType.COMPLETE:
-            print("\nComplete")
-            print(f"Usage: {event.usage}")
-        case l0.EventType.ERROR:
-            print(f"Error: {event.error}")
+    if event.is_token:
+        print(event.text, end="")
+    elif event.is_tool_call:
+        print(f"Tool call: {event.data}")
+    elif event.is_complete:
+        print("\nComplete")
+        print(f"Usage: {event.usage}")
+    elif event.is_error:
+        print(f"Error: {event.error}")
 
 # Or get full text directly
 text = await result.read()
@@ -130,6 +179,25 @@ print(result.state.duration)      # Duration in seconds
 | `abort()` | `Callable[[], None]` | Abort the stream |
 | `read()` | `async -> str` | Consume stream, return full text |
 | `errors` | `list[Exception]` | Errors encountered |
+
+### wrap() vs run()
+
+| Function | When to Use | Stream Argument |
+| -------- | ----------- | --------------- |
+| `wrap()` | Simple cases, no retries/fallbacks | Raw stream directly |
+| `run()` | Need retries or fallbacks | Lambda factory |
+
+```python
+# Simple - use wrap()
+result = l0.wrap(stream)
+text = await result.read()
+
+# With retries/fallbacks - use run()
+result = await l0.run(
+    stream=lambda: create_stream(),  # Lambda for retries
+    fallbacks=[lambda: backup_stream()],
+)
+```
 
 ---
 
@@ -290,11 +358,27 @@ All streams are normalized to `Event` objects:
 @dataclass
 class Event:
     type: EventType                           # Event type
-    value: str | None = None                  # Token content
+    text: str | None = None                   # Token content
     data: dict[str, Any] | None = None        # Tool call / misc data
     error: Exception | None = None            # Error (for error events)
     usage: dict[str, int] | None = None       # Token usage
     timestamp: float | None = None            # Event timestamp
+
+    # Pythonic type check properties
+    @property
+    def is_token(self) -> bool: ...
+    @property
+    def is_message(self) -> bool: ...
+    @property
+    def is_data(self) -> bool: ...
+    @property
+    def is_progress(self) -> bool: ...
+    @property
+    def is_tool_call(self) -> bool: ...
+    @property
+    def is_error(self) -> bool: ...
+    @property
+    def is_complete(self) -> bool: ...
 ```
 
 ### Event Types
@@ -331,10 +415,10 @@ result = await l0.run(
         }],
         stream=True,
     ),
-))
+)
 
 async for event in result:
-    if event.type == l0.EventType.TOOL_CALL:
+    if event.is_tool_call:
         print(f"Tool: {event.data['name']}")
         print(f"Args: {event.data['arguments']}")
         print(f"ID: {event.data['id']}")
@@ -368,13 +452,15 @@ state.resumed           # Resumed from checkpoint
 
 ### Retry
 
+All delays are in **seconds** (float), matching Python conventions like `asyncio.sleep()`.
+
 ```python
 @dataclass
 class Retry:
     attempts: int = 3                 # Model errors only
     max_retries: int = 6              # Absolute cap (all errors)
-    base_delay_ms: int = 1000         # Starting delay (ms)
-    max_delay_ms: int = 10000         # Maximum delay (ms)
+    base_delay: float = 1.0           # Starting delay (seconds)
+    max_delay: float = 10.0           # Maximum delay (seconds)
     strategy: BackoffStrategy = BackoffStrategy.FIXED_JITTER
 ```
 
@@ -391,13 +477,13 @@ class BackoffStrategy(str, Enum):
 
 ### Backoff Calculation
 
-| Strategy | Formula | Example (base=1000ms, attempt=2) |
+| Strategy | Formula | Example (base=1.0s, attempt=2) |
 | -------- | ------- | -------------------------------- |
-| `EXPONENTIAL` | `min(base * 2^attempt, max)` | 4000ms |
-| `LINEAR` | `min(base * (attempt + 1), max)` | 3000ms |
-| `FIXED` | `base` | 1000ms |
-| `FULL_JITTER` | `random(0, min(base * 2^attempt, max))` | 0-4000ms |
-| `FIXED_JITTER` | `temp/2 + random(temp/2)` | 2000-4000ms |
+| `EXPONENTIAL` | `min(base * 2^attempt, max)` | 4.0s |
+| `LINEAR` | `min(base * (attempt + 1), max)` | 3.0s |
+| `FIXED` | `base` | 1.0s |
+| `FULL_JITTER` | `random(0, min(base * 2^attempt, max))` | 0-4.0s |
+| `FIXED_JITTER` | `temp/2 + random(temp/2)` | 2.0-4.0s |
 
 ### Retry Behavior by Error Type
 
@@ -426,7 +512,7 @@ manager = RetryManager(Retry(
 # Check if should retry
 if manager.should_retry(error):
     manager.record_attempt(error)
-    delay_ms = manager.get_delay_ms(error)
+    delay = manager.get_delay(error)  # Returns seconds (float)
     await manager.wait(error)
 
 # Get state
@@ -435,21 +521,6 @@ state = manager.get_state()
 
 # Reset
 manager.reset()
-```
-
-### Centralized Defaults
-
-```python
-from l0.types import RETRY_DEFAULTS
-
-# RETRY_DEFAULTS is a dict with:
-# {
-#     "attempts": 3,
-#     "max_retries": 6,
-#     "base_delay_ms": 1000,
-#     "max_delay_ms": 10000,
-#     "strategy": BackoffStrategy.FIXED_JITTER,
-# }
 ```
 
 ---
@@ -509,27 +580,11 @@ L0 automatically detects these patterns in error messages:
 | 401 | `FATAL` | No retry |
 | 403 | `FATAL` | No retry |
 
-### Error Code Mapping
-
-Complete mapping of L0 error codes to failure types, categories, and retry behavior.
-
-| Error Code | FailureType | Category | Counts Toward Limit | Description |
-|------------|-------------|----------|---------------------|-------------|
-| `NETWORK_ERROR` | `network` | `network` | No | Connection drops, DNS, SSL, fetch errors |
-| `INITIAL_TOKEN_TIMEOUT` | `timeout` | `transient` | No | No first token within timeout |
-| `INTER_TOKEN_TIMEOUT` | `timeout` | `transient` | No | Gap between tokens exceeded threshold |
-| `ZERO_OUTPUT` | `zero_output` | `content` | Yes | Model returned empty response |
-| `GUARDRAIL_VIOLATION` | `model` | `content` | Yes | Recoverable guardrail rule violated |
-| `FATAL_GUARDRAIL_VIOLATION` | `model` | `content` | Yes | Fatal guardrail, no retry |
-| `DRIFT_DETECTED` | `model` | `content` | Yes | Output drifted from expected pattern |
-| `STREAM_ABORTED` | `abort` | `provider` | N/A | User or signal aborted stream |
-| `ALL_STREAMS_EXHAUSTED` | `unknown` | `provider` | N/A | All retries and fallbacks failed |
-
 ---
 
 ## Structured Output
 
-### structured(schema, options, auto_correct)
+### structured(schema, stream, auto_correct)
 
 Guaranteed valid JSON matching a Pydantic schema.
 
@@ -564,7 +619,7 @@ print(result.tags)    # list[str]
 
 | Parameter | Type | Default | Description |
 | --------- | ---- | ------- | ----------- |
-| `schema` | `Type[BaseModel]` | required | Pydantic model class |
+| `schema` | `type[BaseModel]` | required | Pydantic model class |
 | `stream` | `Callable[[], AsyncIterator]` | required | Factory returning async LLM stream |
 | `auto_correct` | `bool` | `True` | Auto-fix common JSON errors |
 
@@ -647,14 +702,33 @@ else:
 ### Built-in Rules
 
 ```python
-from l0 import (
-    json_rule,           # Validates JSON structure (balanced braces)
-    strict_json_rule,    # Validates complete JSON (on completion only)
-    pattern_rule,        # Detects unwanted patterns ("As an AI...")
-    zero_output_rule,    # Detects empty/whitespace-only output
-    stall_rule,          # Detects token stalls (default: 5s gap)
-    repetition_rule,     # Detects repetitive output (model looping)
-)
+import l0
+
+# Individual rules
+l0.json_rule()           # Validates JSON structure (balanced braces)
+l0.strict_json_rule()    # Validates complete JSON (on completion only)
+l0.pattern_rule()        # Detects "As an AI..." patterns
+l0.zero_output_rule()    # Detects empty output
+l0.stall_rule()          # Detects token stalls
+l0.repetition_rule()     # Detects model looping
+```
+
+### Presets (Recommended)
+
+```python
+import l0
+
+# Recommended: json + pattern + zero_output
+guardrails = l0.Guardrails.recommended()
+
+# Strict: All rules including drift detection
+guardrails = l0.Guardrails.strict()
+
+# JSON only
+guardrails = l0.Guardrails.json_only()
+
+# None (empty list)
+guardrails = l0.Guardrails.none()
 ```
 
 ### Rule Details
@@ -668,47 +742,29 @@ from l0 import (
 | `stall_rule(max_gap)` | Yes | warning | No tokens for `max_gap` seconds |
 | `repetition_rule(window, threshold)` | Yes | error | Repeated content detection |
 
-### Presets
-
-```python
-from l0 import recommended_guardrails, strict_guardrails
-
-# Recommended: json + pattern + zero_output
-guardrails = recommended_guardrails()
-
-# Strict: All rules including drift detection
-guardrails = strict_guardrails()
-# Includes: json, strict_json, pattern, zero_output, stall, repetition
-```
-
 ### Custom Guardrails
 
 ```python
 from l0 import GuardrailRule, GuardrailViolation
 from l0.types import State
 
-def profanity_rule(words: list[str]) -> GuardrailRule:
-    """Detect profanity in output."""
+def max_length_rule(limit: int = 1000) -> GuardrailRule:
+    """Detect output exceeding length limit."""
     
     def check(state: State) -> list[GuardrailViolation]:
-        violations = []
-        content_lower = state.content.lower()
-        
-        for word in words:
-            if word.lower() in content_lower:
-                violations.append(GuardrailViolation(
-                    rule="profanity",
-                    message=f"Detected banned word: {word}",
-                    severity="error",
-                    recoverable=True,
-                ))
-        
-        return violations
+        if len(state.content) > limit:
+            return [GuardrailViolation(
+                rule="max_length",
+                message=f"Output exceeds {limit} chars",
+                severity="error",
+                recoverable=True,
+            )]
+        return []
     
     return GuardrailRule(
-        name="profanity",
+        name="max_length",
         check=check,
-        description="Detects profanity in output",
+        description="Detects output exceeding length limit",
         streaming=True,
         severity="error",
         recoverable=True,
@@ -717,7 +773,7 @@ def profanity_rule(words: list[str]) -> GuardrailRule:
 # Usage
 result = await l0.run(
     stream=my_stream,
-    guardrails=[profanity_rule(["badword1", "badword2"])],
+    guardrails=[max_length_rule(500)],
 )
 ```
 
@@ -921,7 +977,8 @@ embeddings = await l0.batched(
 ### Adapter Protocol
 
 ```python
-from typing import Protocol, Any, AsyncIterator
+from typing import Protocol, Any
+from collections.abc import AsyncIterator
 
 class Adapter(Protocol):
     name: str
@@ -945,8 +1002,10 @@ class Adapter(Protocol):
 ### Creating Custom Adapters
 
 ```python
-from l0 import Adapter, register_adapter, Event, EventType
-from typing import Any, AsyncIterator
+from collections.abc import AsyncIterator
+from typing import Any
+import l0
+from l0 import Event, EventType, register_adapter
 
 class AnthropicAdapter:
     """Adapter for direct Anthropic SDK (if not using LiteLLM)."""
@@ -964,7 +1023,7 @@ class AnthropicAdapter:
             if event_type == "content_block_delta":
                 delta = getattr(event, "delta", None)
                 if delta and hasattr(delta, "text"):
-                    yield Event(type=EventType.TOKEN, value=delta.text)
+                    yield Event(type=EventType.TOKEN, text=delta.text)
             
             elif event_type == "content_block_start":
                 block = getattr(event, "content_block", None)
@@ -1117,35 +1176,6 @@ class ObservabilityEventType(str, Enum):
     ERROR = "ERROR"
 ```
 
-### Event Flow
-
-```
-SESSION_START
-    │
-    ▼
-STREAM_INIT ──▶ STREAM_READY
-    │                │
-    │                ▼
-    │         [streaming tokens]
-    │                │
-    │                ├──▶ GUARDRAIL_PHASE_START ──▶ GUARDRAIL_RULE_RESULT ──▶ GUARDRAIL_PHASE_END
-    │                │
-    │                ├──▶ CHECKPOINT_SAVED
-    │                │
-    ▼                ▼
-NETWORK_ERROR ──▶ RETRY_ATTEMPT ──▶ [retry loop]
-    │
-    ├──▶ RETRY_GIVE_UP ──▶ FALLBACK_START ──▶ [restart]
-    │
-    └──▶ NETWORK_RECOVERY
-         │
-         ▼
-      COMPLETE / ERROR
-         │
-         ▼
-    SESSION_END
-```
-
 ---
 
 ## Error Handling
@@ -1170,7 +1200,7 @@ from l0.errors import categorize_error
 from l0.types import ErrorCategory
 
 try:
-    result = await l0.run(options)
+    result = await l0.run(stream=my_stream)
 except Exception as error:
     category = categorize_error(error)
     
@@ -1194,117 +1224,23 @@ except Exception as error:
 | `FATAL` | Never | - | 401 unauthorized |
 | `INTERNAL` | Never | - | Bug |
 
-### L0Error
+### TimeoutError
+
+L0's timeout error with details:
 
 ```python
-from l0.errors import L0Error, L0ErrorCode
+from l0 import TimeoutError
 
 try:
-    result = await l0.run(options)
-except L0Error as error:
-    print(error.code)           # L0ErrorCode
-    print(error.message)        # Human-readable message
-    print(error.context)        # Additional context dict
-    print(error.recoverable)    # Can retry?
-```
-
-### Error Codes
-
-| Code | Description |
-| ---- | ----------- |
-| `STREAM_ABORTED` | Stream aborted |
-| `INITIAL_TOKEN_TIMEOUT` | First token timeout |
-| `INTER_TOKEN_TIMEOUT` | Token gap timeout |
-| `ZERO_OUTPUT` | No meaningful output |
-| `GUARDRAIL_VIOLATION` | Guardrail failed |
-| `FATAL_GUARDRAIL_VIOLATION` | Fatal guardrail |
-| `INVALID_STREAM` | Invalid stream factory |
-| `ALL_STREAMS_EXHAUSTED` | All fallbacks failed |
-| `NETWORK_ERROR` | Network failure |
-| `DRIFT_DETECTED` | Output drift |
-
----
-
-## State Machine
-
-L0 includes a lightweight state machine for tracking runtime state. Useful for debugging and monitoring.
-
-### RuntimeState
-
-```python
-from l0.state import RuntimeState
-
-class RuntimeState(str, Enum):
-    INIT = "init"                           # Initial setup
-    WAITING_FOR_TOKEN = "waiting_for_token" # Waiting for first chunk
-    STREAMING = "streaming"                 # Receiving tokens
-    RETRYING = "retrying"                   # About to retry same stream
-    FALLBACK = "fallback"                   # Switching to fallback stream
-    FINALIZING = "finalizing"               # Finalizing (final guardrails, etc.)
-    COMPLETE = "complete"                   # Success
-    ERROR = "error"                         # Failed
-```
-
-### StateMachine
-
-```python
-from l0.state import StateMachine, RuntimeState
-
-sm = StateMachine()
-
-# Transition to a new state
-sm.transition(RuntimeState.STREAMING)
-
-# Get current state
-sm.get()  # RuntimeState.STREAMING
-
-# Check if in specific state
-sm.is_state(RuntimeState.STREAMING)  # True
-
-# Check if terminal
-sm.is_terminal()  # False (True for COMPLETE or ERROR)
-
-# Get history for debugging
-sm.get_history()
-# [{"from": "init", "to": "waiting_for_token", "timestamp": 1234567890}, ...]
-
-# Reset to initial state
-sm.reset()
-```
-
----
-
-## Metrics
-
-Simple counters for runtime metrics.
-
-### Metrics Class
-
-```python
-from l0.state import Metrics
-
-metrics = Metrics()
-
-# Available counters
-metrics.requests       # Total stream requests
-metrics.tokens         # Total tokens processed
-metrics.retries        # Total retry attempts
-metrics.network_retries # Network retries (subset)
-metrics.errors         # Total errors
-metrics.violations     # Guardrail violations
-metrics.drift_detections # Drift detections
-metrics.fallbacks      # Fallback activations
-metrics.completions    # Successful completions
-metrics.timeouts       # Timeouts (initial + inter-token)
-
-# Get snapshot
-snapshot = metrics.snapshot()
-
-# Reset all counters
-metrics.reset()
-
-# Convert to dict
-metrics.to_dict()
+    result = await l0.run(
+        stream=my_stream,
+        timeout=l0.Timeout(initial_token=1.0),
+    )
+    async for event in result:
+        pass
+except TimeoutError as e:
+    print(e.timeout_type)     # "initial_token" or "inter_token"
+    print(e.timeout_seconds)  # The timeout value that was exceeded
 ```
 
 ---
@@ -1318,8 +1254,8 @@ Consume stream and return full text.
 ```python
 import l0
 
-result = await l0.l0(options)
-text = await l0.consume_stream(result.stream)
+result = await l0.run(stream=my_stream)
+text = await l0.consume_stream(result)
 print(text)
 ```
 
@@ -1330,7 +1266,7 @@ Helper to get text from Stream result.
 ```python
 import l0
 
-result = await l0.l0(options)
+result = await l0.run(stream=my_stream)
 text = await l0.get_text(result)
 print(text)
 ```
@@ -1338,10 +1274,10 @@ print(text)
 ### Aborting Streams
 
 ```python
-result = await l0.run(options)
+result = await l0.run(stream=my_stream)
 
 # Start consuming
-async for event in result.stream:
+async for event in result:
     if should_stop(event):
         result.abort()
         break
@@ -1392,19 +1328,38 @@ l0.enable_debug()
 ```python
 class Stream:
     """Async iterator result with state and abort attached."""
-    __slots__ = ("_iterator", "_consumed", "_content", "state", "abort", "errors")
     
     state: State                              # Runtime state
     abort: Callable[[], None]                 # Abort the stream
     errors: list[Exception]                   # Errors encountered
     
-    def __aiter__(self) -> "Stream":
-        return self
-    
-    async def __anext__(self) -> Event:
-        # Yields events from the stream
+    def __aiter__(self) -> Stream: ...
+    async def __anext__(self) -> Event: ...
+    async def __aenter__(self) -> Stream: ...
+    async def __aexit__(...) -> bool: ...
+    async def read(self) -> str:
+        """Consume the stream and return the full text content."""
         ...
+```
+
+### LazyStream
+
+```python
+class LazyStream:
+    """Lazy stream wrapper - no await needed on creation.
     
+    Like httpx.AsyncClient() or aiohttp.ClientSession(), this returns
+    immediately and only does async work when you iterate or read.
+    """
+    
+    state: State                              # Runtime state (after started)
+    errors: list[Exception]                   # Errors encountered
+    
+    def abort(self) -> None: ...
+    def __aiter__(self) -> LazyStream: ...
+    async def __anext__(self) -> Event: ...
+    async def __aenter__(self) -> LazyStream: ...
+    async def __aexit__(...) -> bool: ...
     async def read(self) -> str:
         """Consume the stream and return the full text content."""
         ...
@@ -1438,11 +1393,27 @@ class State:
 @dataclass
 class Event:
     type: EventType
-    value: str | None = None
-    data: dict[str, Any] | None = None
-    error: Exception | None = None
-    usage: dict[str, int] | None = None
-    timestamp: float | None = None
+    text: str | None = None                   # Token content
+    data: dict[str, Any] | None = None        # Tool call / misc data
+    error: Exception | None = None            # Error (for error events)
+    usage: dict[str, int] | None = None       # Token usage
+    timestamp: float | None = None            # Event timestamp
+
+    # Type check properties
+    @property
+    def is_token(self) -> bool: ...
+    @property
+    def is_message(self) -> bool: ...
+    @property
+    def is_data(self) -> bool: ...
+    @property
+    def is_progress(self) -> bool: ...
+    @property
+    def is_tool_call(self) -> bool: ...
+    @property
+    def is_error(self) -> bool: ...
+    @property
+    def is_complete(self) -> bool: ...
 ```
 
 ### EventType
@@ -1463,10 +1434,10 @@ class EventType(str, Enum):
 ```python
 @dataclass
 class Retry:
-    attempts: int = 3
-    max_retries: int = 6
-    base_delay_ms: int = 1000
-    max_delay_ms: int = 10000
+    attempts: int = 3                 # Model errors only
+    max_retries: int = 6              # Absolute cap
+    base_delay: float = 1.0           # Seconds
+    max_delay: float = 10.0           # Seconds
     strategy: BackoffStrategy = BackoffStrategy.FIXED_JITTER
 ```
 
@@ -1475,8 +1446,8 @@ class Retry:
 ```python
 @dataclass
 class Timeout:
-    initial_token_ms: int = 5000
-    inter_token_ms: int = 10000
+    initial_token: float = 5.0        # Seconds to first token
+    inter_token: float = 10.0         # Seconds between tokens
 ```
 
 ### GuardrailRule
@@ -1546,17 +1517,20 @@ class ErrorCategory(str, Enum):
 ```python
 import l0
 
-# Pythonic API - kwargs, result is the iterator
+# Simple wrapping (no await needed!)
+result = l0.wrap(stream, guardrails=l0.Guardrails.recommended())
+text = await result.read()
+
+# Or with retries/fallbacks
 result = await l0.run(
-    stream=my_stream,
-    guardrails=[l0.json_rule()],
+    stream=lambda: create_stream(),
+    fallbacks=[lambda: backup_stream()],
+    guardrails=l0.Guardrails.recommended(),
 )
 
-async for event in result:  # Iterate directly
-    print(event.value)
-
-text = await result.read()  # Or get full text
-print(result.state.token_count)  # Access state
+async for event in result:
+    if event.is_token:
+        print(event.text, end="")
 ```
 
 ### Direct Imports
@@ -1564,9 +1538,11 @@ print(result.state.token_count)  # Access state
 ```python
 from l0 import (
     # Core
+    wrap,
     run,
     l0,  # Alias to run()
     Stream,
+    LazyStream,
     State,
     Event,
     EventType,
@@ -1574,9 +1550,11 @@ from l0 import (
     # Retry
     Retry,
     Timeout,
+    TimeoutError,
     BackoffStrategy,
     
     # Guardrails
+    Guardrails,  # Class with .recommended(), .strict(), etc.
     GuardrailRule,
     GuardrailViolation,
     json_rule,
@@ -1585,8 +1563,6 @@ from l0 import (
     zero_output_rule,
     stall_rule,
     repetition_rule,
-    recommended_guardrails,
-    strict_guardrails,
     
     # Structured output
     structured,
@@ -1622,9 +1598,9 @@ from l0 import (
 
 | Category | Exports |
 | -------- | ------- |
-| Core | `run`, `l0` (alias), `Stream`, `State`, `Event`, `EventType` |
-| Retry | `Retry`, `Timeout`, `BackoffStrategy`, `RETRY_DEFAULTS` |
-| Guardrails | `GuardrailRule`, `GuardrailViolation`, `json_rule`, `strict_json_rule`, `pattern_rule`, `zero_output_rule`, `stall_rule`, `repetition_rule`, `recommended_guardrails`, `strict_guardrails` |
+| Core | `wrap`, `run`, `l0` (alias), `Stream`, `LazyStream`, `State`, `Event`, `EventType` |
+| Retry | `Retry`, `Timeout`, `TimeoutError`, `BackoffStrategy` |
+| Guardrails | `Guardrails`, `GuardrailRule`, `GuardrailViolation`, `json_rule`, `strict_json_rule`, `pattern_rule`, `zero_output_rule`, `stall_rule`, `repetition_rule` |
 | Structured | `structured` |
 | Parallel | `parallel`, `race`, `batched`, `consensus` |
 | Adapters | `Adapter`, `register_adapter`, `detect_adapter` |
