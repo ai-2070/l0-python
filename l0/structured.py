@@ -125,17 +125,22 @@ async def structured(
     for stream_source in all_streams:
         for attempt in range(max_attempts):
             try:
-                # Get stream (handle both direct streams and factories)
-                if callable(stream_source) and not hasattr(stream_source, "__anext__"):
-                    current_stream = stream_source()
-                else:
-                    current_stream = stream_source
+                # _internal_run expects a callable factory
+                # Handle both direct async iterators and factory functions
+                def make_stream_factory(src: Any) -> Callable[[], AsyncIterator[Any]]:
+                    if callable(src) and not hasattr(src, "__anext__"):
+                        # It's already a factory
+                        return src
+                    else:
+                        # It's a direct async iterator - wrap in factory
+                        # Note: This only works once per stream!
+                        return lambda: src
+
+                stream_factory = make_stream_factory(stream_source)
 
                 # Run through L0 runtime
                 result = await _internal_run(
-                    stream=current_stream
-                    if callable(stream_source)
-                    else (lambda s=current_stream: s),
+                    stream=stream_factory,
                     on_event=on_event,
                     adapter=adapter,
                 )
