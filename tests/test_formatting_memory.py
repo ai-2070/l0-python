@@ -321,10 +321,20 @@ class TestTruncateMemory:
         assert size <= 500
 
     def test_truncate_preserves_recent(self):
-        memory = [{"role": "user", "content": f"Message {i}"} for i in range(10)]
-        result = truncate_memory(memory, 100)
+        """Test that truncation keeps the most recent messages."""
+        # Each message is ~20 chars, 10 messages = ~200 chars total
+        memory = [
+            {"role": "user", "content": f"This is message {i}"} for i in range(10)
+        ]
+        # Limit to 60 chars - should only keep the last few messages
+        result = truncate_memory(memory, 60)
+        # Should have truncated (removed older messages)
+        assert len(result) < 10
         # Should keep the most recent messages
-        assert result[-1].content == "Message 9"
+        assert result[-1].content == "This is message 9"
+        # Earliest messages should be dropped
+        contents = [r.content for r in result]
+        assert "This is message 0" not in contents
 
     def test_truncate_under_limit(self):
         memory = [{"role": "user", "content": "Short"}]
