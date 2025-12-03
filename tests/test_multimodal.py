@@ -7,20 +7,9 @@ from l0 import (
     DataPayload,
     Event,
     EventType,
+    Multimodal,
     Progress,
     State,
-    create_audio_event,
-    create_audio_payload,
-    create_complete_event,
-    create_data_event,
-    create_error_event,
-    create_file_event,
-    create_image_event,
-    create_image_payload,
-    create_json_event,
-    create_progress_event,
-    create_video_event,
-    to_multimodal_events,
 )
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -233,37 +222,37 @@ class TestStateMultimodal:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Event Creator Tests
+# Multimodal Scoped API Tests
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-class TestEventCreators:
-    """Tests for event creation helpers."""
+class TestMultimodalScopedAPI:
+    """Tests for Multimodal scoped API."""
 
-    def test_create_data_event(self):
-        """Test create_data_event."""
+    def test_multimodal_data(self):
+        """Test Multimodal.data()."""
         payload = DataPayload(content_type=ContentType.IMAGE, base64="abc")
-        event = create_data_event(payload)
+        event = Multimodal.data(payload)
         assert event.type == EventType.DATA
         assert event.payload is payload
 
-    def test_create_progress_event(self):
-        """Test create_progress_event."""
-        event = create_progress_event(percent=50.0, message="Working...")
+    def test_multimodal_progress(self):
+        """Test Multimodal.progress()."""
+        event = Multimodal.progress(percent=50.0, message="Working...")
         assert event.type == EventType.PROGRESS
         assert event.progress.percent == 50.0
         assert event.progress.message == "Working..."
 
-    def test_create_progress_event_with_steps(self):
-        """Test create_progress_event with steps."""
-        event = create_progress_event(step=3, total_steps=10, eta=5.0)
+    def test_multimodal_progress_with_steps(self):
+        """Test Multimodal.progress() with steps."""
+        event = Multimodal.progress(step=3, total_steps=10, eta=5.0)
         assert event.progress.step == 3
         assert event.progress.total_steps == 10
         assert event.progress.eta == 5.0
 
-    def test_create_image_event(self):
-        """Test create_image_event."""
-        event = create_image_event(
+    def test_multimodal_image(self):
+        """Test Multimodal.image()."""
+        event = Multimodal.image(
             base64="abc123",
             width=1024,
             height=768,
@@ -279,25 +268,25 @@ class TestEventCreators:
         assert event.payload.seed == 42
         assert event.payload.model == "dall-e-3"
 
-    def test_create_image_event_with_url(self):
-        """Test create_image_event with URL."""
-        event = create_image_event(url="https://example.com/image.png")
+    def test_multimodal_image_with_url(self):
+        """Test Multimodal.image() with URL."""
+        event = Multimodal.image(url="https://example.com/image.png")
         assert event.payload.url == "https://example.com/image.png"
 
-    def test_create_image_event_custom_mime_type(self):
-        """Test create_image_event with custom MIME type."""
-        event = create_image_event(base64="abc", mime_type="image/jpeg")
+    def test_multimodal_image_custom_mime_type(self):
+        """Test Multimodal.image() with custom MIME type."""
+        event = Multimodal.image(base64="abc", mime_type="image/jpeg")
         assert event.payload.mime_type == "image/jpeg"
 
-    def test_create_image_event_extra_metadata(self):
-        """Test create_image_event with extra metadata."""
-        event = create_image_event(base64="abc", prompt="a cat", steps=50)
+    def test_multimodal_image_extra_metadata(self):
+        """Test Multimodal.image() with extra metadata."""
+        event = Multimodal.image(base64="abc", prompt="a cat", steps=50)
         assert event.payload.metadata["prompt"] == "a cat"
         assert event.payload.metadata["steps"] == 50
 
-    def test_create_audio_event(self):
-        """Test create_audio_event."""
-        event = create_audio_event(
+    def test_multimodal_audio(self):
+        """Test Multimodal.audio()."""
+        event = Multimodal.audio(
             base64="audio_data",
             duration=10.5,
             model="tts-1",
@@ -309,9 +298,9 @@ class TestEventCreators:
         assert event.payload.duration == 10.5
         assert event.payload.model == "tts-1"
 
-    def test_create_video_event(self):
-        """Test create_video_event."""
-        event = create_video_event(
+    def test_multimodal_video(self):
+        """Test Multimodal.video()."""
+        event = Multimodal.video(
             url="https://example.com/video.mp4",
             width=1920,
             height=1080,
@@ -327,9 +316,9 @@ class TestEventCreators:
         assert event.payload.duration == 30.0
         assert event.payload.model == "sora"
 
-    def test_create_file_event(self):
-        """Test create_file_event."""
-        event = create_file_event(
+    def test_multimodal_file(self):
+        """Test Multimodal.file()."""
+        event = Multimodal.file(
             base64="file_data",
             filename="output.pdf",
             size=1024,
@@ -342,35 +331,35 @@ class TestEventCreators:
         assert event.payload.size == 1024
         assert event.payload.mime_type == "application/pdf"
 
-    def test_create_json_event(self):
-        """Test create_json_event."""
+    def test_multimodal_json(self):
+        """Test Multimodal.json()."""
         data = {"result": "success", "count": 42}
-        event = create_json_event(data, model="gpt-4o")
+        event = Multimodal.json(data, model="gpt-4o")
         assert event.type == EventType.DATA
         assert event.payload.content_type == ContentType.JSON
         assert event.payload.json == data
         assert event.payload.mime_type == "application/json"
         assert event.payload.model == "gpt-4o"
 
-    def test_create_complete_event(self):
-        """Test create_complete_event."""
-        event = create_complete_event()
+    def test_multimodal_complete(self):
+        """Test Multimodal.complete()."""
+        event = Multimodal.complete()
         assert event.type == EventType.COMPLETE
         assert event.usage is None
 
-    def test_create_complete_event_with_usage(self):
-        """Test create_complete_event with usage."""
-        event = create_complete_event(
+    def test_multimodal_complete_with_usage(self):
+        """Test Multimodal.complete() with usage."""
+        event = Multimodal.complete(
             usage={"prompt_tokens": 10, "completion_tokens": 20}
         )
         assert event.type == EventType.COMPLETE
         assert event.usage["prompt_tokens"] == 10
         assert event.usage["completion_tokens"] == 20
 
-    def test_create_error_event(self):
-        """Test create_error_event."""
+    def test_multimodal_error(self):
+        """Test Multimodal.error()."""
         error = ValueError("Something went wrong")
-        event = create_error_event(error)
+        event = Multimodal.error(error)
         assert event.type == EventType.ERROR
         assert event.error is error
 
@@ -383,9 +372,9 @@ class TestEventCreators:
 class TestPayloadCreators:
     """Tests for payload creation helpers."""
 
-    def test_create_image_payload(self):
-        """Test create_image_payload."""
-        payload = create_image_payload(
+    def test_image_payload(self):
+        """Test Multimodal.image_payload()."""
+        payload = Multimodal.image_payload(
             base64="abc",
             width=512,
             height=512,
@@ -397,9 +386,9 @@ class TestPayloadCreators:
         assert payload.height == 512
         assert payload.seed == 42
 
-    def test_create_audio_payload(self):
-        """Test create_audio_payload."""
-        payload = create_audio_payload(
+    def test_audio_payload(self):
+        """Test Multimodal.audio_payload()."""
+        payload = Multimodal.audio_payload(
             base64="audio",
             duration=5.0,
             model="whisper",
@@ -415,8 +404,8 @@ class TestPayloadCreators:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-class TestToMultimodalEvents:
-    """Tests for to_multimodal_events helper."""
+class TestFromStream:
+    """Tests for Multimodal.from_stream() helper."""
 
     @pytest.mark.asyncio
     async def test_basic_stream_conversion(self):
@@ -427,12 +416,12 @@ class TestToMultimodalEvents:
             yield {"type": "image", "data": "abc123"}
 
         events = []
-        async for event in to_multimodal_events(
+        async for event in Multimodal.from_stream(
             mock_stream(),
             extract_progress=lambda c: Progress(percent=c["percent"])
             if c.get("type") == "progress"
             else None,
-            extract_data=lambda c: create_image_payload(base64=c["data"])
+            extract_data=lambda c: Multimodal.image_payload(base64=c["data"])
             if c.get("type") == "image"
             else None,
         ):
@@ -454,7 +443,7 @@ class TestToMultimodalEvents:
             yield {"text": " World"}
 
         events = []
-        async for event in to_multimodal_events(
+        async for event in Multimodal.from_stream(
             mock_stream(),
             extract_text=lambda c: c.get("text"),
         ):
@@ -474,7 +463,7 @@ class TestToMultimodalEvents:
             yield {"error": ValueError("test error")}
 
         events = []
-        async for event in to_multimodal_events(
+        async for event in Multimodal.from_stream(
             mock_stream(),
             extract_error=lambda c: c.get("error"),
         ):
@@ -493,7 +482,7 @@ class TestToMultimodalEvents:
             raise ConnectionError("Stream failed")
 
         events = []
-        async for event in to_multimodal_events(
+        async for event in Multimodal.from_stream(
             failing_stream(),
             extract_text=lambda c: c.get("text"),
         ):
@@ -513,7 +502,7 @@ class TestToMultimodalEvents:
             yield  # Make it a generator
 
         events = []
-        async for event in to_multimodal_events(empty_stream()):
+        async for event in Multimodal.from_stream(empty_stream()):
             events.append(event)
 
         assert len(events) == 1
@@ -530,13 +519,13 @@ class TestToMultimodalEvents:
             yield {"image": "result"}
 
         events = []
-        async for event in to_multimodal_events(
+        async for event in Multimodal.from_stream(
             mock_stream(),
             extract_progress=lambda c: Progress(percent=c["progress"])
             if "progress" in c
             else None,
             extract_text=lambda c: c.get("text"),
-            extract_data=lambda c: create_image_payload(base64=c["image"])
+            extract_data=lambda c: Multimodal.image_payload(base64=c["image"])
             if "image" in c
             else None,
         ):
