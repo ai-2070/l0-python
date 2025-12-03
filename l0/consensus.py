@@ -545,7 +545,7 @@ class Consensus:
                 similarity_matrix[0][j] >= threshold
                 for j in range(1, len(string_outputs))
             )
-            if all_similar:
+            if all_similar and len(successful_values) == len(tasks):
                 consensus_value = successful_values[0][1]
                 confidence = min_similarity
                 agreements.append(

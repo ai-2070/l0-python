@@ -36,6 +36,23 @@ class TestConsensus:
             )
 
     @pytest.mark.asyncio
+    async def test_unanimous_fails_when_task_errors(self):
+        """Test that unanimous strategy doesn't report success when a task fails."""
+
+        async def good_task():
+            return "same"
+
+        async def failing_task():
+            raise RuntimeError("Task failed")
+
+        with pytest.raises(ValueError, match="No unanimous consensus"):
+            await Consensus.run(
+                [good_task, good_task, failing_task],
+                strategy="unanimous",
+                resolve_conflicts="fail",
+            )
+
+    @pytest.mark.asyncio
     async def test_majority_success(self):
         async def task_a():
             return "a"
