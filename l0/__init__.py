@@ -7,6 +7,7 @@ from .adapters import (
     detect_adapter,
     register_adapter,
 )
+from .consensus import consensus
 from .events import EventBus, ObservabilityEvent, ObservabilityEventType
 from .guardrails import (
     GuardrailRule,
@@ -22,8 +23,10 @@ from .guardrails import (
     zero_output_rule,
 )
 from .logging import enable_debug
+from .parallel import batched, parallel, race
 from .runtime import l0
 from .stream import consume_stream, get_text
+from .structured import structured
 from .types import (
     BackoffStrategy,
     ErrorCategory,
@@ -76,6 +79,14 @@ __all__ = [
     "repetition_rule",
     "recommended_guardrails",
     "strict_guardrails",
+    # Structured
+    "structured",
+    # Parallel
+    "parallel",
+    "race",
+    "batched",
+    # Consensus
+    "consensus",
     # Debug
     "enable_debug",
 ]

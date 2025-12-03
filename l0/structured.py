@@ -1,0 +1,47 @@
+"""Structured output with Pydantic validation."""
+
+from __future__ import annotations
+
+from typing import Type, TypeVar
+
+from pydantic import BaseModel, ValidationError
+
+from ._utils import auto_correct_json, extract_json_from_markdown
+from .runtime import l0
+from .stream import consume_stream
+from .types import L0Options
+
+T = TypeVar("T", bound=BaseModel)
+
+
+async def structured(
+    schema: Type[T],
+    options: L0Options,
+    auto_correct: bool = True,
+) -> T:
+    """Get structured output validated against Pydantic schema.
+
+    Args:
+        schema: Pydantic model class to validate against
+        options: L0Options for the stream
+        auto_correct: Whether to attempt JSON auto-correction
+
+    Returns:
+        Validated Pydantic model instance
+
+    Raises:
+        ValueError: If schema validation fails
+    """
+    result = await l0(options)
+    text = await consume_stream(result.stream)
+
+    # Extract JSON from markdown if present
+    text = extract_json_from_markdown(text)
+
+    if auto_correct:
+        text = auto_correct_json(text)
+
+    try:
+        return schema.model_validate_json(text)
+    except ValidationError as e:
+        raise ValueError(f"Schema validation failed: {e}") from e
