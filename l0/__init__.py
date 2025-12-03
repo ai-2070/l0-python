@@ -99,7 +99,6 @@ def wrap(
     stream: AsyncIterator[Any],
     *,
     guardrails: list[GuardrailRule] | None = None,
-    retry: Retry | None = None,
     timeout: Timeout | None = None,
     adapter: Any | str | None = None,
     on_event: Callable[[ObservabilityEvent], None] | None = None,
@@ -111,10 +110,12 @@ def wrap(
     This is the preferred API - returns immediately, no await needed!
     Like httpx.AsyncClient() or aiohttp.ClientSession().
 
+    Note: For retry support, use l0.run() with a factory function instead,
+    since a raw stream cannot be recreated after consumption.
+
     Args:
         stream: Raw async iterator from OpenAI/LiteLLM/etc.
         guardrails: Optional list of guardrail rules to apply
-        retry: Optional retry configuration
         timeout: Optional timeout configuration
         adapter: Optional adapter hint ("openai", "litellm", or Adapter instance)
         on_event: Optional callback for observability events
@@ -154,7 +155,7 @@ def wrap(
     return LazyStream(
         stream=stream,
         guardrails=guardrails,
-        retry=retry,
+        retry=None,
         timeout=timeout,
         adapter=adapter,
         on_event=on_event,
