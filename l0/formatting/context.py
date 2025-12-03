@@ -279,19 +279,31 @@ def format_document(
     elif delimiter == "markdown":
         meta_parts = []
         if meta.title:
-            meta_parts.append(f"**Title:** {meta.title}")
+            meta_parts.append(f"**Title:** {escape_delimiters(meta.title, 'markdown')}")
         if meta.author:
-            meta_parts.append(f"**Author:** {meta.author}")
+            meta_parts.append(
+                f"**Author:** {escape_delimiters(meta.author, 'markdown')}"
+            )
         if meta.date:
-            meta_parts.append(f"**Date:** {meta.date}")
+            meta_parts.append(f"**Date:** {escape_delimiters(meta.date, 'markdown')}")
         if meta.source:
-            meta_parts.append(f"**Source:** {meta.source}")
+            meta_parts.append(
+                f"**Source:** {escape_delimiters(meta.source, 'markdown')}"
+            )
         for key, value in meta.extra.items():
-            meta_parts.append(f"**{key.title()}:** {value}")
+            meta_parts.append(
+                f"**{key.title()}:** {escape_delimiters(str(value), 'markdown')}"
+            )
 
+        escaped_content = escape_delimiters(content, "markdown")
         if meta_parts:
-            return "# Document\n\n" + "\n".join(meta_parts) + "\n\n---\n\n" + content
-        return "# Document\n\n" + content
+            return (
+                "# Document\n\n"
+                + "\n".join(meta_parts)
+                + "\n\n---\n\n"
+                + escaped_content
+            )
+        return "# Document\n\n" + escaped_content
 
     elif delimiter == "brackets":
         separator = "=" * 30

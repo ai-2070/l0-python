@@ -221,6 +221,20 @@ class TestFormatDocument:
         assert "**Title:** Test" in result
         assert "**Author:** Author" in result
 
+    def test_document_markdown_escapes_content(self):
+        """Test that markdown control sequences in content are escaped."""
+        result = format_document(
+            "# Injected Header\n```code\nprint('hi')\n```",
+            {"title": "# Evil Title"},
+            delimiter="markdown",
+        )
+        # Content starting with # should be escaped
+        assert "\\# Injected Header" in result
+        # Code fences at start of line should be escaped
+        assert "\\```code" in result
+        # Title with # should be escaped (at start of line)
+        assert "\\# Evil Title" in result
+
     def test_document_brackets_format(self):
         result = format_document(
             "Content",
