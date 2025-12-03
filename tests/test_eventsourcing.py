@@ -677,6 +677,80 @@ class TestTTLEventStore:
         events = await ttl_store.get_events("test-stream")
         assert len(events) == 0  # Should be filtered out
 
+    @pytest.mark.asyncio
+    async def test_exists_respects_ttl(self):
+        """exists() should return False when all events have expired."""
+        from l0.eventsourcing import TTLEventStore
+        from l0.eventsourcing.types import TokenEvent
+
+        store = InMemoryEventStore()
+        ttl_store = TTLEventStore(store, ttl_ms=1000)  # 1 second TTL
+
+        # Add event with old timestamp
+        old_event = TokenEvent(ts=1.0, value="Old", index=0)  # Very old timestamp
+        await store.append("test-stream", old_event)
+
+        # Stream exists in underlying store but all events are expired
+        assert await ttl_store.exists("test-stream") is False
+
+    @pytest.mark.asyncio
+    async def test_exists_true_with_unexpired_events(self):
+        """exists() should return True when there are unexpired events."""
+        from l0.eventsourcing import TTLEventStore
+        from l0.eventsourcing.types import TokenEvent, now_ms
+
+        store = InMemoryEventStore()
+        ttl_store = TTLEventStore(store, ttl_ms=1000)  # 1 second TTL
+
+        # Add event with current timestamp
+        event = TokenEvent(ts=now_ms(), value="Current", index=0)
+        await ttl_store.append("test-stream", event)
+
+        assert await ttl_store.exists("test-stream") is True
+
+
+class TestInMemoryEventStoreTTL:
+    @pytest.mark.asyncio
+    async def test_exists_respects_ttl(self):
+        """InMemoryEventStore.exists() should return False when all events have expired."""
+        from l0.eventsourcing.types import TokenEvent
+
+        store = InMemoryEventStore(ttl=1000)  # 1 second TTL
+
+        # Add event with old timestamp
+        old_event = TokenEvent(ts=1.0, value="Old", index=0)  # Very old timestamp
+        await store.append("test-stream", old_event)
+
+        # Stream has events but all are expired
+        assert await store.exists("test-stream") is False
+
+    @pytest.mark.asyncio
+    async def test_exists_true_with_unexpired_events(self):
+        """InMemoryEventStore.exists() should return True when there are unexpired events."""
+        from l0.eventsourcing.types import TokenEvent, now_ms
+
+        store = InMemoryEventStore(ttl=1000)  # 1 second TTL
+
+        # Add event with current timestamp
+        event = TokenEvent(ts=now_ms(), value="Current", index=0)
+        await store.append("test-stream", event)
+
+        assert await store.exists("test-stream") is True
+
+    @pytest.mark.asyncio
+    async def test_exists_without_ttl(self):
+        """InMemoryEventStore.exists() should work normally without TTL."""
+        from l0.eventsourcing.types import TokenEvent
+
+        store = InMemoryEventStore()  # No TTL
+
+        # Add event with old timestamp
+        old_event = TokenEvent(ts=1.0, value="Old", index=0)
+        await store.append("test-stream", old_event)
+
+        # Without TTL, stream should exist
+        assert await store.exists("test-stream") is True
+
 
 class TestStorageAdapters:
     @pytest.mark.asyncio

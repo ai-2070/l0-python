@@ -275,8 +275,9 @@ class InMemoryEventStore(BaseEventStoreWithSnapshots):
         return list(events)
 
     async def exists(self, stream_id: str) -> bool:
-        """Check if a stream exists."""
-        return stream_id in self._streams
+        """Check if a stream exists (with unexpired events if TTL is set)."""
+        events = await self.get_events(stream_id)
+        return len(events) > 0
 
     async def delete(self, stream_id: str) -> None:
         """Delete all events for a stream."""
