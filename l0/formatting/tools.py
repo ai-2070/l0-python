@@ -408,6 +408,48 @@ _FUNCTION_CALL_PATTERN = re.compile(
 )
 
 
+def _split_arguments(args_str: str) -> list[str]:
+    """Split argument string on commas, respecting quotes and nested braces/brackets.
+
+    Args:
+        args_str: The argument string to split.
+
+    Returns:
+        List of argument strings.
+    """
+    result = []
+    current = []
+    depth = 0
+    in_string = False
+    string_char = None
+
+    for char in args_str:
+        if in_string:
+            current.append(char)
+            if char == string_char:
+                in_string = False
+        elif char in "\"'":
+            in_string = True
+            string_char = char
+            current.append(char)
+        elif char in "{[(":
+            depth += 1
+            current.append(char)
+        elif char in "}])":
+            depth -= 1
+            current.append(char)
+        elif char == "," and depth == 0:
+            result.append("".join(current).strip())
+            current = []
+        else:
+            current.append(char)
+
+    if current:
+        result.append("".join(current).strip())
+
+    return [r for r in result if r]
+
+
 def parse_function_call(output: str) -> FunctionCall | None:
     """Parse a function call from model output.
 
@@ -444,14 +486,22 @@ def parse_function_call(output: str) -> FunctionCall | None:
     # Try to parse as keyword arguments (key=value, key=value)
     if args_str:
         arguments = {}
-        # Simple key=value parsing
-        pairs = args_str.split(",")
+        # Parse key=value pairs, respecting quotes and nested braces/brackets
+        pairs = _split_arguments(args_str)
         for pair in pairs:
             if "=" in pair:
                 key, value = pair.split("=", 1)
                 key = key.strip()
-                value = value.strip().strip("'\"")
-                arguments[key] = value
+                value = value.strip()
+                # Try to parse value as JSON first
+                if value.startswith(("{", "[")):
+                    try:
+                        arguments[key] = json.loads(value)
+                        continue
+                    except json.JSONDecodeError:
+                        pass
+                # Strip quotes for string values
+                arguments[key] = value.strip("'\"")
         if arguments:
             return FunctionCall(name=name, arguments=arguments)
 

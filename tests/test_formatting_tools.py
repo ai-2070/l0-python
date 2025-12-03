@@ -330,6 +330,24 @@ class TestParseFunctionCall:
         assert result.name == "first_func"
         assert result.arguments == {"a": 1}
 
+    def test_parse_keyword_args_with_json_value(self):
+        """Test that keyword args with JSON values containing commas are parsed correctly."""
+        result = parse_function_call(
+            'update_config(name=test, data={"key": "value", "count": 5})'
+        )
+        assert result is not None
+        assert result.name == "update_config"
+        assert result.arguments["name"] == "test"
+        assert result.arguments["data"] == {"key": "value", "count": 5}
+
+    def test_parse_keyword_args_with_array_value(self):
+        """Test that keyword args with array values containing commas are parsed correctly."""
+        result = parse_function_call("process(items=[1, 2, 3], mode=fast)")
+        assert result is not None
+        assert result.name == "process"
+        assert result.arguments["items"] == [1, 2, 3]
+        assert result.arguments["mode"] == "fast"
+
     def test_parse_nested_json(self):
         """Test parsing function call with nested JSON objects."""
         result = parse_function_call('create({"user": {"name": "John", "age": 30}})')
