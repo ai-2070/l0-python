@@ -13,8 +13,8 @@ from .state import append_token, create_state, mark_completed, update_checkpoint
 from .types import EventType, L0Event, L0Options, L0Result
 
 
-async def l0(options: L0Options) -> L0Result:
-    """Main L0 wrapper function."""
+async def _internal_run(options: L0Options) -> L0Result:
+    """Internal implementation of the L0 runtime."""
 
     state = create_state()
     retry_mgr = RetryManager(options.retry)

@@ -24,7 +24,7 @@ from .guardrails import (
 )
 from .logging import enable_debug
 from .parallel import batched, parallel, race
-from .runtime import l0
+from .runtime import _internal_run
 from .stream import consume_stream, get_text
 from .structured import structured
 from .types import (
@@ -40,11 +40,50 @@ from .types import (
 )
 from .version import __version__
 
+
+# Public API: run() is the main entrypoint, l0() is an alias
+async def run(options: L0Options) -> L0Result:
+    """Main L0 streaming runtime with guardrails and retry logic.
+
+    This is the primary entrypoint for the L0 library. It wraps LLM streams
+    with deterministic behavior, retry logic, fallbacks, and guardrails.
+
+    Args:
+        options: L0Options configuration object
+
+    Returns:
+        L0Result with stream, state, and abort function
+
+    Example:
+        ```python
+        import l0
+
+        result = await l0.run(l0.L0Options(
+            stream=lambda: client.chat.completions.create(
+                model="gpt-4o",
+                messages=[{"role": "user", "content": "Hello"}],
+                stream=True,
+            ),
+            guardrails=l0.recommended_guardrails(),
+        ))
+
+        async for event in result.stream:
+            if event.type == l0.EventType.TOKEN:
+                print(event.value, end="")
+        ```
+    """
+    return await _internal_run(options)
+
+
+# Alias for backwards compatibility and convenience
+l0 = run
+
 __all__ = [
     # Version
     "__version__",
     # Core
-    "l0",
+    "run",
+    "l0",  # Alias to run()
     "L0Event",
     "L0State",
     "L0Options",

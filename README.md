@@ -81,7 +81,7 @@ import l0
 client = AsyncOpenAI()
 
 async def main():
-    result = await l0.l0(l0.L0Options(
+    result = await l0.run(l0.L0Options(
         stream=lambda: client.chat.completions.create(
             model="gpt-4o",
             messages=[{"role": "user", "content": "Hello!"}],
@@ -105,7 +105,7 @@ import litellm
 import l0
 
 async def main():
-    result = await l0.l0(l0.L0Options(
+    result = await l0.run(l0.L0Options(
         # LiteLLM supports 100+ providers with unified interface
         stream=lambda: litellm.acompletion(
             model="anthropic/claude-3-haiku-20240307",
@@ -131,7 +131,7 @@ from openai import AsyncOpenAI
 client = AsyncOpenAI()
 prompt = "Write a haiku about coding"
 
-result = await l0.l0(l0.L0Options(
+result = await l0.run(l0.L0Options(
     # Primary model stream
     stream=lambda: client.chat.completions.create(
         model="gpt-4o",
@@ -210,7 +210,7 @@ print(f"Duration: {result.state.duration}s")
 L0 wraps LLM streams with deterministic behavior:
 
 ```python
-result = await l0.l0(l0.L0Options(
+result = await l0.run(l0.L0Options(
     stream=lambda: client.chat.completions.create(
         model="gpt-4o",
         messages=[{"role": "user", "content": prompt}],
@@ -251,7 +251,7 @@ print(result.state.checkpoint)    # Last stable checkpoint
 Smart retry system that distinguishes network errors from model errors:
 
 ```python
-result = await l0.l0(l0.L0Options(
+result = await l0.run(l0.L0Options(
     stream=lambda: client.chat.completions.create(..., stream=True),
     retry=l0.RetryConfig(
         attempts=3,                              # Model errors only (default: 3)
@@ -297,7 +297,7 @@ from l0.errors import categorize_error
 from l0.types import ErrorCategory
 
 try:
-    result = await l0.l0(l0.L0Options(stream=my_stream))
+    result = await l0.run(l0.L0Options(stream=my_stream))
 except Exception as error:
     category = categorize_error(error)
     
@@ -388,7 +388,7 @@ Here's the JSON:
 Sequential fallback when primary model fails:
 
 ```python
-result = await l0.l0(l0.L0Options(
+result = await l0.run(l0.L0Options(
     stream=lambda: client.chat.completions.create(
         model="gpt-4o",
         messages=[{"role": "user", "content": prompt}],
@@ -421,7 +421,7 @@ print(result.state.fallback_index)  # 0 = primary, 1+ = fallback
 
 ```python
 # Fall-through: Try models sequentially
-result = await l0.l0(l0.L0Options(
+result = await l0.run(l0.L0Options(
     stream=lambda: openai_stream(),
     fallbacks=[
         lambda: anthropic_stream(),
@@ -452,7 +452,7 @@ from l0 import (
     repetition_rule,     # Detects model looping
 )
 
-result = await l0.l0(l0.L0Options(
+result = await l0.run(l0.L0Options(
     stream=my_stream,
     guardrails=[
         json_rule(),
@@ -499,7 +499,7 @@ def max_length_rule(limit: int = 1000) -> GuardrailRule:
     )
 
 # Use custom rule
-result = await l0.l0(l0.L0Options(
+result = await l0.run(l0.L0Options(
     stream=my_stream,
     guardrails=[max_length_rule(500)],
 ))
@@ -689,7 +689,7 @@ def on_event(event: ObservabilityEvent):
     print(f"[{event.type}] stream={event.stream_id}")
     print(f"  ts={event.ts}, meta={event.meta}")
 
-result = await l0.l0(l0.L0Options(
+result = await l0.run(l0.L0Options(
     stream=my_stream,
     on_event=on_event,
     meta={"user_id": "123", "session": "abc"},
@@ -761,7 +761,7 @@ from l0.errors import categorize_error
 from l0.types import ErrorCategory
 
 try:
-    result = await l0.l0(l0.L0Options(stream=my_stream))
+    result = await l0.run(l0.L0Options(stream=my_stream))
 except Exception as error:
     category = categorize_error(error)
     

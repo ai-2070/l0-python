@@ -31,14 +31,16 @@ Complete API reference for L0 Python.
 
 ## Core Functions
 
-### l0(options)
+### run(options)
 
 Main streaming runtime with guardrails and retry logic.
+
+> **Note:** `l0()` is an alias to `run()` for convenience. Both work identically.
 
 ```python
 import l0
 
-result = await l0.l0(l0.L0Options(
+result = await l0.run(l0.L0Options(
     # Required: Stream factory
     stream=lambda: client.chat.completions.create(
         model="gpt-4o",
@@ -294,7 +296,7 @@ class EventType(str, Enum):
 ### Tool Call Handling
 
 ```python
-result = await l0.l0(l0.L0Options(
+result = await l0.run(l0.L0Options(
     stream=lambda: client.chat.completions.create(
         model="gpt-4o",
         messages=[{"role": "user", "content": "What's the weather?"}],
@@ -584,7 +586,7 @@ Here's the data:
 Sequential fallback when primary model fails:
 
 ```python
-result = await l0.l0(l0.L0Options(
+result = await l0.run(l0.L0Options(
     stream=lambda: openai_client.chat.completions.create(
         model="gpt-4o",
         messages=[{"role": "user", "content": prompt}],
@@ -698,7 +700,7 @@ def profanity_rule(words: list[str]) -> GuardrailRule:
     )
 
 # Usage
-result = await l0.l0(l0.L0Options(
+result = await l0.run(l0.L0Options(
     stream=my_stream,
     guardrails=[profanity_rule(["badword1", "badword2"])],
 ))
@@ -783,7 +785,7 @@ result = await l0.consensus(
 
 ```python
 async def get_answer(model: str) -> str:
-    result = await l0.l0(l0.L0Options(
+    result = await l0.run(l0.L0Options(
         stream=lambda: client.chat.completions.create(
             model=model,
             messages=[{"role": "user", "content": question}],
@@ -819,7 +821,7 @@ Run tasks with concurrency limit.
 import l0
 
 async def process_document(doc: str) -> str:
-    result = await l0.l0(l0.L0Options(
+    result = await l0.run(l0.L0Options(
         stream=lambda: summarize(doc),
     ))
     return await l0.get_text(result)
@@ -893,7 +895,7 @@ embeddings = await l0.batched(
 
 | Pattern | Execution | Cost | Best For |
 | ------- | --------- | ---- | -------- |
-| `l0()` with fallbacks | Sequential on failure | Low | High availability |
+| `run()` with fallbacks | Sequential on failure | Low | High availability |
 | `race()` | Parallel, first wins | High | Low latency |
 | `parallel()` | Parallel with limit | Medium | Batch processing |
 | `batched()` | Sequential batches | Low | Large datasets |
@@ -990,13 +992,13 @@ adapter = detect_adapter(stream)
 print(adapter.name)
 
 # Use specific adapter by name
-result = await l0.l0(l0.L0Options(
+result = await l0.run(l0.L0Options(
     stream=my_stream,
     adapter="openai",  # Force OpenAI adapter
 ))
 
 # Use adapter instance directly
-result = await l0.l0(l0.L0Options(
+result = await l0.run(l0.L0Options(
     stream=my_stream,
     adapter=MyCustomAdapter(),
 ))
@@ -1039,10 +1041,10 @@ print(bus.stream_id)
 bus.emit(ObservabilityEventType.CHECKPOINT_SAVED, checkpoint="...", token_count=100)
 ```
 
-### Using with l0()
+### Using with run()
 
 ```python
-result = await l0.l0(l0.L0Options(
+result = await l0.run(l0.L0Options(
     stream=my_stream,
     on_event=lambda e: print(f"[{e.type}] {e.meta}"),
     meta={"user_id": "123", "request_id": "abc"},
@@ -1155,7 +1157,7 @@ from l0.errors import categorize_error
 from l0.types import ErrorCategory
 
 try:
-    result = await l0.l0(options)
+    result = await l0.run(options)
 except Exception as error:
     category = categorize_error(error)
     
@@ -1185,7 +1187,7 @@ except Exception as error:
 from l0.errors import L0Error, L0ErrorCode
 
 try:
-    result = await l0.l0(options)
+    result = await l0.run(options)
 except L0Error as error:
     print(error.code)           # L0ErrorCode
     print(error.message)        # Human-readable message
@@ -1323,7 +1325,7 @@ print(text)
 ### Aborting Streams
 
 ```python
-result = await l0.l0(options)
+result = await l0.run(options)
 
 # Start consuming
 async for event in result.stream:
@@ -1535,7 +1537,8 @@ class ErrorCategory(str, Enum):
 import l0
 
 # All main exports available
-result = await l0.l0(l0.L0Options(...))
+result = await l0.run(l0.L0Options(...))  # Primary entrypoint
+result = await l0.l0(l0.L0Options(...))   # Alias (same function)
 guardrails = l0.recommended_guardrails()
 structured = await l0.structured(schema, options)
 ```
@@ -1545,7 +1548,8 @@ structured = await l0.structured(schema, options)
 ```python
 from l0 import (
     # Core
-    l0,
+    run,
+    l0,  # Alias to run()
     L0Options,
     L0Result,
     L0State,
@@ -1599,11 +1603,11 @@ from l0 import (
 )
 ```
 
-### Public Exports (38 total)
+### Public Exports (39 total)
 
 | Category | Exports |
 | -------- | ------- |
-| Core | `l0`, `L0Options`, `L0Result`, `L0State`, `L0Event`, `EventType` |
+| Core | `run`, `l0` (alias), `L0Options`, `L0Result`, `L0State`, `L0Event`, `EventType` |
 | Retry | `RetryConfig`, `TimeoutConfig`, `BackoffStrategy`, `RETRY_DEFAULTS` |
 | Guardrails | `GuardrailRule`, `GuardrailViolation`, `json_rule`, `strict_json_rule`, `pattern_rule`, `zero_output_rule`, `stall_rule`, `repetition_rule`, `recommended_guardrails`, `strict_guardrails` |
 | Structured | `structured` |
