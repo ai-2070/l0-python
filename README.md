@@ -792,8 +792,8 @@ except Exception as error:
 
 | Category | Description | Retry Behavior |
 | -------- | ----------- | -------------- |
-| `NETWORK` | Connection drops, DNS, SSL errors | Retry forever, doesn't count |
-| `TRANSIENT` | 429 rate limit, 503 server error | Retry forever, doesn't count |
+| `NETWORK` | Connection drops, DNS, SSL errors | Retries until `max_retries` is reached (doesn't consume `attempts`) |
+| `TRANSIENT` | 429 rate limit, 503 server error | Retries until `max_retries` is reached (doesn't consume `attempts`) |
 | `MODEL` | Model refused, malformed response | Counts toward retry limit |
 | `CONTENT` | Guardrail violation, drift | Counts toward retry limit |
 | `PROVIDER` | API errors (may be retryable) | Depends on status |
