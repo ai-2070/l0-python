@@ -297,20 +297,23 @@ def format_document(
         separator = "=" * 30
         meta_parts = []
         if meta.title:
-            meta_parts.append(f"Title: {meta.title}")
+            meta_parts.append(f"Title: {escape_delimiters(meta.title, 'brackets')}")
         if meta.author:
-            meta_parts.append(f"Author: {meta.author}")
+            meta_parts.append(f"Author: {escape_delimiters(meta.author, 'brackets')}")
         if meta.date:
-            meta_parts.append(f"Date: {meta.date}")
+            meta_parts.append(f"Date: {escape_delimiters(meta.date, 'brackets')}")
         if meta.source:
-            meta_parts.append(f"Source: {meta.source}")
+            meta_parts.append(f"Source: {escape_delimiters(meta.source, 'brackets')}")
         for key, value in meta.extra.items():
-            meta_parts.append(f"{key.title()}: {value}")
+            meta_parts.append(
+                f"{key.title()}: {escape_delimiters(str(value), 'brackets')}"
+            )
 
+        escaped_content = escape_delimiters(content, "brackets")
         if meta_parts:
             meta_section = "\n".join(meta_parts)
-            return f"[DOCUMENT]\n{separator}\n{meta_section}\n{separator}\n{content}\n{separator}"
-        return f"[DOCUMENT]\n{separator}\n{content}\n{separator}"
+            return f"[DOCUMENT]\n{separator}\n{meta_section}\n{separator}\n{escaped_content}\n{separator}"
+        return f"[DOCUMENT]\n{separator}\n{escaped_content}\n{separator}"
 
     return content
 

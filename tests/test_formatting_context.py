@@ -230,6 +230,20 @@ class TestFormatDocument:
         assert "[DOCUMENT]" in result
         assert "Title: Test" in result
 
+    def test_document_brackets_escapes_content(self):
+        """Test that bracket delimiters in content are escaped."""
+        result = format_document(
+            "Content with [INJECT] brackets",
+            {"title": "Test [malicious]"},
+            delimiter="brackets",
+        )
+        # Brackets in content should be escaped
+        assert "\\[INJECT\\]" in result
+        assert "\\[malicious\\]" in result
+        # Raw injection attempts should not appear
+        assert "[INJECT]" not in result.replace("\\[INJECT\\]", "")
+        assert "[malicious]" not in result.replace("\\[malicious\\]", "")
+
 
 class TestFormatInstructions:
     """Tests for format_instructions function."""
