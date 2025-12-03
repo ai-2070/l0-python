@@ -167,11 +167,13 @@ class L0Result:
 Single event system for all observability:
 
 ```python
+from __future__ import annotations
 from dataclasses import dataclass, field
-from enum import Enum
 from typing import Callable, Any
+from enum import Enum
+from uuid_extensions import uuid7str
 import time
-import uuid
+
 
 class ObservabilityEventType(str, Enum):
     # Session
@@ -208,28 +210,31 @@ class ObservabilityEvent:
     type: ObservabilityEventType
     ts: float
     session_id: str
-    data: dict[str, Any] = field(default_factory=dict)
+    meta: dict[str, Any] = field(default_factory=dict)
+
 
 class EventBus:
     """Central event bus for all L0 observability."""
     
     def __init__(self, handler: Callable[[ObservabilityEvent], None] | None = None):
         self._handler = handler
-        self._session_id = str(uuid.uuid4())
-    
+        self._session_id = uuid7str()
+
     @property
     def session_id(self) -> str:
         return self._session_id
-    
-    def emit(self, event_type: ObservabilityEventType, **data: Any) -> None:
-        if self._handler:
-            event = ObservabilityEvent(
-                type=event_type,
-                ts=time.time(),
-                session_id=self._session_id,
-                data=data
-            )
-            self._handler(event)
+
+    def emit(self, event_type: ObservabilityEventType, **meta: Any) -> None:
+        if not self._handler:
+            return
+
+        event = ObservabilityEvent(
+            type=event_type,
+            ts=time.time(),
+            session_id=self._session_id,
+            meta=meta,
+        )
+        self._handler(event)
 ```
 
 ### 1.5 Error Categorization (`l0/errors.py`)
