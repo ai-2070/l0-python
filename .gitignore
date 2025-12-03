@@ -110,3 +110,5 @@ tests/tmp/
 .replay/
 .checkpoints/
 .state/
+
+ts/
