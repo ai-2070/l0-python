@@ -83,6 +83,22 @@ Hope this helps!"""
         assert result.text == '{"a": 1}'
         assert result.corrected is False
 
+    def test_braces_inside_strings_not_counted(self):
+        """Test that braces/brackets inside strings are ignored for balancing."""
+        # Valid JSON with literal { and [ inside string values
+        result = auto_correct_json('{"key": "{value}"}')
+        assert result.text == '{"key": "{value}"}'
+        assert result.corrected is False
+
+        result = auto_correct_json('{"key": "[1, 2, 3]"}')
+        assert result.text == '{"key": "[1, 2, 3]"}'
+        assert result.corrected is False
+
+        # More complex: nested braces in strings
+        result = auto_correct_json('{"msg": "use {brackets} and [arrays]"}')
+        assert result.text == '{"msg": "use {brackets} and [arrays]"}'
+        assert result.corrected is False
+
     def test_track_corrections_flag(self):
         """Test that corrections list is populated when tracking."""
         result = auto_correct_json('{"a": 1,}', track_corrections=True)

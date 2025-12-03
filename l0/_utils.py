@@ -113,19 +113,43 @@ def auto_correct_json(text: str, track_corrections: bool = False) -> AutoCorrect
         if track_corrections:
             corrections.append("Removed trailing commas")
 
-    # Balance braces
-    opens = text.count("{") - text.count("}")
-    if opens > 0:
-        text += "}" * opens
-        if track_corrections:
-            corrections.append(f"Added {opens} missing closing brace(s)")
+    # Balance braces and brackets (ignoring characters inside strings)
+    open_braces = 0
+    open_brackets = 0
+    in_string = False
+    escape_next = False
 
-    # Balance brackets
-    brackets = text.count("[") - text.count("]")
-    if brackets > 0:
-        text += "]" * brackets
+    for char in text:
+        if escape_next:
+            escape_next = False
+            continue
+        if char == "\\" and in_string:
+            escape_next = True
+            continue
+        if char == '"':
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+
+        if char == "{":
+            open_braces += 1
+        elif char == "}":
+            open_braces -= 1
+        elif char == "[":
+            open_brackets += 1
+        elif char == "]":
+            open_brackets -= 1
+
+    if open_braces > 0:
+        text += "}" * open_braces
         if track_corrections:
-            corrections.append(f"Added {brackets} missing closing bracket(s)")
+            corrections.append(f"Added {open_braces} missing closing brace(s)")
+
+    if open_brackets > 0:
+        text += "]" * open_brackets
+        if track_corrections:
+            corrections.append(f"Added {open_brackets} missing closing bracket(s)")
 
     text = text.strip()
     corrected = text != original.strip()
