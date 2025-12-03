@@ -10,6 +10,19 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Literal
 
+
+def _escape_xml_attr(value: Any) -> str:
+    """Escape a value for use in an XML attribute."""
+    return (
+        str(value)
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+        .replace("'", "&#39;")
+    )
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Types
 # ─────────────────────────────────────────────────────────────────────────────
@@ -195,7 +208,9 @@ def _format_structured(
 
         if opts.include_metadata and entry.metadata:
             for key, value in entry.metadata.items():
-                attrs.append(f'{key}="{value}"')
+                safe_key = _escape_xml_attr(key)
+                safe_value = _escape_xml_attr(value)
+                attrs.append(f'{safe_key}="{safe_value}"')
 
         attr_str = " ".join(attrs)
         messages.append(f"  <message {attr_str}>{entry.content}</message>")

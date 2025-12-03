@@ -106,6 +106,27 @@ class TestFormatMemory:
         result = format_memory(memory, {"include_metadata": True})
         assert "source=web" in result
 
+    def test_structured_metadata_escapes_special_chars(self):
+        """Test that metadata with special XML characters is properly escaped."""
+        memory = [
+            MemoryEntry(
+                role="user",
+                content="Hello",
+                metadata={"key<>&\"'": "value<>&\"'"},
+            ),
+        ]
+        result = format_memory(
+            memory, {"style": "structured", "include_metadata": True}
+        )
+        # Verify special characters are escaped
+        assert "&lt;" in result
+        assert "&gt;" in result
+        assert "&amp;" in result
+        assert "&quot;" in result
+        assert "&#39;" in result
+        # Verify raw special characters are not present in attributes
+        assert "key<>&\"'" not in result
+
     def test_format_with_options_object(self):
         memory = [{"role": "user", "content": "Test"}]
         opts = MemoryFormatOptions(style="compact")
