@@ -214,6 +214,23 @@ class TestAnalyzeLatexStructure:
         result = analyze_latex_structure(r"\begin{equation}x=1\end{align}")
         assert any("Mismatched" in issue for issue in result.issues)
 
+    def test_starred_environment_balanced(self):
+        """Starred environments like align* should be detected."""
+        result = analyze_latex_structure(r"\begin{align*}x=1\end{align*}")
+        assert result.is_balanced is True
+        assert len(result.open_environments) == 0
+
+    def test_starred_environment_unbalanced(self):
+        """Unclosed starred environments should be detected."""
+        result = analyze_latex_structure(r"\begin{align*}x=1")
+        assert result.is_balanced is False
+        assert "align*" in result.open_environments
+
+    def test_starred_environment_mismatched(self):
+        """Mismatched starred environments should be detected."""
+        result = analyze_latex_structure(r"\begin{align*}x=1\end{equation*}")
+        assert any("Mismatched" in issue for issue in result.issues)
+
     def test_display_math_balanced(self):
         result = analyze_latex_structure("$$x=1$$")
         assert result.display_math_balanced is True

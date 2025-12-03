@@ -484,9 +484,9 @@ def analyze_latex_structure(content: str) -> LatexAnalysis:
     issues: list[str] = []
     open_environments: list[str] = []
 
-    # Find all \begin{env} and \end{env}
-    begin_pattern = re.compile(r"\\begin\{(\w+)\}")
-    end_pattern = re.compile(r"\\end\{(\w+)\}")
+    # Find all \begin{env} and \end{env} (including starred/hyphenated like align*)
+    begin_pattern = re.compile(r"\\begin\{([^}]+)\}")
+    end_pattern = re.compile(r"\\end\{([^}]+)\}")
 
     begins = [(m.group(1), m.start()) for m in begin_pattern.finditer(content)]
     ends = [(m.group(1), m.start()) for m in end_pattern.finditer(content)]
