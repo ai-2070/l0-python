@@ -1,12 +1,214 @@
-"""Network error detection utilities for L0."""
+"""Error handling for L0.
+
+Provides structured error types, error codes, and recovery information.
+"""
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
 from .types import ErrorCategory
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Error Codes
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class ErrorCode(str, Enum):
+    """Error codes for programmatic handling.
+
+    Usage:
+        from l0 import Error, ErrorCode
+
+        try:
+            result = await l0.run(stream)
+        except Error as e:
+            if e.code == ErrorCode.ZERO_OUTPUT:
+                # Model produced nothing - maybe adjust prompt
+                pass
+            elif e.code == ErrorCode.GUARDRAIL_VIOLATION:
+                # Content failed validation
+                pass
+    """
+
+    # Stream errors
+    STREAM_ABORTED = "STREAM_ABORTED"
+    INITIAL_TOKEN_TIMEOUT = "INITIAL_TOKEN_TIMEOUT"
+    INTER_TOKEN_TIMEOUT = "INTER_TOKEN_TIMEOUT"
+
+    # Content errors
+    ZERO_OUTPUT = "ZERO_OUTPUT"
+    GUARDRAIL_VIOLATION = "GUARDRAIL_VIOLATION"
+    FATAL_GUARDRAIL_VIOLATION = "FATAL_GUARDRAIL_VIOLATION"
+    DRIFT_DETECTED = "DRIFT_DETECTED"
+
+    # Configuration errors
+    INVALID_STREAM = "INVALID_STREAM"
+
+    # Exhaustion errors
+    ALL_STREAMS_EXHAUSTED = "ALL_STREAMS_EXHAUSTED"
+
+    # Network errors
+    NETWORK_ERROR = "NETWORK_ERROR"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Failure Types (what went wrong)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class FailureType(str, Enum):
+    """What actually went wrong - the root cause of the failure.
+
+    Used in error events to classify the failure type.
+    """
+
+    NETWORK = "network"  # Connection drops, DNS, SSL, fetch errors
+    MODEL = "model"  # Model refused, content filter, guardrail violation
+    TOOL = "tool"  # Tool execution failed
+    TIMEOUT = "timeout"  # Initial token or inter-token timeout
+    ABORT = "abort"  # User or signal abort
+    ZERO_OUTPUT = "zero_output"  # Empty response from model
+    UNKNOWN = "unknown"  # Unclassified error
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Recovery Strategy (what L0 decided to do)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class RecoveryStrategy(str, Enum):
+    """What L0 decided to do next after an error."""
+
+    RETRY = "retry"  # Will retry the same stream
+    FALLBACK = "fallback"  # Will try next fallback stream
+    CONTINUE = "continue"  # Will continue despite error (non-fatal)
+    HALT = "halt"  # Will stop, no recovery possible
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Recovery Policy (why L0 chose that strategy)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@dataclass
+class RecoveryPolicy:
+    """Why L0 chose a particular recovery strategy.
+
+    Provides context about the retry/fallback configuration and current state.
+    """
+
+    retry_enabled: bool = True
+    fallback_enabled: bool = False
+    max_retries: int = 3
+    max_fallbacks: int = 0
+    attempt: int = 1  # Current retry attempt (1-based)
+    fallback_index: int = 0  # Current fallback index (0 = primary)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Error Context
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@dataclass
+class ErrorContext:
+    """Rich context for L0 errors.
+
+    Provides detailed information about the state when the error occurred.
+    """
+
+    code: ErrorCode
+    checkpoint: str | None = None  # Last good content for continuation
+    token_count: int = 0  # Tokens before failure
+    content_length: int = 0  # Content length before failure
+    model_retry_count: int = 0  # Retry attempts made
+    network_retry_count: int = 0  # Network retries made
+    fallback_index: int = 0  # Which fallback was tried
+    metadata: dict[str, Any] | None = None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Error Class
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class Error(Exception):
+    """L0 error with rich context for debugging and recovery.
+
+    Usage:
+        from l0 import Error, is_error
+
+        try:
+            result = await l0.run(stream)
+        except Error as e:
+            print(e.code)           # ErrorCode.ZERO_OUTPUT
+            print(e.context)        # ErrorContext with details
+            print(e.has_checkpoint) # True if checkpoint available
+
+            if e.has_checkpoint:
+                checkpoint = e.get_checkpoint()
+                # Retry with checkpoint context
+
+            # Detailed string for logging
+            print(e.to_detailed_string())
+
+    Attributes:
+        code: The error code (ErrorCode enum)
+        context: Rich context about the error (ErrorContext)
+        timestamp: Unix timestamp when error occurred
+    """
+
+    def __init__(
+        self,
+        message: str,
+        code: ErrorCode,
+        context: ErrorContext | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.code = code
+        self.context = context or ErrorContext(code=code)
+        self.timestamp = time.time()
+
+    @property
+    def has_checkpoint(self) -> bool:
+        """Check if error has a checkpoint for continuation."""
+        return bool(self.context.checkpoint)
+
+    def get_checkpoint(self) -> str | None:
+        """Get checkpoint content if available."""
+        return self.context.checkpoint
+
+    def to_detailed_string(self) -> str:
+        """Get detailed string representation for logging."""
+        lines = [
+            f"Error [{self.code.value}]: {self.args[0]}",
+            f"  Timestamp: {self.timestamp}",
+            f"  Token count: {self.context.token_count}",
+            f"  Content length: {self.context.content_length}",
+            f"  Model retries: {self.context.model_retry_count}",
+            f"  Network retries: {self.context.network_retry_count}",
+            f"  Fallback index: {self.context.fallback_index}",
+            f"  Has checkpoint: {self.has_checkpoint}",
+        ]
+
+        if self.context.metadata:
+            lines.append(f"  Metadata: {self.context.metadata}")
+
+        if self.has_checkpoint:
+            checkpoint_preview = (self.context.checkpoint or "")[:100]
+            if len(self.context.checkpoint or "") > 100:
+                checkpoint_preview += "..."
+            lines.append(f"  Checkpoint preview: {checkpoint_preview!r}")
+
+        return "\n".join(lines)
+
+    def __repr__(self) -> str:
+        return f"Error(code={self.code.value!r}, message={self.args[0]!r})"
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Network Error Types

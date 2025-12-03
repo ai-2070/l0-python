@@ -29,7 +29,23 @@ from .consensus import (
     strict_consensus,
     validate_consensus,
 )
-from .errors import NetworkError, NetworkErrorAnalysis, NetworkErrorType
+from .errors import (
+    # L0 Error
+    Error,
+    ErrorCode,
+    ErrorContext,
+    # Failure and recovery
+    FailureType,
+    # Network errors (scoped API)
+    NetworkError,
+    NetworkErrorAnalysis,
+    NetworkErrorType,
+    RecoveryPolicy,
+    RecoveryStrategy,
+    # Utilities
+    categorize_error,
+    is_retryable,
+)
 from .events import EventBus, ObservabilityEvent, ObservabilityEventType
 from .format import Format
 from .guardrails import (
@@ -284,10 +300,20 @@ __all__ = [
     "BackoffStrategy",
     "ErrorCategory",
     "ErrorTypeDelays",
+    # Errors
+    "Error",  # L0 error with code, context, checkpoint
+    "ErrorCode",  # ZERO_OUTPUT, GUARDRAIL_VIOLATION, etc.
+    "ErrorContext",
+    # Failure and recovery
+    "FailureType",  # network, model, timeout, abort, etc.
+    "RecoveryStrategy",  # retry, fallback, continue, halt
+    "RecoveryPolicy",
     # Network errors (scoped API)
     "NetworkError",  # Class with .check(), .analyze(), .is_timeout(), etc.
     "NetworkErrorType",
     "NetworkErrorAnalysis",
+    "categorize_error",
+    "is_retryable",
     # Events
     "ObservabilityEvent",
     "ObservabilityEventType",

@@ -2,8 +2,255 @@
 
 import pytest
 
-from l0.errors import NetworkError, NetworkErrorType, categorize_error
+from l0.errors import (
+    Error,
+    ErrorCode,
+    ErrorContext,
+    FailureType,
+    NetworkError,
+    NetworkErrorType,
+    RecoveryPolicy,
+    RecoveryStrategy,
+    categorize_error,
+    is_retryable,
+)
 from l0.types import ErrorCategory, ErrorTypeDelays, Retry
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Error Class Tests
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestError:
+    """Tests for Error class."""
+
+    def test_basic_error(self):
+        """Test creating a basic error."""
+        error = Error("Something went wrong", code=ErrorCode.ZERO_OUTPUT)
+        assert str(error) == "Something went wrong"
+        assert error.code == ErrorCode.ZERO_OUTPUT
+        assert error.timestamp > 0
+
+    def test_error_with_context(self):
+        """Test error with full context."""
+        context = ErrorContext(
+            code=ErrorCode.GUARDRAIL_VIOLATION,
+            checkpoint="Some partial content",
+            token_count=50,
+            content_length=200,
+            model_retry_count=2,
+            network_retry_count=1,
+            fallback_index=0,
+            metadata={"rule": "json_rule"},
+        )
+        error = Error(
+            "Guardrail violation", code=ErrorCode.GUARDRAIL_VIOLATION, context=context
+        )
+
+        assert error.code == ErrorCode.GUARDRAIL_VIOLATION
+        assert error.context.checkpoint == "Some partial content"
+        assert error.context.token_count == 50
+        assert error.context.metadata["rule"] == "json_rule"
+
+    def test_has_checkpoint(self):
+        """Test has_checkpoint property."""
+        # No checkpoint
+        error = Error("Error", code=ErrorCode.ZERO_OUTPUT)
+        assert not error.has_checkpoint
+
+        # With checkpoint
+        context = ErrorContext(code=ErrorCode.ZERO_OUTPUT, checkpoint="partial")
+        error = Error("Error", code=ErrorCode.ZERO_OUTPUT, context=context)
+        assert error.has_checkpoint
+
+    def test_get_checkpoint(self):
+        """Test get_checkpoint method."""
+        context = ErrorContext(code=ErrorCode.ZERO_OUTPUT, checkpoint="partial content")
+        error = Error("Error", code=ErrorCode.ZERO_OUTPUT, context=context)
+        assert error.get_checkpoint() == "partial content"
+
+    def test_to_detailed_string(self):
+        """Test to_detailed_string method."""
+        context = ErrorContext(
+            code=ErrorCode.ZERO_OUTPUT,
+            checkpoint="Some content here",
+            token_count=10,
+            model_retry_count=2,
+        )
+        error = Error("Zero output", code=ErrorCode.ZERO_OUTPUT, context=context)
+        detailed = error.to_detailed_string()
+
+        assert "ZERO_OUTPUT" in detailed
+        assert "Token count: 10" in detailed
+        assert "Model retries: 2" in detailed
+        assert "Has checkpoint: True" in detailed
+
+    def test_repr(self):
+        """Test error repr."""
+        error = Error("Test error", code=ErrorCode.STREAM_ABORTED)
+        assert "STREAM_ABORTED" in repr(error)
+        assert "Test error" in repr(error)
+
+
+class TestErrorCode:
+    """Tests for ErrorCode enum."""
+
+    def test_all_error_codes_exist(self):
+        """Test all expected error codes exist."""
+        assert ErrorCode.STREAM_ABORTED == "STREAM_ABORTED"
+        assert ErrorCode.INITIAL_TOKEN_TIMEOUT == "INITIAL_TOKEN_TIMEOUT"
+        assert ErrorCode.INTER_TOKEN_TIMEOUT == "INTER_TOKEN_TIMEOUT"
+        assert ErrorCode.ZERO_OUTPUT == "ZERO_OUTPUT"
+        assert ErrorCode.GUARDRAIL_VIOLATION == "GUARDRAIL_VIOLATION"
+        assert ErrorCode.FATAL_GUARDRAIL_VIOLATION == "FATAL_GUARDRAIL_VIOLATION"
+        assert ErrorCode.DRIFT_DETECTED == "DRIFT_DETECTED"
+        assert ErrorCode.INVALID_STREAM == "INVALID_STREAM"
+        assert ErrorCode.ALL_STREAMS_EXHAUSTED == "ALL_STREAMS_EXHAUSTED"
+        assert ErrorCode.NETWORK_ERROR == "NETWORK_ERROR"
+
+    def test_error_code_is_string_enum(self):
+        """Test ErrorCode is a string enum."""
+        assert isinstance(ErrorCode.ZERO_OUTPUT, str)
+
+
+class TestErrorContext:
+    """Tests for ErrorContext dataclass."""
+
+    def test_default_values(self):
+        """Test default context values."""
+        context = ErrorContext(code=ErrorCode.ZERO_OUTPUT)
+        assert context.checkpoint is None
+        assert context.token_count == 0
+        assert context.content_length == 0
+        assert context.model_retry_count == 0
+        assert context.network_retry_count == 0
+        assert context.fallback_index == 0
+        assert context.metadata is None
+
+    def test_full_context(self):
+        """Test context with all fields."""
+        context = ErrorContext(
+            code=ErrorCode.GUARDRAIL_VIOLATION,
+            checkpoint="checkpoint data",
+            token_count=100,
+            content_length=500,
+            model_retry_count=3,
+            network_retry_count=2,
+            fallback_index=1,
+            metadata={"key": "value"},
+        )
+        assert context.code == ErrorCode.GUARDRAIL_VIOLATION
+        assert context.checkpoint == "checkpoint data"
+        assert context.token_count == 100
+        assert context.metadata == {"key": "value"}
+
+
+class TestFailureType:
+    """Tests for FailureType enum."""
+
+    def test_failure_types(self):
+        """Test all failure types exist."""
+        assert FailureType.NETWORK == "network"
+        assert FailureType.MODEL == "model"
+        assert FailureType.TOOL == "tool"
+        assert FailureType.TIMEOUT == "timeout"
+        assert FailureType.ABORT == "abort"
+        assert FailureType.ZERO_OUTPUT == "zero_output"
+        assert FailureType.UNKNOWN == "unknown"
+
+
+class TestRecoveryStrategy:
+    """Tests for RecoveryStrategy enum."""
+
+    def test_recovery_strategies(self):
+        """Test all recovery strategies exist."""
+        assert RecoveryStrategy.RETRY == "retry"
+        assert RecoveryStrategy.FALLBACK == "fallback"
+        assert RecoveryStrategy.CONTINUE == "continue"
+        assert RecoveryStrategy.HALT == "halt"
+
+
+class TestRecoveryPolicy:
+    """Tests for RecoveryPolicy dataclass."""
+
+    def test_default_values(self):
+        """Test default policy values."""
+        policy = RecoveryPolicy()
+        assert policy.retry_enabled is True
+        assert policy.fallback_enabled is False
+        assert policy.max_retries == 3
+        assert policy.max_fallbacks == 0
+        assert policy.attempt == 1
+        assert policy.fallback_index == 0
+
+    def test_custom_policy(self):
+        """Test custom policy values."""
+        policy = RecoveryPolicy(
+            retry_enabled=True,
+            fallback_enabled=True,
+            max_retries=5,
+            max_fallbacks=2,
+            attempt=3,
+            fallback_index=1,
+        )
+        assert policy.max_retries == 5
+        assert policy.max_fallbacks == 2
+        assert policy.attempt == 3
+        assert policy.fallback_index == 1
+
+
+class TestErrorIsinstance:
+    """Tests for isinstance() with Error."""
+
+    def test_isinstance_error_true(self):
+        """Test isinstance returns True for Error."""
+        error = Error("Test", code=ErrorCode.ZERO_OUTPUT)
+        assert isinstance(error, Error)
+
+    def test_isinstance_error_false_for_exception(self):
+        """Test isinstance returns False for regular Exception."""
+        error = Exception("Test")
+        assert not isinstance(error, Error)
+
+    def test_isinstance_error_false_for_value_error(self):
+        """Test isinstance returns False for ValueError."""
+        error = ValueError("Test")
+        assert not isinstance(error, Error)
+
+    def test_error_is_exception(self):
+        """Test Error is a subclass of Exception."""
+        error = Error("Test", code=ErrorCode.ZERO_OUTPUT)
+        assert isinstance(error, Exception)
+
+
+class TestIsRetryable:
+    """Tests for is_retryable() function."""
+
+    def test_network_errors_retryable(self):
+        """Test network errors are retryable."""
+        assert is_retryable(Exception("Connection reset"))
+        assert is_retryable(Exception("Timeout"))
+
+    def test_fatal_errors_not_retryable(self):
+        """Test fatal errors are not retryable."""
+
+        class AuthError(Exception):
+            status_code = 401
+
+        assert not is_retryable(AuthError())
+
+    def test_transient_errors_retryable(self):
+        """Test transient errors are retryable."""
+
+        class RateLimitError(Exception):
+            status_code = 429
+
+        assert is_retryable(RateLimitError())
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Categorize Error Tests
+# ─────────────────────────────────────────────────────────────────────────────
 
 
 class TestCategorizeError:
