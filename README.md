@@ -1,6 +1,18 @@
-# L0 - Reliability Layer for AI/LLM Streaming
+# L0 - Deterministic Streaming Execution Substrate (DSES) for AI
 
 ### The missing reliability and observability layer for all AI streams.
+
+<p align="center">
+  <a href="https://pypi.org/project/l0/">
+    <img src="https://img.shields.io/pypi/v/l0?color=brightgreen&label=pypi" alt="PyPI version">
+  </a>
+  <a href="https://pypi.org/project/l0/">
+    <img src="https://img.shields.io/pypi/pyversions/l0" alt="Python versions">
+  </a>
+  <img src="https://img.shields.io/badge/types-included-blue?logo=python&logoColor=white" alt="Types Included">
+  <img src="https://img.shields.io/badge/asyncio-native-blue" alt="Asyncio Native">
+  <img src="https://img.shields.io/badge/license-Apache_2.0-green" alt="Apache 2.0 License">
+</p>
 
 > LLMs produce high-value reasoning over a low-integrity transport layer.
 > Streams stall, drop tokens, reorder events, violate timing guarantees, and expose no deterministic contract.
@@ -13,7 +25,7 @@
 
 L0 adds deterministic execution, fallbacks, retries, network protection, guardrails, drift detection, and tool tracking to any LLM stream - turning raw model output into production-grade behavior.
 
-Works with **OpenAI**, **LiteLLM** (100+ providers including Anthropic, Cohere, Bedrock, Vertex), and **custom adapters**.
+It works with **OpenAI** and **LiteLLM** (100+ providers including Anthropic, Cohere, Bedrock, Vertex, Gemini). Supports **tool calls** and provides full observability.
 
 ```bash
 pip install l0
@@ -38,25 +50,28 @@ _Production-grade reliability. Just pass your stream. L0'll take it from here._
 
 ## Features
 
-| Feature                              | Description                                                                                                      |
-| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------- |
-| **Smart Retries**                    | Model-aware retries with fixed-jitter backoff. Automatic retries for zero-token output, network stalls, and provider overloads. |
-| **Network Protection**               | Automatic recovery from dropped streams, slow responses, 429/503 load shedding, DNS errors, and partial chunks. |
-| **Model Fallbacks**                  | Automatically fallback to secondary models with full retry logic.                                                |
-| **Zero-Token/Stall Protection**      | Detects when model produces nothing or stalls mid-stream. Automatically retries or switches to fallbacks.        |
-| **Drift Detection**                  | Detects repetition, stalls, and format drift before corruption.                                                  |
-| **Structured Output**                | Guaranteed-valid JSON with Pydantic. Auto-corrects missing braces, commas, and markdown fences.                  |
-| **Guardrails**                       | JSON, pattern validation with streaming checks.                                                                  |
-| **Race: Fastest-Model Wins**         | Run multiple models in parallel and return the fastest valid stream.                                             |
-| **Parallel: Fan-Out / Fan-In**       | Start multiple streams simultaneously and collect results.                                                       |
-| **Consensus: Agreement Across Models** | Combine multiple model outputs using unanimous, majority, or best-match consensus.                              |
-| **Central Event Bus**                | Full observability into every stream phase via `on_event` callback.                                              |
-| **Pure asyncio**                     | No compatibility layers. Native Python async.                                                                    |
-| **Type-Safe**                        | Full type hints, passes mypy strict mode.                                                                        |
+| Feature                                  | Description                                                                                                                                                                                           |
+| ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Smart Retries**                        | Model-aware retries with fixed-jitter backoff. Automatic retries for zero-token output, network stalls, and provider overloads.                                                                      |
+| **Network Protection**                   | Automatic recovery from dropped streams, slow responses, 429/503 load shedding, DNS errors, and partial chunks.                                                                                       |
+| **Model Fallbacks**                      | Automatically fallback to secondary models (e.g., GPT-4o → GPT-4o-mini → Claude) with full retry logic.                                                                                               |
+| **Zero-Token/Stall Protection**          | Detects when model produces nothing or stalls mid-stream. Automatically retries or switches to fallbacks.                                                                                             |
+| **Drift Detection**                      | Detects repetition, stalls, and format drift before corruption propagates.                                                                                                                            |
+| **Structured Output**                    | Guaranteed-valid JSON with Pydantic. Auto-corrects missing braces, commas, and markdown fences.                                                                                                       |
+| **JSON Auto-Healing**                    | Automatic correction of truncated or malformed JSON (missing braces, brackets, quotes), and repair of broken Markdown code fences.                                                                   |
+| **Guardrails**                           | JSON and pattern validation with fast streaming checks. Delta-only checks run sync; full-content scans defer to async.                                                                                |
+| **Race: Fastest-Model Wins**             | Run multiple models or providers in parallel and return the fastest valid stream. Ideal for ultra-low-latency chat.                                                                                  |
+| **Parallel: Fan-Out / Fan-In**           | Start multiple streams simultaneously and collect structured or summarized results. Perfect for agent-style multi-model workflows.                                                                    |
+| **Consensus: Agreement Across Models**   | Combine multiple model outputs using unanimous, majority, or best-match consensus. Guarantees high-confidence generation.                                                                             |
+| **Central Event Bus**                    | Full observability into every stream phase via `on_event` callback with structured event types.                                                                                                       |
+| **Pure asyncio**                         | No compatibility layers (no anyio/trio). Native Python async for full determinism and performance.                                                                                                    |
+| **Own Retry Logic**                      | No external dependencies (no tenacity). L0 controls all retry behavior for predictable execution.                                                                                                     |
+| **Type-Safe**                            | Full type hints with `py.typed` marker. Passes mypy strict mode.                                                                                                                                      |
+| **Minimal Dependencies**                 | Only httpx, pydantic, orjson, uuid6. Tree-shakeable, no heavy abstractions.                                                                                                                           |
 
 ## Quick Start
 
-### With OpenAI
+### With OpenAI SDK
 
 ```python
 import asyncio
@@ -72,7 +87,6 @@ async def main():
             messages=[{"role": "user", "content": "Hello!"}],
             stream=True,
         ),
-        retry=l0.RetryConfig(attempts=3),
         guardrails=l0.recommended_guardrails(),
     ))
 
@@ -92,12 +106,13 @@ import l0
 
 async def main():
     result = await l0.l0(l0.L0Options(
+        # LiteLLM supports 100+ providers with unified interface
         stream=lambda: litellm.acompletion(
             model="anthropic/claude-3-haiku-20240307",
             messages=[{"role": "user", "content": "Hello!"}],
             stream=True,
         ),
-        retry=l0.RetryConfig(attempts=3),
+        guardrails=l0.recommended_guardrails(),
     ))
 
     async for event in result.stream:
@@ -107,18 +122,30 @@ async def main():
 asyncio.run(main())
 ```
 
-### Full Configuration
+### Expanded Configuration
 
 ```python
 import l0
+from openai import AsyncOpenAI
+
+client = AsyncOpenAI()
+prompt = "Write a haiku about coding"
 
 result = await l0.l0(l0.L0Options(
-    # Required: Stream factory
-    stream=lambda: client.chat.completions.create(..., stream=True),
+    # Primary model stream
+    stream=lambda: client.chat.completions.create(
+        model="gpt-4o",
+        messages=[{"role": "user", "content": prompt}],
+        stream=True,
+    ),
 
-    # Optional: Fallback streams
+    # Optional: Fallback models
     fallbacks=[
-        lambda: fallback_client.chat.completions.create(..., stream=True),
+        lambda: client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            stream=True,
+        ),
     ],
 
     # Optional: Guardrails (default: none)
@@ -126,23 +153,23 @@ result = await l0.l0(l0.L0Options(
     # Other presets:
     # l0.strict_guardrails()  # All rules including drift detection
 
-    # Optional: Retry configuration
+    # Optional: Retry configuration (defaults shown)
     retry=l0.RetryConfig(
-        attempts=3,           # LLM errors only
-        max_retries=6,        # Total (LLM + network)
+        attempts=3,                              # LLM errors only
+        max_retries=6,                           # Total (LLM + network)
         base_delay_ms=1000,
         max_delay_ms=10000,
         strategy=l0.BackoffStrategy.FIXED_JITTER,
     ),
 
-    # Optional: Timeout configuration
+    # Optional: Timeout configuration (defaults shown)
     timeout=l0.TimeoutConfig(
         initial_token_ms=5000,   # 5s to first token
         inter_token_ms=10000,    # 10s between tokens
     ),
 
     # Optional: Event callback for observability
-    on_event=lambda event: print(f"[{event.type}] {event.meta}"),
+    on_event=lambda event: print(f"[{event.type}]"),
 
     # Optional: Metadata attached to all events
     meta={"user_id": "123", "session": "abc"},
@@ -153,59 +180,231 @@ async for event in result.stream:
     if event.type == l0.EventType.TOKEN:
         print(event.value, end="")
 
-# Access state
-print(result.state.token_count)
-print(result.state.content)
+# Access final state
+print(f"\nTokens: {result.state.token_count}")
+print(f"Duration: {result.state.duration}s")
 ```
+
+**See Also: [API.md](./API.md) - Complete API reference**
 
 ## Core Features
 
-### Retry with Backoff
+| Feature                                           | Description                                                     |
+| ------------------------------------------------- | --------------------------------------------------------------- |
+| [Streaming Runtime](#streaming-runtime)           | Token-by-token normalization, checkpoints, unified events       |
+| [Retry Logic](#retry-logic)                       | Smart retries with backoff, network vs model error distinction  |
+| [Network Protection](#network-protection)         | Auto-recovery from 12+ network failure types                    |
+| [Structured Output](#structured-output)           | Guaranteed valid JSON with Pydantic                             |
+| [Fallback Models](#fallback-models)               | Sequential fallback when primary model fails                    |
+| [Guardrails](#guardrails)                         | JSON validation, pattern detection, drift detection             |
+| [Consensus](#consensus)                           | Multi-model agreement with voting strategies                    |
+| [Parallel Operations](#parallel-operations)       | Race, batch, pool patterns for concurrent LLM calls             |
+| [Custom Adapters](#custom-adapters)               | Bring your own adapter for any LLM provider                     |
+| [Observability](#observability)                   | Central event bus with 25+ event types                          |
+| [Error Handling](#error-handling)                 | Typed errors with categorization and recovery hints             |
 
-Automatic retry with configurable backoff strategies:
+---
+
+## Streaming Runtime
+
+L0 wraps LLM streams with deterministic behavior:
 
 ```python
 result = await l0.l0(l0.L0Options(
-    stream=my_stream,
+    stream=lambda: client.chat.completions.create(
+        model="gpt-4o",
+        messages=[{"role": "user", "content": prompt}],
+        stream=True,
+    ),
+
+    # Optional: Timeouts (ms)
+    timeout=l0.TimeoutConfig(
+        initial_token_ms=5000,   # 5s to first token
+        inter_token_ms=10000,    # 10s between tokens
+    ),
+))
+
+# Unified event format
+async for event in result.stream:
+    match event.type:
+        case l0.EventType.TOKEN:
+            print(event.value, end="")
+        case l0.EventType.TOOL_CALL:
+            print(f"Tool: {event.data}")
+        case l0.EventType.COMPLETE:
+            print("\nComplete")
+        case l0.EventType.ERROR:
+            print(f"Error: {event.error}")
+
+# Access final state
+print(result.state.content)       # Full accumulated content
+print(result.state.token_count)   # Total tokens received
+print(result.state.checkpoint)    # Last stable checkpoint
+```
+
+> **Note:** Free and low-priority models may take **3–7 seconds** before emitting the first token and **10 seconds** between tokens.
+
+---
+
+## Retry Logic
+
+Smart retry system that distinguishes network errors from model errors:
+
+```python
+result = await l0.l0(l0.L0Options(
+    stream=lambda: client.chat.completions.create(..., stream=True),
     retry=l0.RetryConfig(
-        attempts=3,                              # Model errors retry limit
-        max_retries=6,                           # Absolute maximum
-        base_delay_ms=1000,                      # Starting delay
-        max_delay_ms=10000,                      # Cap delay
-        strategy=l0.BackoffStrategy.FIXED_JITTER,  # Backoff strategy
+        attempts=3,                              # Model errors only (default: 3)
+        max_retries=6,                           # Absolute cap across all error types (default: 6)
+        base_delay_ms=1000,
+        max_delay_ms=10000,
+        strategy=l0.BackoffStrategy.FIXED_JITTER,  # or EXPONENTIAL, LINEAR, FIXED, FULL_JITTER
     ),
 ))
 ```
 
-**Backoff Strategies:**
-- `EXPONENTIAL` - Classic exponential backoff (delay * 2^attempt)
-- `LINEAR` - Linear increase (delay * attempt)
-- `FIXED` - Constant delay
-- `FULL_JITTER` - Random delay between 0 and exponential value
-- `FIXED_JITTER` - Base delay + random jitter (default)
+### Backoff Strategies
 
-**Error Categories:**
+| Strategy | Formula | Description |
+| -------- | ------- | ----------- |
+| `EXPONENTIAL` | `delay * 2^attempt` | Classic exponential backoff |
+| `LINEAR` | `delay * (attempt + 1)` | Linear increase |
+| `FIXED` | `delay` | Constant delay |
+| `FULL_JITTER` | `random(0, exponential)` | Random between 0 and exponential |
+| `FIXED_JITTER` | `base/2 + random(base/2)` | AWS-style fixed jitter (default) |
 
-| Error Type           | Retries | Counts Toward `attempts` |
-| -------------------- | ------- | ------------------------ |
-| Network disconnect   | Yes     | No                       |
-| Zero output          | Yes     | No                       |
-| Timeout              | Yes     | No                       |
-| 429 rate limit       | Yes     | No                       |
-| 503 server error     | Yes     | No                       |
-| Model error          | Yes     | **Yes**                  |
-| Auth error (401/403) | No      | -                        |
+### Retry Behavior
 
-### Fallbacks
+| Error Type           | Retries | Counts Toward `attempts` | Counts Toward `max_retries` |
+| -------------------- | ------- | ------------------------ | --------------------------- |
+| Network disconnect   | Yes     | No                       | Yes                         |
+| Zero output          | Yes     | No                       | Yes                         |
+| Timeout              | Yes     | No                       | Yes                         |
+| 429 rate limit       | Yes     | No                       | Yes                         |
+| 503 server error     | Yes     | No                       | Yes                         |
+| Guardrail violation  | Yes     | **Yes**                  | Yes                         |
+| Drift detected       | Yes     | **Yes**                  | Yes                         |
+| Auth error (401/403) | No      | -                        | -                           |
 
-Automatic fallback to alternative streams:
+---
+
+## Network Protection
+
+Automatic detection and recovery from network failures:
+
+```python
+from l0.errors import categorize_error
+from l0.types import ErrorCategory
+
+try:
+    result = await l0.l0(l0.L0Options(stream=my_stream))
+except Exception as error:
+    category = categorize_error(error)
+    
+    if category == ErrorCategory.NETWORK:
+        print("Network error - will auto-retry")
+    elif category == ErrorCategory.TRANSIENT:
+        print("Transient error (429/503) - will auto-retry")
+    elif category == ErrorCategory.FATAL:
+        print("Fatal error - cannot retry")
+```
+
+### Detected Network Error Patterns
+
+| Pattern | Description |
+| ------- | ----------- |
+| `connection.*reset` | Connection reset by peer |
+| `connection.*refused` | Connection refused |
+| `connection.*timeout` | Connection timeout |
+| `timed?\s*out` | Request timed out |
+| `dns.*failed` | DNS resolution failed |
+| `name.*resolution` | Name resolution error |
+| `socket.*error` | Socket error |
+| `ssl.*error` | SSL/TLS error |
+| `eof.*occurred` | Unexpected EOF |
+| `broken.*pipe` | Broken pipe |
+| `network.*unreachable` | Network unreachable |
+| `host.*unreachable` | Host unreachable |
+
+---
+
+## Structured Output
+
+Guaranteed valid JSON matching your Pydantic schema:
+
+```python
+from pydantic import BaseModel
+import l0
+
+class UserProfile(BaseModel):
+    name: str
+    age: int
+    email: str
+
+result = await l0.structured(
+    schema=UserProfile,
+    options=l0.L0Options(
+        stream=lambda: client.chat.completions.create(
+            model="gpt-4o",
+            messages=[{"role": "user", "content": "Generate user data as JSON"}],
+            stream=True,
+        ),
+    ),
+    auto_correct=True,  # Fix trailing commas, missing braces, etc.
+)
+
+# Type-safe access
+print(result.name)   # str
+print(result.age)    # int
+print(result.email)  # str
+```
+
+### JSON Auto-Correction
+
+L0 automatically fixes common JSON errors:
+
+```python
+from l0._utils import auto_correct_json, extract_json_from_markdown
+
+# Fix trailing commas
+auto_correct_json('{"a": 1,}')  # '{"a": 1}'
+
+# Balance braces
+auto_correct_json('{"a": {"b": 1}')  # '{"a": {"b": 1}}'
+
+# Extract from markdown
+extract_json_from_markdown('''
+Here's the JSON:
+```json
+{"key": "value"}
+```
+''')  # '{"key": "value"}'
+```
+
+---
+
+## Fallback Models
+
+Sequential fallback when primary model fails:
 
 ```python
 result = await l0.l0(l0.L0Options(
-    stream=lambda: openai_stream(),
+    stream=lambda: client.chat.completions.create(
+        model="gpt-4o",
+        messages=[{"role": "user", "content": prompt}],
+        stream=True,
+    ),
     fallbacks=[
-        lambda: anthropic_via_litellm(),
-        lambda: local_model_stream(),
+        lambda: client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            stream=True,
+        ),
+        lambda: litellm.acompletion(
+            model="anthropic/claude-3-haiku-20240307",
+            messages=[{"role": "user", "content": prompt}],
+            stream=True,
+        ),
     ],
 ))
 
@@ -213,160 +412,387 @@ result = await l0.l0(l0.L0Options(
 print(result.state.fallback_index)  # 0 = primary, 1+ = fallback
 ```
 
-### Guardrails
+### Fall-Through vs Race
 
-Built-in content validation:
+| Pattern      | Execution                   | Cost               | Best For                          |
+| ------------ | --------------------------- | ------------------ | --------------------------------- |
+| Fall-through | Sequential, next on failure | Low (pay for 1)    | High availability, cost-sensitive |
+| Race         | Parallel, first wins        | High (pay for all) | Low latency, speed-critical       |
+
+```python
+# Fall-through: Try models sequentially
+result = await l0.l0(l0.L0Options(
+    stream=lambda: openai_stream(),
+    fallbacks=[
+        lambda: anthropic_stream(),
+        lambda: local_model_stream(),
+    ],
+))
+
+# Race: All models simultaneously, first wins
+result = await l0.race([
+    lambda: openai_stream(),
+    lambda: anthropic_stream(),
+])
+```
+
+---
+
+## Guardrails
+
+Pure functions that validate streaming output without rewriting it:
 
 ```python
 from l0 import (
-    json_rule,           # Balanced JSON brackets
-    strict_json_rule,    # Valid JSON on completion
-    pattern_rule,        # Detect unwanted patterns
-    zero_output_rule,    # Detect empty output
-    stall_rule,          # Detect token stalls
-    repetition_rule,     # Detect model looping
+    json_rule,           # Validates JSON structure
+    strict_json_rule,    # Validates complete JSON
+    pattern_rule,        # Detects "As an AI..." patterns
+    zero_output_rule,    # Detects empty output
+    stall_rule,          # Detects token stalls
+    repetition_rule,     # Detects model looping
 )
 
-# Presets
-guardrails = l0.recommended_guardrails()  # json, pattern, zero_output
-guardrails = l0.strict_guardrails()       # All rules including drift detection
+result = await l0.l0(l0.L0Options(
+    stream=my_stream,
+    guardrails=[
+        json_rule(),
+        pattern_rule(),
+        zero_output_rule(),
+    ],
+))
 ```
 
-Custom guardrails:
+### Presets
+
+```python
+from l0 import recommended_guardrails, strict_guardrails
+
+# Recommended: JSON + pattern + zero_output
+guardrails = recommended_guardrails()
+
+# Strict: All rules including drift detection
+guardrails = strict_guardrails()
+```
+
+### Custom Guardrails
 
 ```python
 from l0 import GuardrailRule, GuardrailViolation
+from l0.types import L0State
 
 def max_length_rule(limit: int = 1000) -> GuardrailRule:
-    def check(state):
+    def check(state: L0State) -> list[GuardrailViolation]:
         if len(state.content) > limit:
             return [GuardrailViolation(
                 rule="max_length",
                 message=f"Output exceeds {limit} chars",
                 severity="error",
+                recoverable=True,
             )]
         return []
-    return GuardrailRule(name="max_length", check=check)
-```
+    
+    return GuardrailRule(
+        name="max_length",
+        check=check,
+        streaming=True,
+        severity="error",
+    )
 
-### Observability
-
-Central event bus for monitoring:
-
-```python
-def on_event(event: l0.ObservabilityEvent):
-    print(f"[{event.type}] stream={event.stream_id} {event.meta}")
-
+# Use custom rule
 result = await l0.l0(l0.L0Options(
     stream=my_stream,
-    on_event=on_event,
-    meta={"user_id": "123"},  # Attached to all events
+    guardrails=[max_length_rule(500)],
 ))
 ```
 
-**Event Types:**
-- `STREAM_INIT`, `STREAM_READY`
-- `RETRY_ATTEMPT`, `RETRY_GIVE_UP`
-- `FALLBACK_START`, `FALLBACK_END`
-- `GUARDRAIL_PHASE_START`, `GUARDRAIL_RULE_RESULT`
-- `NETWORK_ERROR`, `NETWORK_RECOVERY`
-- `COMPLETE`, `ERROR`
-
-### Structured Output
-
-Validate against Pydantic schemas:
+### Guardrail Violations
 
 ```python
-from pydantic import BaseModel
+# Access violations from state
+for violation in result.state.violations:
+    print(f"Rule: {violation.rule}")
+    print(f"Message: {violation.message}")
+    print(f"Severity: {violation.severity}")
+    print(f"Recoverable: {violation.recoverable}")
+```
+
+---
+
+## Consensus
+
+Multi-generation consensus for high-confidence results:
+
+```python
 import l0
 
-class Response(BaseModel):
-    answer: str
-    confidence: float
-
-result = await l0.structured(
-    schema=Response,
-    options=l0.L0Options(stream=my_stream),
-)
-print(result.answer, result.confidence)
-```
-
-### Parallel Execution
-
-```python
-# Run with concurrency limit
-results = await l0.parallel(
-    tasks=[task1, task2, task3],
-    concurrency=2,
-)
-
-# Race - first result wins
-result = await l0.race([fast_model, slow_model])
-
-# Batch processing
-results = await l0.batched(
-    items=documents,
-    handler=process_doc,
-    batch_size=10,
-)
-```
-
-### Consensus
-
-Multi-model agreement:
-
-```python
 result = await l0.consensus(
-    tasks=[model_a, model_b, model_c],
+    tasks=[
+        lambda: model_a(),
+        lambda: model_b(),
+        lambda: model_c(),
+    ],
     strategy="majority",  # or "unanimous", "best"
 )
 ```
 
-## Stream Utilities
+### Strategies
 
-```python
-# Consume stream to string
-text = await l0.consume_stream(result.stream)
+| Strategy | Description | Use Case |
+| -------- | ----------- | -------- |
+| `unanimous` | All results must match exactly | Safety-critical, requires agreement |
+| `majority` | Most common result wins (>50%) | Balanced reliability |
+| `best` | Return first result | Speed-focused |
 
-# Or use helper
-text = await l0.get_text(result)
+---
 
-# Abort stream
-result.abort()
+## Parallel Operations
 
-# Access state
-print(result.state.token_count)
-print(result.state.content)
-print(result.state.violations)
-```
+Run multiple LLM calls concurrently with different patterns:
 
-## Adapters
-
-L0 auto-detects OpenAI and LiteLLM streams. For custom providers:
-
-```python
-from l0 import Adapter, register_adapter, L0Event, EventType
-
-class MyAdapter:
-    name = "my_provider"
-    
-    def detect(self, stream):
-        return "my_provider" in type(stream).__module__
-    
-    async def wrap(self, stream):
-        async for chunk in stream:
-            yield L0Event(type=EventType.TOKEN, value=chunk.text)
-        yield L0Event(type=EventType.COMPLETE)
-
-register_adapter(MyAdapter())
-```
-
-## Debug Logging
+### Race - First Response Wins
 
 ```python
 import l0
-l0.enable_debug()  # Enables debug output
+
+result = await l0.race([
+    lambda: fast_model(),
+    lambda: slow_model(),
+    lambda: backup_model(),
+])
+# Returns first successful response, cancels others
 ```
+
+### Parallel with Concurrency Control
+
+```python
+import l0
+
+results = await l0.parallel(
+    tasks=[
+        lambda: process("Task 1"),
+        lambda: process("Task 2"),
+        lambda: process("Task 3"),
+    ],
+    concurrency=2,  # Max 2 concurrent
+)
+```
+
+### Batch Processing
+
+```python
+import l0
+
+async def process(item: str) -> str:
+    # Process single item
+    return result
+
+results = await l0.batched(
+    items=["a", "b", "c", "d", "e"],
+    handler=process,
+    batch_size=2,
+)
+```
+
+---
+
+## Custom Adapters
+
+L0 supports custom adapters for integrating any LLM provider:
+
+### Built-in Adapters
+
+| Adapter | Providers | Auto-Detected |
+| ------- | --------- | ------------- |
+| **OpenAI** | OpenAI SDK | Yes |
+| **LiteLLM** | 100+ providers | Yes |
+
+### Building Custom Adapters
+
+```python
+from l0 import Adapter, register_adapter, L0Event, EventType
+from typing import Any, AsyncIterator
+
+class MyProviderAdapter:
+    name = "my_provider"
+    
+    def detect(self, stream: Any) -> bool:
+        """Check if this adapter can handle the given stream."""
+        return "my_provider" in type(stream).__module__
+    
+    async def wrap(self, stream: Any) -> AsyncIterator[L0Event]:
+        """Convert provider stream to L0 events."""
+        usage = None
+        
+        async for chunk in stream:
+            # Emit text tokens
+            if chunk.text:
+                yield L0Event(type=EventType.TOKEN, value=chunk.text)
+            
+            # Emit tool calls
+            if chunk.tool_calls:
+                for tc in chunk.tool_calls:
+                    yield L0Event(
+                        type=EventType.TOOL_CALL,
+                        data={
+                            "id": tc.id,
+                            "name": tc.name,
+                            "arguments": tc.arguments,
+                        }
+                    )
+            
+            # Track usage
+            if chunk.usage:
+                usage = {
+                    "input_tokens": chunk.usage.input,
+                    "output_tokens": chunk.usage.output,
+                }
+        
+        # Emit completion
+        yield L0Event(type=EventType.COMPLETE, usage=usage)
+
+# Register for auto-detection
+register_adapter(MyProviderAdapter())
+```
+
+### Adapter Protocol
+
+Adapters MUST:
+- Preserve text exactly (no trimming, no modification)
+- Convert errors to error events (never throw)
+- Emit complete event exactly once at end
+
+```python
+from typing import Protocol, Any, AsyncIterator
+
+class Adapter(Protocol):
+    name: str
+    
+    def detect(self, stream: Any) -> bool:
+        """Return True if this adapter can handle the stream."""
+        ...
+    
+    def wrap(self, stream: Any) -> AsyncIterator[L0Event]:
+        """Wrap raw stream into L0Event stream."""
+        ...
+```
+
+---
+
+## Observability
+
+Central event bus for all L0 observability:
+
+```python
+from l0 import EventBus, ObservabilityEvent, ObservabilityEventType
+
+def on_event(event: ObservabilityEvent):
+    print(f"[{event.type}] stream={event.stream_id}")
+    print(f"  ts={event.ts}, meta={event.meta}")
+
+result = await l0.l0(l0.L0Options(
+    stream=my_stream,
+    on_event=on_event,
+    meta={"user_id": "123", "session": "abc"},
+))
+```
+
+### Event Types
+
+| Phase | Events | Purpose |
+| ----- | ------ | ------- |
+| Session | `SESSION_START` → `SESSION_END` | Session lifecycle |
+| Stream | `STREAM_INIT` → `STREAM_READY` | Stream initialization |
+| Retry | `RETRY_START` → `RETRY_ATTEMPT` → `RETRY_END` / `RETRY_GIVE_UP` | Retry loop |
+| Fallback | `FALLBACK_START` → `FALLBACK_END` | Model switching |
+| Guardrail | `GUARDRAIL_PHASE_START` → `GUARDRAIL_RULE_RESULT` → `GUARDRAIL_PHASE_END` | Validation |
+| Network | `NETWORK_ERROR` → `NETWORK_RECOVERY` | Connection lifecycle |
+| Completion | `COMPLETE` / `ERROR` | Final status |
+
+### Full Event Type List
+
+```python
+class ObservabilityEventType(str, Enum):
+    # Session
+    SESSION_START = "SESSION_START"
+    SESSION_END = "SESSION_END"
+    
+    # Stream
+    STREAM_INIT = "STREAM_INIT"
+    STREAM_READY = "STREAM_READY"
+    
+    # Retry
+    RETRY_START = "RETRY_START"
+    RETRY_ATTEMPT = "RETRY_ATTEMPT"
+    RETRY_END = "RETRY_END"
+    RETRY_GIVE_UP = "RETRY_GIVE_UP"
+    
+    # Fallback
+    FALLBACK_START = "FALLBACK_START"
+    FALLBACK_END = "FALLBACK_END"
+    
+    # Guardrail
+    GUARDRAIL_PHASE_START = "GUARDRAIL_PHASE_START"
+    GUARDRAIL_RULE_RESULT = "GUARDRAIL_RULE_RESULT"
+    GUARDRAIL_PHASE_END = "GUARDRAIL_PHASE_END"
+    
+    # Drift
+    DRIFT_CHECK_RESULT = "DRIFT_CHECK_RESULT"
+    
+    # Network
+    NETWORK_ERROR = "NETWORK_ERROR"
+    NETWORK_RECOVERY = "NETWORK_RECOVERY"
+    
+    # Checkpoint
+    CHECKPOINT_SAVED = "CHECKPOINT_SAVED"
+    
+    # Completion
+    COMPLETE = "COMPLETE"
+    ERROR = "ERROR"
+```
+
+---
+
+## Error Handling
+
+L0 provides detailed error context for debugging and recovery:
+
+```python
+from l0.errors import categorize_error
+from l0.types import ErrorCategory
+
+try:
+    result = await l0.l0(l0.L0Options(stream=my_stream))
+except Exception as error:
+    category = categorize_error(error)
+    
+    match category:
+        case ErrorCategory.NETWORK:
+            print("Network error - transient, will retry")
+        case ErrorCategory.TRANSIENT:
+            print("Transient error (429/503) - will retry")
+        case ErrorCategory.MODEL:
+            print("Model error - counts toward retry limit")
+        case ErrorCategory.CONTENT:
+            print("Content error - guardrail/drift violation")
+        case ErrorCategory.FATAL:
+            print("Fatal error - cannot retry")
+        case ErrorCategory.INTERNAL:
+            print("Internal error - bug, don't retry")
+```
+
+### Error Categories
+
+| Category | Description | Retry Behavior |
+| -------- | ----------- | -------------- |
+| `NETWORK` | Connection drops, DNS, SSL errors | Retry forever, doesn't count |
+| `TRANSIENT` | 429 rate limit, 503 server error | Retry forever, doesn't count |
+| `MODEL` | Model refused, malformed response | Counts toward retry limit |
+| `CONTENT` | Guardrail violation, drift | Counts toward retry limit |
+| `PROVIDER` | API errors (may be retryable) | Depends on status |
+| `FATAL` | Auth errors (401/403) | No retry |
+| `INTERNAL` | Bugs, internal errors | No retry |
+
+---
 
 ## Installation
 
@@ -380,6 +806,9 @@ pip install l0[openai]
 # With LiteLLM (100+ providers)
 pip install l0[litellm]
 
+# With observability
+pip install l0[observability]
+
 # Development
 pip install l0[dev]
 ```
@@ -392,9 +821,27 @@ uv add l0 --extra openai
 uv add l0 --extra litellm
 ```
 
-## API Reference
+### Dependencies
 
-See [API.md](./API.md) for complete API reference.
+| Package | Purpose |
+| ------- | ------- |
+| `httpx` | HTTP client |
+| `pydantic` | Schema validation |
+| `orjson` | Fast JSON |
+| `uuid6` | UUIDv7 for stream IDs |
+| `typing-extensions` | Type hints |
+
+### Optional Dependencies
+
+| Extra | Packages |
+| ----- | -------- |
+| `openai` | `openai>=1.30` |
+| `litellm` | `litellm>=1.40` |
+| `observability` | `opentelemetry-api`, `opentelemetry-sdk`, `sentry-sdk` |
+| `speed` | `uvloop` (Unix only) |
+| `dev` | `pytest`, `pytest-asyncio`, `pytest-cov`, `mypy`, `ruff` |
+
+---
 
 ## Philosophy
 
@@ -403,6 +850,18 @@ See [API.md](./API.md) for complete API reference.
 - **Signals, not rewrites** - Guardrails detect issues, don't modify output
 - **Model-agnostic** - Works with any provider via adapters
 - **Pure asyncio** - No compatibility layers, native Python async
+- **Own retry logic** - No tenacity, full control over behavior
+
+---
+
+## Documentation
+
+| Guide | Description |
+| ----- | ----------- |
+| [API.md](./API.md) | Complete API reference |
+| [PLAN.md](./PLAN.md) | Implementation plan and design decisions |
+
+---
 
 ## License
 
