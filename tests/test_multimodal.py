@@ -347,7 +347,6 @@ class TestMultimodal:
 
     def test_complete_with_usage(self):
         """Test Multimodal.complete() with usage."""
-        event = Multimodal.complete(usage={"prompt_tokens": 10, "completion_tokens": 20})
         event = Multimodal.complete(
             usage={"prompt_tokens": 10, "completion_tokens": 20}
         )
