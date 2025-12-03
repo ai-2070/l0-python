@@ -148,11 +148,50 @@ class State:
 
 
 @dataclass
+class ErrorTypeDelays:
+    """Per-error-type delay configuration.
+
+    All delays are in seconds (float), matching Python conventions.
+    """
+
+    connection_dropped: float = 1.0
+    fetch_error: float = 0.5
+    econnreset: float = 1.0
+    econnrefused: float = 2.0
+    sse_aborted: float = 0.5
+    no_bytes: float = 0.5
+    partial_chunks: float = 0.5
+    runtime_killed: float = 2.0
+    background_throttle: float = 5.0
+    dns_error: float = 3.0
+    timeout: float = 1.0
+    unknown: float = 1.0
+
+
+@dataclass
 class Retry:
     """Retry configuration.
 
     All delays are in seconds (float), matching Python conventions
     like asyncio.sleep(), time.sleep(), etc.
+
+    Usage:
+        from l0 import Retry
+
+        # Use presets
+        retry = Retry.recommended()
+        retry = Retry.mobile()
+        retry = Retry.edge()
+
+        # Or customize
+        retry = Retry(
+            attempts=5,
+            base_delay=2.0,
+            error_type_delays=ErrorTypeDelays(
+                timeout=3.0,
+                connection_dropped=2.0,
+            ),
+        )
     """
 
     attempts: int = 3  # Model errors only
@@ -160,6 +199,66 @@ class Retry:
     base_delay: float = 1.0  # Starting delay (seconds)
     max_delay: float = 10.0  # Maximum delay (seconds)
     strategy: BackoffStrategy = BackoffStrategy.FIXED_JITTER
+    error_type_delays: ErrorTypeDelays | None = None  # Per-error-type delays
+
+    @classmethod
+    def recommended(cls) -> Retry:
+        """Get recommended retry configuration.
+
+        Handles all network errors automatically with sensible defaults:
+        - 3 model error retries
+        - 6 max total retries
+        - Fixed-jitter backoff strategy
+        - Per-error-type delays for network errors
+
+        Returns:
+            Retry configuration optimized for most use cases.
+        """
+        return cls(
+            attempts=3,
+            max_retries=6,
+            base_delay=1.0,
+            max_delay=10.0,
+            strategy=BackoffStrategy.FIXED_JITTER,
+            error_type_delays=ErrorTypeDelays(),
+        )
+
+    @classmethod
+    def mobile(cls) -> Retry:
+        """Get retry configuration optimized for mobile environments.
+
+        Higher delays for background throttling and connection issues.
+        """
+        return cls(
+            attempts=3,
+            max_retries=6,
+            base_delay=1.0,
+            max_delay=15.0,
+            strategy=BackoffStrategy.FULL_JITTER,
+            error_type_delays=ErrorTypeDelays(
+                background_throttle=15.0,
+                timeout=3.0,
+                connection_dropped=2.5,
+            ),
+        )
+
+    @classmethod
+    def edge(cls) -> Retry:
+        """Get retry configuration optimized for edge runtimes.
+
+        Shorter delays to stay within edge runtime limits.
+        """
+        return cls(
+            attempts=3,
+            max_retries=6,
+            base_delay=0.5,
+            max_delay=5.0,
+            strategy=BackoffStrategy.FIXED_JITTER,
+            error_type_delays=ErrorTypeDelays(
+                runtime_killed=2.0,
+                timeout=1.5,
+            ),
+        )
 
 
 @dataclass

@@ -29,6 +29,7 @@ from .consensus import (
     strict_consensus,
     validate_consensus,
 )
+from .errors import NetworkError, NetworkErrorAnalysis, NetworkErrorType
 from .events import EventBus, ObservabilityEvent, ObservabilityEventType
 from .format import Format
 from .guardrails import (
@@ -76,6 +77,7 @@ from .structured import structured
 from .types import (
     BackoffStrategy,
     ErrorCategory,
+    ErrorTypeDelays,
     Event,
     EventType,
     LazyStream,
@@ -264,6 +266,11 @@ __all__ = [
     "TimeoutError",
     "BackoffStrategy",
     "ErrorCategory",
+    "ErrorTypeDelays",
+    # Network errors (scoped API)
+    "NetworkError",  # Class with .check(), .analyze(), .is_timeout(), etc.
+    "NetworkErrorType",
+    "NetworkErrorAnalysis",
     # Events
     "ObservabilityEvent",
     "ObservabilityEventType",

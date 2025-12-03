@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import random
 
-from .errors import categorize_error
+from .errors import NetworkError, NetworkErrorType, categorize_error
 from .logging import logger
 from .types import BackoffStrategy, ErrorCategory, Retry
 
@@ -46,7 +46,11 @@ class RetryManager:
             self.model_retry_count += 1
 
     def get_delay(self, error: Exception) -> float:
-        """Get delay in seconds (Pythonic)."""
+        """Get delay in seconds (Pythonic).
+
+        Uses per-error-type delays for network errors if configured,
+        otherwise falls back to standard backoff calculation.
+        """
         category = categorize_error(error)
         attempt = (
             self.network_retry_count
@@ -54,7 +58,13 @@ class RetryManager:
             else self.model_retry_count
         )
 
-        base = self.config.base_delay
+        # Use per-error-type delays for network errors
+        if category == ErrorCategory.NETWORK and self.config.error_type_delays:
+            analysis = NetworkError.analyze(error)
+            base = self._get_error_type_delay(analysis.type)
+        else:
+            base = self.config.base_delay
+
         cap = self.config.max_delay
 
         match self.config.strategy:
@@ -74,6 +84,29 @@ class RetryManager:
 
         logger.debug(f"Retry delay: {delay:.2f}s (strategy: {self.config.strategy})")
         return float(delay)
+
+    def _get_error_type_delay(self, error_type: NetworkErrorType) -> float:
+        """Get base delay for a specific network error type."""
+        if not self.config.error_type_delays:
+            return self.config.base_delay
+
+        delays = self.config.error_type_delays
+        mapping = {
+            NetworkErrorType.CONNECTION_DROPPED: delays.connection_dropped,
+            NetworkErrorType.FETCH_ERROR: delays.fetch_error,
+            NetworkErrorType.ECONNRESET: delays.econnreset,
+            NetworkErrorType.ECONNREFUSED: delays.econnrefused,
+            NetworkErrorType.SSE_ABORTED: delays.sse_aborted,
+            NetworkErrorType.NO_BYTES: delays.no_bytes,
+            NetworkErrorType.PARTIAL_CHUNKS: delays.partial_chunks,
+            NetworkErrorType.RUNTIME_KILLED: delays.runtime_killed,
+            NetworkErrorType.BACKGROUND_THROTTLE: delays.background_throttle,
+            NetworkErrorType.DNS_ERROR: delays.dns_error,
+            NetworkErrorType.SSL_ERROR: 0.0,
+            NetworkErrorType.TIMEOUT: delays.timeout,
+            NetworkErrorType.UNKNOWN: delays.unknown,
+        }
+        return mapping.get(error_type, self.config.base_delay)
 
     async def wait(self, error: Exception) -> None:
         delay = self.get_delay(error)
