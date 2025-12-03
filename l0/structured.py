@@ -169,14 +169,6 @@ async def structured(
                 if on_validation_error:
                     on_validation_error(e, attempt + 1)
 
-                event_bus.emit(
-                    ObservabilityEventType.SCHEMA_VALIDATION_END,
-                    valid=False,
-                    errors=str(e),
-                    attempt=attempt + 1,
-                    fallback_index=fallback_index,
-                )
-
                 # Don't retry on last attempt of last stream
                 is_last_stream = fallback_index == len(all_streams) - 1
                 is_last_attempt = attempt == max_attempts - 1

@@ -222,6 +222,11 @@ class TestStructured:
         # Verify PARSE_START and PARSE_END are both emitted
         assert ObservabilityEventType.PARSE_START in events_emitted
         assert ObservabilityEventType.PARSE_END in events_emitted
+        # Verify exactly one SCHEMA_VALIDATION_END (no duplicates)
+        schema_validation_end_count = events_emitted.count(
+            ObservabilityEventType.SCHEMA_VALIDATION_END
+        )
+        assert schema_validation_end_count == 1
 
 
 class TestStructuredStream:
