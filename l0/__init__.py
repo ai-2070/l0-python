@@ -70,7 +70,14 @@ from .guardrails import (
     zero_output_rule,
 )
 from .logging import enable_debug
-from .parallel import batched, parallel, race
+from .parallel import (
+    ParallelOptions,
+    ParallelResult,
+    batched,
+    parallel,
+    race,
+    sequential,
+)
 from .runtime import TimeoutError, _internal_run
 from .stream import consume_stream, get_text
 from .structured import (
@@ -331,7 +338,10 @@ __all__ = [
     # Parallel
     "parallel",
     "race",
+    "sequential",
     "batched",
+    "ParallelResult",
+    "ParallelOptions",
     # Consensus
     "consensus",
     "ConsensusResult",

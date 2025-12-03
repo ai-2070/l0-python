@@ -3,40 +3,189 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from collections.abc import Awaitable, Callable, Coroutine
-from typing import Any, TypeVar, cast
+from dataclasses import dataclass, field
+from typing import Any, Generic, TypeVar, cast
 
 T = TypeVar("T")
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Result Types
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@dataclass
+class ParallelResult(Generic[T]):
+    """Result of parallel execution.
+
+    Attributes:
+        results: List of successful results (None for failed tasks)
+        errors: List of errors (None for successful tasks)
+        success_count: Number of successful tasks
+        failure_count: Number of failed tasks
+        duration: Total execution time in seconds
+        all_succeeded: Whether all tasks succeeded
+    """
+
+    results: list[T | None]
+    errors: list[Exception | None]
+    success_count: int = 0
+    failure_count: int = 0
+    duration: float = 0.0
+
+    @property
+    def all_succeeded(self) -> bool:
+        """Check if all tasks succeeded."""
+        return self.failure_count == 0
+
+    def successful_results(self) -> list[T]:
+        """Get only successful results (non-None)."""
+        return [r for r in self.results if r is not None]
+
+
+@dataclass
+class ParallelOptions:
+    """Options for parallel execution.
+
+    Attributes:
+        concurrency: Maximum concurrent tasks (default: 5)
+        fail_fast: Stop on first error (default: False)
+        on_progress: Callback for progress updates (completed, total)
+        on_complete: Callback when a task completes (result, index)
+        on_error: Callback when a task fails (error, index)
+    """
+
+    concurrency: int = 5
+    fail_fast: bool = False
+    on_progress: Callable[[int, int], None] | None = None
+    on_complete: Callable[[Any, int], None] | None = None
+    on_error: Callable[[Exception, int], None] | None = None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Core Functions
+# ─────────────────────────────────────────────────────────────────────────────
+
+
 async def parallel(
     tasks: list[Callable[[], Awaitable[T]]],
-    concurrency: int = 5,
-) -> list[T]:
+    options: ParallelOptions | None = None,
+    *,
+    concurrency: int | None = None,
+    fail_fast: bool = False,
+    on_progress: Callable[[int, int], None] | None = None,
+    on_complete: Callable[[T, int], None] | None = None,
+    on_error: Callable[[Exception, int], None] | None = None,
+) -> ParallelResult[T]:
     """Run tasks with concurrency limit.
 
     Args:
         tasks: List of async callables to execute
-        concurrency: Maximum number of concurrent tasks
+        options: ParallelOptions instance (alternative to kwargs)
+        concurrency: Maximum concurrent tasks (default: 5)
+        fail_fast: Stop on first error (default: False)
+        on_progress: Callback for progress updates
+        on_complete: Callback when a task completes
+        on_error: Callback when a task fails
 
     Returns:
-        List of results in the same order as input tasks
+        ParallelResult with results, errors, and statistics
+
+    Example:
+        ```python
+        async def fetch(url):
+            ...
+
+        result = await parallel(
+            [lambda u=url: fetch(u) for url in urls],
+            concurrency=3,
+            fail_fast=False,
+            on_progress=lambda done, total: print(f"{done}/{total}"),
+        )
+
+        print(f"Success: {result.success_count}/{len(urls)}")
+        for r in result.successful_results():
+            print(r)
+        ```
     """
+    # Use options object or kwargs
+    if options:
+        concurrency = options.concurrency
+        fail_fast = options.fail_fast
+        on_progress = options.on_progress
+        on_complete = options.on_complete
+        on_error = options.on_error
+    else:
+        concurrency = concurrency or 5
+
+    if not tasks:
+        return ParallelResult(results=[], errors=[], success_count=0, failure_count=0)
+
+    start_time = time.time()
     semaphore = asyncio.Semaphore(concurrency)
+    results: list[T | None] = [None] * len(tasks)
+    errors: list[Exception | None] = [None] * len(tasks)
+    completed = 0
+    success_count = 0
+    failure_count = 0
+    cancel_event = asyncio.Event() if fail_fast else None
 
-    async def limited(task: Callable[[], Awaitable[T]]) -> T:
+    async def run_task(task: Callable[[], Awaitable[T]], index: int) -> None:
+        nonlocal completed, success_count, failure_count
+
+        if cancel_event and cancel_event.is_set():
+            return
+
         async with semaphore:
-            return await task()
+            if cancel_event and cancel_event.is_set():
+                return
 
-    results = await asyncio.gather(*[limited(t) for t in tasks])
-    return list(results)
+            try:
+                result = await task()
+                results[index] = result
+                success_count += 1
+                if on_complete:
+                    on_complete(result, index)
+            except Exception as e:
+                errors[index] = e
+                failure_count += 1
+                if on_error:
+                    on_error(e, index)
+                if cancel_event:
+                    cancel_event.set()
+            finally:
+                completed += 1
+                if on_progress:
+                    on_progress(completed, len(tasks))
+
+    # Run all tasks
+    await asyncio.gather(
+        *[run_task(t, i) for i, t in enumerate(tasks)], return_exceptions=True
+    )
+
+    duration = time.time() - start_time
+
+    return ParallelResult(
+        results=results,
+        errors=errors,
+        success_count=success_count,
+        failure_count=failure_count,
+        duration=duration,
+    )
 
 
-async def race(tasks: list[Callable[[], Awaitable[T]]]) -> T:
+async def race(
+    tasks: list[Callable[[], Awaitable[T]]],
+    *,
+    on_error: Callable[[Exception, int], None] | None = None,
+) -> T:
     """Return first successful result, cancel remaining tasks.
 
     Args:
         tasks: List of async callables to race
+        on_error: Callback when a task fails
 
     Returns:
         Result from the first task to complete successfully
@@ -44,27 +193,53 @@ async def race(tasks: list[Callable[[], Awaitable[T]]]) -> T:
     Raises:
         RuntimeError: If no tasks provided
         Exception: If all tasks fail, raises the last exception
+
+    Example:
+        ```python
+        # Race multiple providers
+        result = await race([
+            lambda: call_openai(prompt),
+            lambda: call_anthropic(prompt),
+            lambda: call_google(prompt),
+        ])
+        # Uses first successful response
+        ```
     """
     if not tasks:
         raise RuntimeError("No tasks provided")
 
-    # Create tasks - cast Awaitable to Coroutine for create_task
     pending_tasks: list[asyncio.Task[T]] = [
         asyncio.create_task(cast(Coroutine[Any, Any, T], t())) for t in tasks
     ]
+    last_error: Exception | None = None
 
     try:
-        done, pending_set = await asyncio.wait(
-            pending_tasks,
-            return_when=asyncio.FIRST_COMPLETED,
-        )
+        while pending_tasks:
+            done, pending_set = await asyncio.wait(
+                pending_tasks,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
 
-        # Cancel remaining tasks
-        for task in pending_set:
-            task.cancel()
+            pending_tasks = list(pending_set)
 
-        # Return the first completed result
-        return done.pop().result()
+            for task in done:
+                try:
+                    result = task.result()
+                    # Cancel remaining tasks
+                    for p in pending_tasks:
+                        p.cancel()
+                    return result
+                except Exception as e:
+                    last_error = e
+                    if on_error:
+                        # Find original index
+                        on_error(e, 0)
+
+        # All tasks failed
+        if last_error:
+            raise last_error
+        raise RuntimeError("All tasks failed")
+
     except Exception:
         # Cancel all on error
         for task in pending_tasks:
@@ -72,10 +247,37 @@ async def race(tasks: list[Callable[[], Awaitable[T]]]) -> T:
         raise
 
 
+async def sequential(tasks: list[Callable[[], Awaitable[T]]]) -> list[T]:
+    """Run tasks one at a time, in order.
+
+    Args:
+        tasks: List of async callables to execute
+
+    Returns:
+        List of results in the same order as input
+
+    Example:
+        ```python
+        results = await sequential([
+            lambda: process(item1),
+            lambda: process(item2),
+            lambda: process(item3),
+        ])
+        ```
+    """
+    results: list[T] = []
+    for task in tasks:
+        result = await task()
+        results.append(result)
+    return results
+
+
 async def batched(
     items: list[T],
     handler: Callable[[T], Awaitable[T]],
     batch_size: int = 10,
+    *,
+    on_progress: Callable[[int, int], None] | None = None,
 ) -> list[T]:
     """Process items in batches.
 
@@ -83,13 +285,34 @@ async def batched(
         items: List of items to process
         handler: Async function to apply to each item
         batch_size: Number of items to process concurrently
+        on_progress: Callback for progress updates
 
     Returns:
         List of processed results in the same order as input
+
+    Example:
+        ```python
+        async def process(url: str) -> dict:
+            ...
+
+        results = await batched(
+            urls,
+            process,
+            batch_size=5,
+            on_progress=lambda done, total: print(f"{done}/{total}"),
+        )
+        ```
     """
     results: list[T] = []
-    for i in range(0, len(items), batch_size):
+    total = len(items)
+    completed = 0
+
+    for i in range(0, total, batch_size):
         batch = items[i : i + batch_size]
         batch_results = await asyncio.gather(*[handler(item) for item in batch])
         results.extend(list(batch_results))
+        completed += len(batch)
+        if on_progress:
+            on_progress(completed, total)
+
     return results
