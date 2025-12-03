@@ -1142,6 +1142,33 @@ __all__ = [
 
 ---
 
+## Package Manager
+
+Use **uv** for fast, reliable dependency management:
+
+```bash
+# Install uv (if not already installed)
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Create virtual environment and install dependencies
+uv sync
+
+# Install with optional dependencies
+uv sync --extra openai --extra anthropic
+
+# Install dev dependencies
+uv sync --extra dev
+
+# Add a new dependency
+uv add <package>
+
+# Run tests
+uv run pytest
+
+# Run type checking
+uv run mypy l0
+```
+
 ## Dependencies
 
 Update `pyproject.toml`:
