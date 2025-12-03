@@ -87,3 +87,8 @@ line-length = 88
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[dependency-groups]
+dev = [
+    "pytest-asyncio>=1.3.0",
+]

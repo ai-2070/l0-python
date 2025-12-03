@@ -157,3 +157,36 @@ class TestRetryManager:
         assert state["model_retry_count"] == 1
         assert state["network_retry_count"] == 0
         assert state["total_retries"] == 1
+
+    def test_transient_error_backoff_increases(self):
+        """Transient errors (e.g., 429) should use network_retry_count for backoff."""
+        mgr = RetryManager(
+            Retry(
+                base_delay=1.0,
+                max_delay=10.0,
+                strategy=BackoffStrategy.EXPONENTIAL,
+            )
+        )
+
+        class RateLimitError(Exception):
+            status_code = 429
+
+        error = RateLimitError("rate limited")
+
+        # First attempt: 1.0s (attempt=0)
+        delay1 = mgr.get_delay(error)
+        assert delay1 == 1.0
+
+        mgr.record_attempt(error)
+        # Second attempt: 2.0s (attempt=1)
+        delay2 = mgr.get_delay(error)
+        assert delay2 == 2.0
+
+        mgr.record_attempt(error)
+        # Third attempt: 4.0s (attempt=2)
+        delay3 = mgr.get_delay(error)
+        assert delay3 == 4.0
+
+        # Verify it's using network_retry_count, not model_retry_count
+        assert mgr.network_retry_count == 2
+        assert mgr.model_retry_count == 0

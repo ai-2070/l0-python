@@ -54,7 +54,7 @@ class RetryManager:
         category = categorize_error(error)
         attempt = (
             self.network_retry_count
-            if category == ErrorCategory.NETWORK
+            if category in (ErrorCategory.NETWORK, ErrorCategory.TRANSIENT)
             else self.model_retry_count
         )
 

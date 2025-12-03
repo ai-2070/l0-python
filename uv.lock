@@ -976,6 +976,11 @@ speed = [
     { name = "uvloop", marker = "sys_platform != 'win32'" },
 ]
 
+[package.dev-dependencies]
+dev = [
+    { name = "pytest-asyncio" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "httpx", specifier = ">=0.27.0" },
@@ -1000,6 +1005,9 @@ requires-dist = [
     { name = "uvloop", marker = "sys_platform != 'win32' and extra == 'speed'", specifier = ">=0.19" },
 ]
 provides-extras = ["openai", "litellm", "observability", "speed", "dev"]
+
+[package.metadata.requires-dev]
+dev = [{ name = "pytest-asyncio", specifier = ">=1.3.0" }]
 
 [[package]]
 name = "librt"

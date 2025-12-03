@@ -222,18 +222,27 @@ async def race(
 
             pending_tasks = list(pending_set)
 
+            # Check all completed tasks for a success
+            success_result: T | None = None
+            found_success = False
+
             for task in done:
                 try:
                     result = task.result()
-                    # Cancel remaining tasks
-                    for p in pending_tasks:
-                        p.cancel()
-                    return result
+                    # Found a successful result
+                    if not found_success:
+                        success_result = result
+                        found_success = True
                 except Exception as e:
                     last_error = e
                     if on_error:
-                        # Find original index
                         on_error(e, 0)
+
+            # Only cancel and return after checking all done tasks
+            if found_success:
+                for p in pending_tasks:
+                    p.cancel()
+                return cast(T, success_result)
 
         # All tasks failed
         if last_error:

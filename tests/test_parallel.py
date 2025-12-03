@@ -238,6 +238,20 @@ class TestRace:
         with pytest.raises(ValueError):
             await race([fail1, fail2])
 
+    @pytest.mark.asyncio
+    async def test_fast_failure_does_not_abort_slow_success(self):
+        """Test that a fast-failing task doesn't abort a slower successful task."""
+
+        async def fast_fail():
+            raise ValueError("I fail immediately")
+
+        async def slow_success():
+            await asyncio.sleep(0.05)
+            return "success"
+
+        result = await race([fast_fail, slow_success])
+        assert result == "success"
+
 
 class TestSequential:
     @pytest.mark.asyncio
