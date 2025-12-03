@@ -155,7 +155,6 @@ def wrap(
     return LazyStream(
         stream=stream,
         guardrails=guardrails,
-        retry=None,
         timeout=timeout,
         adapter=adapter,
         on_event=on_event,

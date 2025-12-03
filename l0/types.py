@@ -493,7 +493,6 @@ class LazyStream:
     __slots__ = (
         "_stream",
         "_guardrails",
-        "_retry",
         "_timeout",
         "_adapter",
         "_on_event",
@@ -508,7 +507,6 @@ class LazyStream:
         stream: AsyncIterator[Any],
         *,
         guardrails: list[Any] | None = None,
-        retry: Retry | None = None,
         timeout: Timeout | None = None,
         adapter: Any | str | None = None,
         on_event: Callable[[ObservabilityEvent], None] | None = None,
@@ -517,7 +515,6 @@ class LazyStream:
     ) -> None:
         self._stream = stream
         self._guardrails = guardrails
-        self._retry = retry
         self._timeout = timeout
         self._adapter = adapter
         self._on_event = on_event
@@ -542,7 +539,7 @@ class LazyStream:
                 stream=stream_factory,
                 fallbacks=None,
                 guardrails=self._guardrails,
-                retry=self._retry,
+                retry=None,  # Retry not supported - stream can't be recreated
                 timeout=self._timeout,
                 adapter=self._adapter,
                 on_event=self._on_event,
