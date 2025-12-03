@@ -263,3 +263,21 @@ class TestRemoveAnsi:
 
     def test_complex_sequence(self):
         assert remove_ansi("\x1b[38;5;208mOrange\x1b[0m") == "Orange"
+
+    def test_remove_cursor_sequence_with_tilde(self):
+        """Test removal of sequences ending in ~ (e.g., cursor key codes)."""
+        # Delete key sequence
+        assert remove_ansi("\x1b[3~") == ""
+        # Page up
+        assert remove_ansi("\x1b[5~") == ""
+        # Text with cursor sequences
+        assert remove_ansi("Hello\x1b[3~World") == "HelloWorld"
+
+    def test_remove_private_mode_sequences(self):
+        """Test removal of sequences containing ? (private modes)."""
+        # Show cursor
+        assert remove_ansi("\x1b[?25h") == ""
+        # Hide cursor
+        assert remove_ansi("\x1b[?25l") == ""
+        # Text with private mode sequences
+        assert remove_ansi("\x1b[?25lHidden\x1b[?25h") == "Hidden"

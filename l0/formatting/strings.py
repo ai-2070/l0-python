@@ -315,8 +315,9 @@ def pad(
 # ANSI Functions
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Pattern to match ANSI escape sequences
-_ANSI_PATTERN = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")
+# Pattern to match ANSI escape sequences (CSI sequences per ECMA-48)
+# Matches ESC [ followed by parameter bytes, intermediate bytes, and final byte
+_ANSI_PATTERN = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 
 
 def remove_ansi(s: str) -> str:
