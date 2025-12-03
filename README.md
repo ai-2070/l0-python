@@ -67,7 +67,7 @@ _Production-grade reliability. Just pass your stream. L0'll take it from here._
 | **Pure asyncio**                         | No compatibility layers (no anyio/trio). Native Python async for full determinism and performance.                                                                                                    |
 | **Own Retry Logic**                      | No external dependencies (no tenacity). L0 controls all retry behavior for predictable execution.                                                                                                     |
 | **Type-Safe**                            | Full type hints with `py.typed` marker. Passes mypy strict mode.                                                                                                                                      |
-| **Minimal Dependencies**                 | Only httpx, pydantic, orjson, uuid6. Tree-shakeable, no heavy abstractions.                                                                                                                           |
+| **Minimal Dependencies**                 | Only httpx, pydantic, orjson, typing-extensions, uuid6. No heavy abstractions.                                                                                                                           |
 
 ## Quick Start
 
