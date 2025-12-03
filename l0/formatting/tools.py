@@ -422,11 +422,19 @@ def _split_arguments(args_str: str) -> list[str]:
     depth = 0
     in_string = False
     string_char = None
+    escape_next = False
 
     for char in args_str:
+        if escape_next:
+            current.append(char)
+            escape_next = False
+            continue
+
         if in_string:
             current.append(char)
-            if char == string_char:
+            if char == "\\":
+                escape_next = True
+            elif char == string_char:
                 in_string = False
         elif char in "\"'":
             in_string = True

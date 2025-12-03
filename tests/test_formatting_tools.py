@@ -356,6 +356,21 @@ class TestParseFunctionCall:
         # Note: with non-greedy matching, nested JSON may not parse fully
         # This test documents the current behavior
 
+    def test_parse_escaped_quotes_in_string(self):
+        """Test that escaped quotes inside strings don't terminate the string early."""
+        result = parse_function_call(r'save(text="He said \"hello\"", name=test)')
+        assert result is not None
+        assert result.name == "save"
+        assert result.arguments["name"] == "test"
+        # The text argument should contain the escaped quotes
+        assert "hello" in str(result.arguments["text"])
+
+    def test_parse_escaped_quotes_in_json(self):
+        """Test parsing JSON with escaped quotes."""
+        result = parse_function_call(r'create({"message": "Say \"hi\"", "count": 1})')
+        assert result is not None
+        assert result.name == "create"
+
 
 class TestFormatFunctionArguments:
     """Tests for format_function_arguments function."""
