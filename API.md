@@ -1011,7 +1011,7 @@ class Adapter(Protocol):
 from collections.abc import AsyncIterator
 from typing import Any
 import l0
-from l0 import Event, EventType, register_adapter
+from l0 import Event, EventType, Adapters
 
 class AnthropicAdapter:
     """Adapter for direct Anthropic SDK (if not using LiteLLM)."""
@@ -1054,19 +1054,19 @@ class AnthropicAdapter:
                 yield Event(type=EventType.COMPLETE, usage=usage)
 
 # Register for auto-detection
-register_adapter(AnthropicAdapter())
+Adapters.register(AnthropicAdapter())
 ```
 
 ### Adapter Functions
 
 ```python
-from l0 import register_adapter, detect_adapter
+from l0 import Adapters
 
 # Register custom adapter (takes priority over built-ins)
-register_adapter(MyAdapter())
+Adapters.register(MyAdapter())
 
 # Explicitly detect adapter
-adapter = detect_adapter(stream)
+adapter = Adapters.detect(stream)
 print(adapter.name)
 
 # Use specific adapter by name
@@ -1580,9 +1580,9 @@ from l0 import (
     consensus,
     
     # Adapters
+    Adapters,
     Adapter,
-    register_adapter,
-    detect_adapter,
+    OpenAIAdapter,
     
     # Observability
     EventBus,
@@ -1609,7 +1609,7 @@ from l0 import (
 | Guardrails | `Guardrails`, `GuardrailRule`, `GuardrailViolation`, `json_rule`, `strict_json_rule`, `pattern_rule`, `zero_output_rule`, `stall_rule`, `repetition_rule` |
 | Structured | `structured` |
 | Parallel | `parallel`, `race`, `batched`, `consensus` |
-| Adapters | `Adapter`, `register_adapter`, `detect_adapter` |
+| Adapters | `Adapters`, `Adapter`, `OpenAIAdapter` |
 | Observability | `EventBus`, `ObservabilityEvent`, `ObservabilityEventType` |
 | Errors | `ErrorCategory`, `categorize_error` |
 | Utilities | `consume_stream`, `get_text`, `enable_debug` |

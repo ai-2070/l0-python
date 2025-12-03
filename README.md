@@ -653,7 +653,7 @@ L0 supports custom adapters for integrating any LLM provider:
 from collections.abc import AsyncIterator
 from typing import Any
 import l0
-from l0 import Event, EventType, register_adapter
+from l0 import Event, EventType, Adapters
 
 class MyProviderAdapter:
     name = "my_provider"
@@ -694,7 +694,7 @@ class MyProviderAdapter:
         yield Event(type=EventType.COMPLETE, usage=usage)
 
 # Register for auto-detection
-register_adapter(MyProviderAdapter())
+Adapters.register(MyProviderAdapter())
 ```
 
 ### Adapter Protocol
