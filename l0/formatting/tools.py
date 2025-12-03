@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass, field
+from html import escape as html_escape
 from typing import Any, Literal
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -283,21 +284,30 @@ def _format_natural(tool: Tool) -> str:
     return "\n".join(lines)
 
 
+def _escape_xml(value: str) -> str:
+    """Escape a string for safe XML output."""
+    return html_escape(value, quote=True)
+
+
 def _format_xml(tool: Tool) -> str:
     """Format tool as XML."""
-    lines = [f'<tool name="{tool.name}">']
+    lines = [f'<tool name="{_escape_xml(tool.name)}">']
 
     if tool.description:
-        lines.append(f"  <description>{tool.description}</description>")
+        lines.append(f"  <description>{_escape_xml(tool.description)}</description>")
 
     if tool.parameters:
         lines.append("  <parameters>")
         for param in tool.parameters:
             req_str = "true" if param.required else "false"
-            desc = f' description="{param.description}"' if param.description else ""
+            desc = (
+                f' description="{_escape_xml(param.description)}"'
+                if param.description
+                else ""
+            )
             lines.append(
-                f'    <parameter name="{param.name}" type="{param.type}" '
-                f'required="{req_str}"{desc}/>'
+                f'    <parameter name="{_escape_xml(param.name)}" '
+                f'type="{param.type}" required="{req_str}"{desc}/>'
             )
         lines.append("  </parameters>")
 

@@ -232,6 +232,24 @@ class TestFormatToolXml:
         assert 'type="string"' in result
         assert 'required="true"' in result
 
+    def test_format_xml_escapes_special_chars(self):
+        """Test that XML special characters are escaped."""
+        tool = create_tool(
+            "test<tool>",
+            'Description with "quotes" & <brackets>',
+            [
+                create_parameter("param<name>", "string", 'Has "quotes"', True),
+            ],
+        )
+        result = format_tool(tool, {"style": "xml"})
+        # Verify special chars are escaped
+        assert 'name="test&lt;tool&gt;"' in result
+        assert "&amp;" in result
+        assert "&lt;brackets&gt;" in result
+        assert "&quot;quotes&quot;" in result
+        # Verify no raw special chars in attribute values
+        assert 'name="test<tool>"' not in result
+
 
 class TestFormatTools:
     """Tests for format_tools function."""
