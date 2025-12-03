@@ -5,15 +5,19 @@ Complete API reference for L0 Python.
 ## Table of Contents
 
 - [Core Functions](#core-functions)
-- [Structured Output](#structured-output)
-- [Parallel Operations](#parallel-operations)
-- [Consensus](#consensus)
-- [Guardrails](#guardrails)
+- [Streaming Runtime](#streaming-runtime)
 - [Retry Configuration](#retry-configuration)
+- [Network Protection](#network-protection)
+- [Structured Output](#structured-output)
+- [Fallback Models](#fallback-models)
+- [Guardrails](#guardrails)
+- [Consensus](#consensus)
+- [Parallel Operations](#parallel-operations)
+- [Custom Adapters](#custom-adapters)
+- [Observability](#observability)
 - [Error Handling](#error-handling)
 - [Stream Utilities](#stream-utilities)
-- [Adapters](#adapters)
-- [Observability](#observability)
+- [Utility Functions](#utility-functions)
 - [Types](#types)
 
 ---
@@ -29,36 +33,44 @@ import l0
 
 result = await l0.l0(l0.L0Options(
     # Required: Stream factory
-    stream=lambda: client.chat.completions.create(..., stream=True),
+    stream=lambda: client.chat.completions.create(
+        model="gpt-4o",
+        messages=[{"role": "user", "content": prompt}],
+        stream=True,
+    ),
 
     # Optional: Fallback streams
     fallbacks=[
-        lambda: fallback_client.chat.completions.create(..., stream=True),
+        lambda: client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            stream=True,
+        ),
     ],
 
     # Optional: Guardrails
     guardrails=l0.recommended_guardrails(),
 
-    # Optional: Retry configuration
+    # Optional: Retry configuration (defaults shown)
     retry=l0.RetryConfig(
-        attempts=3,
-        max_retries=6,
+        attempts=3,                              # LLM errors only
+        max_retries=6,                           # Total (LLM + network)
         base_delay_ms=1000,
         max_delay_ms=10000,
         strategy=l0.BackoffStrategy.FIXED_JITTER,
     ),
 
-    # Optional: Timeout configuration
+    # Optional: Timeout configuration (defaults shown)
     timeout=l0.TimeoutConfig(
         initial_token_ms=5000,   # 5s to first token
         inter_token_ms=10000,    # 10s between tokens
     ),
 
     # Optional: Adapter hint
-    adapter="openai",  # or "litellm", or custom Adapter instance
+    adapter="openai",  # or "litellm", or Adapter instance
 
     # Optional: Event callback
-    on_event=lambda event: print(event.type),
+    on_event=lambda event: print(f"[{event.type}]"),
 
     # Optional: Metadata for events
     meta={"user_id": "123"},
@@ -69,24 +81,247 @@ async for event in result.stream:
     match event.type:
         case l0.EventType.TOKEN:
             print(event.value, end="")
+        case l0.EventType.TOOL_CALL:
+            print(f"Tool call: {event.data}")
         case l0.EventType.COMPLETE:
             print("\nComplete")
+            print(f"Usage: {event.usage}")
         case l0.EventType.ERROR:
             print(f"Error: {event.error}")
 
 # Access final state
-print(result.state.content)
-print(result.state.token_count)
+print(result.state.content)       # Full accumulated content
+print(result.state.token_count)   # Total tokens received
+print(result.state.checkpoint)    # Last stable checkpoint
+print(result.state.duration)      # Duration in seconds
 ```
 
 **Returns:** `L0Result`
 
-| Property | Type                     | Description   |
-| -------- | ------------------------ | ------------- |
-| `stream` | `AsyncIterator[L0Event]` | Event stream  |
-| `state`  | `L0State`                | Runtime state |
-| `abort`  | `Callable[[], None]`     | Abort function |
-| `errors` | `list[Exception]`        | Errors encountered |
+| Property | Type | Description |
+| -------- | ---- | ----------- |
+| `stream` | `AsyncIterator[L0Event]` | Event stream |
+| `state` | `L0State` | Runtime state |
+| `abort` | `Callable[[], None]` | Abort function |
+| `errors` | `list[Exception]` | Errors encountered |
+
+---
+
+## Streaming Runtime
+
+L0 wraps LLM streams with deterministic behavior and unified event types.
+
+### Unified Event Format
+
+All streams are normalized to `L0Event` objects:
+
+```python
+@dataclass
+class L0Event:
+    type: EventType                           # Event type
+    value: str | None = None                  # Token content
+    data: dict[str, Any] | None = None        # Tool call / misc data
+    error: Exception | None = None            # Error (for error events)
+    usage: dict[str, int] | None = None       # Token usage
+    timestamp: float | None = None            # Event timestamp
+```
+
+### Event Types
+
+```python
+class EventType(str, Enum):
+    TOKEN = "token"           # Text token
+    MESSAGE = "message"       # Full message
+    DATA = "data"             # Structured data
+    PROGRESS = "progress"     # Progress update
+    TOOL_CALL = "tool_call"   # Tool/function call
+    ERROR = "error"           # Error occurred
+    COMPLETE = "complete"     # Stream complete
+```
+
+### Tool Call Handling
+
+```python
+result = await l0.l0(l0.L0Options(
+    stream=lambda: client.chat.completions.create(
+        model="gpt-4o",
+        messages=[{"role": "user", "content": "What's the weather?"}],
+        tools=[{
+            "type": "function",
+            "function": {
+                "name": "get_weather",
+                "description": "Get weather for a location",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"location": {"type": "string"}},
+                    "required": ["location"],
+                },
+            },
+        }],
+        stream=True,
+    ),
+))
+
+async for event in result.stream:
+    if event.type == l0.EventType.TOOL_CALL:
+        print(f"Tool: {event.data['name']}")
+        print(f"Args: {event.data['arguments']}")
+        print(f"ID: {event.data['id']}")
+```
+
+### State Tracking
+
+```python
+# Access state at any point
+state = result.state
+
+state.content           # Accumulated content
+state.checkpoint        # Last validated checkpoint
+state.token_count       # Total tokens received
+state.model_retry_count # Model error retries
+state.network_retry_count # Network error retries
+state.fallback_index    # Current model (0=primary)
+state.violations        # Guardrail violations
+state.drift_detected    # Whether drift was detected
+state.completed         # Stream completed successfully
+state.aborted           # Stream was aborted
+state.first_token_at    # Timestamp of first token
+state.last_token_at     # Timestamp of last token
+state.duration          # Total duration (seconds)
+state.resumed           # Resumed from checkpoint
+```
+
+---
+
+## Retry Configuration
+
+### RetryConfig
+
+```python
+@dataclass
+class RetryConfig:
+    attempts: int = 3                 # Model errors only
+    max_retries: int = 6              # Absolute cap (all errors)
+    base_delay_ms: int = 1000         # Starting delay (ms)
+    max_delay_ms: int = 10000         # Maximum delay (ms)
+    strategy: BackoffStrategy = BackoffStrategy.FIXED_JITTER
+```
+
+### BackoffStrategy
+
+```python
+class BackoffStrategy(str, Enum):
+    EXPONENTIAL = "exponential"    # delay * 2^attempt
+    LINEAR = "linear"              # delay * (attempt + 1)
+    FIXED = "fixed"                # constant delay
+    FULL_JITTER = "full-jitter"    # random(0, exponential)
+    FIXED_JITTER = "fixed-jitter"  # base/2 + random(base/2) - DEFAULT
+```
+
+### Backoff Calculation
+
+| Strategy | Formula | Example (base=1000ms, attempt=2) |
+| -------- | ------- | -------------------------------- |
+| `EXPONENTIAL` | `min(base * 2^attempt, max)` | 4000ms |
+| `LINEAR` | `min(base * (attempt + 1), max)` | 3000ms |
+| `FIXED` | `base` | 1000ms |
+| `FULL_JITTER` | `random(0, min(base * 2^attempt, max))` | 0-4000ms |
+| `FIXED_JITTER` | `temp/2 + random(temp/2)` | 2000-4000ms |
+
+### Retry Behavior by Error Type
+
+| Error Type | Retries | Counts Toward `attempts` | Counts Toward `max_retries` |
+| ---------- | ------- | ------------------------ | --------------------------- |
+| Network disconnect | Yes | No | Yes |
+| Zero output | Yes | No | Yes |
+| Timeout | Yes | No | Yes |
+| 429 rate limit | Yes | No | Yes |
+| 503 server error | Yes | No | Yes |
+| Guardrail violation | Yes | **Yes** | Yes |
+| Drift detected | Yes | **Yes** | Yes |
+| Auth error (401/403) | No | - | - |
+
+### RetryManager
+
+```python
+from l0.retry import RetryManager
+from l0.types import RetryConfig
+
+manager = RetryManager(RetryConfig(
+    attempts=3,
+    strategy=BackoffStrategy.EXPONENTIAL,
+))
+
+# Check if should retry
+if manager.should_retry(error):
+    manager.record_attempt(error)
+    delay_ms = manager.get_delay_ms(error)
+    await manager.wait(error)
+
+# Get state
+state = manager.get_state()
+# {"model_retry_count": 1, "network_retry_count": 0, "total_retries": 1}
+
+# Reset
+manager.reset()
+```
+
+---
+
+## Network Protection
+
+### Error Categorization
+
+```python
+from l0.errors import categorize_error
+from l0.types import ErrorCategory
+
+category = categorize_error(error)
+
+match category:
+    case ErrorCategory.NETWORK:
+        print("Network error - retry forever")
+    case ErrorCategory.TRANSIENT:
+        print("Transient (429/503) - retry forever")
+    case ErrorCategory.MODEL:
+        print("Model error - counts toward limit")
+    case ErrorCategory.CONTENT:
+        print("Content error - counts toward limit")
+    case ErrorCategory.PROVIDER:
+        print("Provider error - may retry")
+    case ErrorCategory.FATAL:
+        print("Fatal - no retry (401/403)")
+    case ErrorCategory.INTERNAL:
+        print("Internal - no retry (bug)")
+```
+
+### Network Error Patterns
+
+L0 automatically detects these patterns in error messages:
+
+| Pattern | Description |
+| ------- | ----------- |
+| `connection.*reset` | Connection reset by peer |
+| `connection.*refused` | Connection refused |
+| `connection.*timeout` | Connection timeout |
+| `timed?\s*out` | Request timed out |
+| `dns.*failed` | DNS resolution failed |
+| `name.*resolution` | Name resolution error |
+| `socket.*error` | Socket error |
+| `ssl.*error` | SSL/TLS error |
+| `eof.*occurred` | Unexpected EOF |
+| `broken.*pipe` | Broken pipe |
+| `network.*unreachable` | Network unreachable |
+| `host.*unreachable` | Host unreachable |
+
+### HTTP Status Code Handling
+
+| Status | Category | Behavior |
+| ------ | -------- | -------- |
+| 429 | `TRANSIENT` | Retry forever |
+| 500-599 | `TRANSIENT` | Retry forever |
+| 401 | `FATAL` | No retry |
+| 403 | `FATAL` | No retry |
 
 ---
 
@@ -104,6 +339,7 @@ class UserProfile(BaseModel):
     name: str
     age: int
     email: str
+    tags: list[str] = []
 
 result = await l0.structured(
     schema=UserProfile,
@@ -114,13 +350,14 @@ result = await l0.structured(
             stream=True,
         ),
     ),
-    auto_correct=True,  # Fix trailing commas, missing braces, etc.
+    auto_correct=True,  # Fix common JSON errors
 )
 
 # Type-safe access
-print(result.name)   # str
-print(result.age)    # int
-print(result.email)  # str
+print(result.name)    # str
+print(result.age)     # int
+print(result.email)   # str
+print(result.tags)    # list[str]
 ```
 
 **Parameters:**
@@ -131,62 +368,196 @@ print(result.email)  # str
 | `options` | `L0Options` | required | L0 configuration |
 | `auto_correct` | `bool` | `True` | Auto-fix common JSON errors |
 
+### JSON Auto-Correction
+
+```python
+from l0._utils import auto_correct_json, extract_json_from_markdown
+
+# Remove trailing commas
+auto_correct_json('{"a": 1,}')  # '{"a": 1}'
+
+# Balance braces
+auto_correct_json('{"a": {"b": 1}')  # '{"a": {"b": 1}}'
+
+# Balance brackets
+auto_correct_json('[1, 2, 3')  # '[1, 2, 3]'
+
+# Strip whitespace
+auto_correct_json('  {"a": 1}  ')  # '{"a": 1}'
+
+# Extract from markdown fences
+extract_json_from_markdown('''
+Here's the data:
+```json
+{"key": "value"}
+```
+''')  # '{"key": "value"}'
+```
+
 ---
 
-## Parallel Operations
+## Fallback Models
 
-### parallel(tasks, concurrency)
-
-Run tasks with concurrency limit.
+Sequential fallback when primary model fails:
 
 ```python
-import l0
-
-async def process_item(item: str) -> str:
-    # ... process item
-    return result
-
-results = await l0.parallel(
-    tasks=[
-        lambda: process_item("a"),
-        lambda: process_item("b"),
-        lambda: process_item("c"),
+result = await l0.l0(l0.L0Options(
+    stream=lambda: openai_client.chat.completions.create(
+        model="gpt-4o",
+        messages=[{"role": "user", "content": prompt}],
+        stream=True,
+    ),
+    fallbacks=[
+        # Fallback 1: Cheaper OpenAI model
+        lambda: openai_client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            stream=True,
+        ),
+        # Fallback 2: Different provider via LiteLLM
+        lambda: litellm.acompletion(
+            model="anthropic/claude-3-haiku-20240307",
+            messages=[{"role": "user", "content": prompt}],
+            stream=True,
+        ),
     ],
-    concurrency=2,  # Max 2 concurrent
+))
+
+# Check which model succeeded
+if result.state.fallback_index == 0:
+    print("Primary model (gpt-4o) succeeded")
+elif result.state.fallback_index == 1:
+    print("Fallback 1 (gpt-4o-mini) succeeded")
+else:
+    print(f"Fallback {result.state.fallback_index} succeeded")
+```
+
+### Fallback Behavior
+
+1. Primary stream fails (error, timeout, guardrail violation)
+2. L0 exhausts retries for primary stream
+3. Moves to first fallback, resets retry counter
+4. Repeats until success or all fallbacks exhausted
+5. Raises last error if all fail
+
+---
+
+## Guardrails
+
+### Built-in Rules
+
+```python
+from l0 import (
+    json_rule,           # Validates JSON structure (balanced braces)
+    strict_json_rule,    # Validates complete JSON (on completion only)
+    pattern_rule,        # Detects unwanted patterns ("As an AI...")
+    zero_output_rule,    # Detects empty/whitespace-only output
+    stall_rule,          # Detects token stalls (default: 5s gap)
+    repetition_rule,     # Detects repetitive output (model looping)
 )
 ```
 
-### race(tasks)
+### Rule Details
 
-Return first successful result, cancel remaining.
+| Rule | Streaming | Default Severity | Description |
+| ---- | --------- | ---------------- | ----------- |
+| `json_rule()` | Yes | error | Checks balanced `{}[]` brackets |
+| `strict_json_rule()` | No | error | Validates JSON via `json.loads()` on complete |
+| `pattern_rule(patterns)` | Yes | warning | Regex patterns (default: AI slop) |
+| `zero_output_rule()` | No | error | Empty output on complete |
+| `stall_rule(max_gap)` | Yes | warning | No tokens for `max_gap` seconds |
+| `repetition_rule(window, threshold)` | Yes | error | Repeated content detection |
+
+### Presets
 
 ```python
-import l0
+from l0 import recommended_guardrails, strict_guardrails
 
-result = await l0.race([
-    lambda: fast_model(),
-    lambda: slow_model(),
-    lambda: backup_model(),
-])
-# Returns first to complete, cancels others
+# Recommended: json + pattern + zero_output
+guardrails = recommended_guardrails()
+
+# Strict: All rules including drift detection
+guardrails = strict_guardrails()
+# Includes: json, strict_json, pattern, zero_output, stall, repetition
 ```
 
-### batched(items, handler, batch_size)
-
-Process items in batches.
+### Custom Guardrails
 
 ```python
-import l0
+from l0 import GuardrailRule, GuardrailViolation
+from l0.types import L0State
 
-async def process(item: str) -> str:
-    return item.upper()
+def profanity_rule(words: list[str]) -> GuardrailRule:
+    """Detect profanity in output."""
+    
+    def check(state: L0State) -> list[GuardrailViolation]:
+        violations = []
+        content_lower = state.content.lower()
+        
+        for word in words:
+            if word.lower() in content_lower:
+                violations.append(GuardrailViolation(
+                    rule="profanity",
+                    message=f"Detected banned word: {word}",
+                    severity="error",
+                    recoverable=True,
+                ))
+        
+        return violations
+    
+    return GuardrailRule(
+        name="profanity",
+        check=check,
+        description="Detects profanity in output",
+        streaming=True,
+        severity="error",
+        recoverable=True,
+    )
 
-results = await l0.batched(
-    items=["a", "b", "c", "d", "e"],
-    handler=process,
-    batch_size=2,
-)
-# Processes in batches of 2
+# Usage
+result = await l0.l0(l0.L0Options(
+    stream=my_stream,
+    guardrails=[profanity_rule(["badword1", "badword2"])],
+))
+```
+
+### GuardrailRule
+
+```python
+@dataclass
+class GuardrailRule:
+    name: str                                    # Unique name
+    check: Callable[[L0State], list[GuardrailViolation]]
+    description: str | None = None               # Human description
+    streaming: bool = True                       # Check during streaming
+    severity: Severity = "error"                 # Default severity
+    recoverable: bool = True                     # Can retry on violation
+```
+
+### GuardrailViolation
+
+```python
+@dataclass
+class GuardrailViolation:
+    rule: str                         # Rule name that triggered
+    message: str                      # Human-readable message
+    severity: Severity                # "warning" | "error" | "fatal"
+    recoverable: bool = True          # Can retry/fallback
+    position: int | None = None       # Position in content
+    timestamp: float | None = None    # When detected
+    context: dict[str, Any] | None = None   # Extra context
+    suggestion: str | None = None     # Suggested fix
+```
+
+### Violation Handling
+
+```python
+# Access violations from result
+for violation in result.state.violations:
+    print(f"[{violation.severity}] {violation.rule}: {violation.message}")
+    
+    if not violation.recoverable:
+        print("  Fatal - cannot retry")
 ```
 
 ---
@@ -202,284 +573,152 @@ import l0
 
 result = await l0.consensus(
     tasks=[
-        lambda: model_a(),
-        lambda: model_b(),
-        lambda: model_c(),
+        lambda: generate_answer_model_a(),
+        lambda: generate_answer_model_b(),
+        lambda: generate_answer_model_c(),
     ],
     strategy="majority",  # "unanimous" | "majority" | "best"
 )
 ```
 
-**Strategies:**
+**Parameters:**
 
-| Strategy | Description |
-| -------- | ----------- |
-| `unanimous` | All results must match exactly |
-| `majority` | Most common result wins (>50%) |
-| `best` | Return first result |
+| Parameter | Type | Default | Description |
+| --------- | ---- | ------- | ----------- |
+| `tasks` | `list[Callable[[], Awaitable[T]]]` | required | Async callables |
+| `strategy` | `Strategy` | `"majority"` | Consensus strategy |
 
----
+### Strategies
 
-## Guardrails
+| Strategy | Description | Raises |
+| -------- | ----------- | ------ |
+| `unanimous` | All results must be identical | `ValueError` if any differ |
+| `majority` | Most common result wins (>50%) | `ValueError` if no majority |
+| `best` | Return first result | Never (unless all fail) |
 
-### Built-in Rules
-
-```python
-from l0 import (
-    json_rule,           # JSON structure validation
-    strict_json_rule,    # Strict JSON (complete only)
-    pattern_rule,        # Known bad patterns ("As an AI...")
-    zero_output_rule,    # Zero/empty output detection
-    stall_rule,          # Token stall detection
-    repetition_rule,     # Repetitive output detection
-)
-```
-
-### Presets
+### Example: Multi-Model Validation
 
 ```python
-from l0 import (
-    recommended_guardrails,  # json + pattern + zero_output
-    strict_guardrails,       # All rules including drift
-)
+async def get_answer(model: str) -> str:
+    result = await l0.l0(l0.L0Options(
+        stream=lambda: client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": question}],
+            stream=True,
+        ),
+    ))
+    return await l0.get_text(result)
 
-# Usage
-result = await l0.l0(l0.L0Options(
-    stream=my_stream,
-    guardrails=recommended_guardrails(),
-))
-```
-
-### Custom Guardrails
-
-```python
-from l0 import GuardrailRule, GuardrailViolation
-from l0.types import L0State
-
-def max_tokens_rule(limit: int = 500) -> GuardrailRule:
-    def check(state: L0State) -> list[GuardrailViolation]:
-        if state.token_count > limit:
-            return [GuardrailViolation(
-                rule="max_tokens",
-                message=f"Exceeded {limit} tokens",
-                severity="error",
-                recoverable=False,
-            )]
-        return []
-    
-    return GuardrailRule(
-        name="max_tokens",
-        check=check,
-        streaming=True,
-        severity="error",
+# Require agreement from multiple models
+try:
+    answer = await l0.consensus(
+        tasks=[
+            lambda: get_answer("gpt-4o"),
+            lambda: get_answer("gpt-4o-mini"),
+            lambda: get_answer("gpt-4-turbo"),
+        ],
+        strategy="majority",
     )
-```
-
-### GuardrailRule
-
-```python
-@dataclass
-class GuardrailRule:
-    name: str                                    # Unique rule name
-    check: Callable[[L0State], list[GuardrailViolation]]
-    description: str | None = None
-    streaming: bool = True                       # Check during streaming
-    severity: Severity = "error"                 # Default severity
-    recoverable: bool = True                     # Can retry on violation
-```
-
-### GuardrailViolation
-
-```python
-@dataclass
-class GuardrailViolation:
-    rule: str                         # Rule name
-    message: str                      # Human-readable message
-    severity: Severity                # "warning" | "error" | "fatal"
-    recoverable: bool = True
-    position: int | None = None       # Position in content
-    timestamp: float | None = None
-    context: dict[str, Any] | None = None
-    suggestion: str | None = None
+    print(f"Consensus answer: {answer}")
+except ValueError as e:
+    print(f"No consensus: {e}")
 ```
 
 ---
 
-## Retry Configuration
+## Parallel Operations
 
-### RetryConfig
+### parallel(tasks, concurrency)
 
-```python
-@dataclass
-class RetryConfig:
-    attempts: int = 3                 # Model errors only
-    max_retries: int = 6              # Absolute cap (all errors)
-    base_delay_ms: int = 1000         # Starting delay
-    max_delay_ms: int = 10000         # Maximum delay
-    strategy: BackoffStrategy = BackoffStrategy.FIXED_JITTER
-```
-
-### BackoffStrategy
-
-```python
-class BackoffStrategy(str, Enum):
-    EXPONENTIAL = "exponential"    # delay * 2^attempt
-    LINEAR = "linear"              # delay * attempt
-    FIXED = "fixed"                # constant delay
-    FULL_JITTER = "full-jitter"    # random(0, exponential)
-    FIXED_JITTER = "fixed-jitter"  # base + random jitter (default)
-```
-
-### Error Categories
-
-```python
-class ErrorCategory(str, Enum):
-    NETWORK = "network"      # Retry forever, doesn't count
-    TRANSIENT = "transient"  # Retry forever (429, 503)
-    MODEL = "model"          # Counts toward limit
-    CONTENT = "content"      # Counts toward limit
-    PROVIDER = "provider"    # May retry
-    FATAL = "fatal"          # Don't retry
-    INTERNAL = "internal"    # Don't retry (bugs)
-```
-
-### Retry Behavior
-
-| Error Type | Retries | Counts Toward `attempts` | Counts Toward `max_retries` |
-| ---------- | ------- | ------------------------ | --------------------------- |
-| Network    | Yes     | No                       | Yes                         |
-| Timeout    | Yes     | No                       | Yes                         |
-| 429/503    | Yes     | No                       | Yes                         |
-| Model      | Yes     | **Yes**                  | Yes                         |
-| Content    | Yes     | **Yes**                  | Yes                         |
-| Fatal      | No      | -                        | -                           |
-
----
-
-## Error Handling
-
-### categorize_error(error)
-
-Categorize an exception for retry decisions.
-
-```python
-from l0.errors import categorize_error
-from l0.types import ErrorCategory
-
-category = categorize_error(error)
-
-if category == ErrorCategory.NETWORK:
-    print("Network error, will retry")
-elif category == ErrorCategory.FATAL:
-    print("Fatal error, cannot retry")
-```
-
-### Network Error Patterns
-
-L0 automatically detects these network errors:
-
-- Connection reset/refused/timeout
-- DNS resolution failures
-- SSL errors
-- Socket errors
-- EOF/broken pipe
-- Network/host unreachable
-
----
-
-## Stream Utilities
-
-### consume_stream(stream)
-
-Consume stream and return full text.
+Run tasks with concurrency limit.
 
 ```python
 import l0
 
-result = await l0.l0(options)
-text = await l0.consume_stream(result.stream)
-print(text)
+async def process_document(doc: str) -> str:
+    result = await l0.l0(l0.L0Options(
+        stream=lambda: summarize(doc),
+    ))
+    return await l0.get_text(result)
+
+# Process 10 documents, max 3 concurrent
+results = await l0.parallel(
+    tasks=[lambda d=doc: process_document(d) for doc in documents],
+    concurrency=3,
+)
 ```
 
-### get_text(result)
+**Parameters:**
 
-Helper to get text from L0Result.
+| Parameter | Type | Default | Description |
+| --------- | ---- | ------- | ----------- |
+| `tasks` | `list[Callable[[], Awaitable[T]]]` | required | Async callables |
+| `concurrency` | `int` | `5` | Max concurrent tasks |
+
+**Returns:** `list[T]` - Results in same order as tasks
+
+### race(tasks)
+
+Return first successful result, cancel remaining.
 
 ```python
 import l0
 
-result = await l0.l0(options)
-text = await l0.get_text(result)
-print(text)
+# First model to respond wins
+result = await l0.race([
+    lambda: fast_but_expensive_model(),
+    lambda: slow_but_cheap_model(),
+    lambda: backup_model(),
+])
 ```
+
+**Behavior:**
+1. All tasks start immediately
+2. First to complete successfully is returned
+3. All other tasks are cancelled
+4. If first fails, does NOT wait for others
+
+### batched(items, handler, batch_size)
+
+Process items in batches.
+
+```python
+import l0
+
+async def embed(text: str) -> list[float]:
+    # Get embedding for single text
+    return embedding
+
+# Process 1000 texts in batches of 50
+embeddings = await l0.batched(
+    items=texts,  # 1000 texts
+    handler=embed,
+    batch_size=50,
+)
+# Result: 1000 embeddings in order
+```
+
+**Parameters:**
+
+| Parameter | Type | Default | Description |
+| --------- | ---- | ------- | ----------- |
+| `items` | `list[T]` | required | Items to process |
+| `handler` | `Callable[[T], Awaitable[T]]` | required | Async handler |
+| `batch_size` | `int` | `10` | Batch size |
+
+### Pattern Comparison
+
+| Pattern | Execution | Cost | Best For |
+| ------- | --------- | ---- | -------- |
+| `l0()` with fallbacks | Sequential on failure | Low | High availability |
+| `race()` | Parallel, first wins | High | Low latency |
+| `parallel()` | Parallel with limit | Medium | Batch processing |
+| `batched()` | Sequential batches | Low | Large datasets |
+| `consensus()` | Parallel, vote | High | High reliability |
 
 ---
 
-## Adapters
-
-### Built-in Adapters
-
-L0 includes adapters for:
-
-- **OpenAI** - Direct OpenAI SDK streams
-- **LiteLLM** - 100+ providers (Anthropic, Cohere, Bedrock, Vertex, etc.)
-
-Both use the same OpenAI-compatible format.
-
-### Auto-Detection
-
-L0 automatically detects the stream type:
-
-```python
-# OpenAI - auto-detected
-result = await l0.l0(l0.L0Options(
-    stream=lambda: openai_client.chat.completions.create(..., stream=True),
-))
-
-# LiteLLM - auto-detected
-result = await l0.l0(l0.L0Options(
-    stream=lambda: litellm.acompletion(..., stream=True),
-))
-```
-
-### Explicit Adapter
-
-```python
-import l0
-
-result = await l0.l0(l0.L0Options(
-    stream=lambda: my_stream(),
-    adapter="openai",  # or "litellm"
-))
-```
-
-### Custom Adapters
-
-```python
-from l0 import Adapter, register_adapter, L0Event, EventType
-from typing import Any, AsyncIterator
-
-class MyProviderAdapter:
-    name = "my_provider"
-    
-    def detect(self, stream: Any) -> bool:
-        """Check if this adapter can handle the stream."""
-        return "my_provider" in type(stream).__module__
-    
-    async def wrap(self, stream: Any) -> AsyncIterator[L0Event]:
-        """Convert provider stream to L0 events."""
-        async for chunk in stream:
-            if chunk.text:
-                yield L0Event(type=EventType.TOKEN, value=chunk.text)
-        
-        yield L0Event(type=EventType.COMPLETE, usage={
-            "input_tokens": 100,
-            "output_tokens": 50,
-        })
-
-# Register for auto-detection
-register_adapter(MyProviderAdapter())
-```
+## Custom Adapters
 
 ### Adapter Protocol
 
@@ -498,6 +737,96 @@ class Adapter(Protocol):
         ...
 ```
 
+### Built-in Adapters
+
+| Adapter | Auto-Detected | Description |
+| ------- | ------------- | ----------- |
+| `OpenAIAdapter` | Yes | OpenAI SDK streams |
+| `LiteLLMAdapter` | Yes | LiteLLM streams (alias for OpenAI) |
+
+### Creating Custom Adapters
+
+```python
+from l0 import Adapter, register_adapter, L0Event, EventType
+from typing import Any, AsyncIterator
+
+class AnthropicAdapter:
+    """Adapter for direct Anthropic SDK (if not using LiteLLM)."""
+    name = "anthropic"
+    
+    def detect(self, stream: Any) -> bool:
+        return "anthropic" in type(stream).__module__
+    
+    async def wrap(self, stream: Any) -> AsyncIterator[L0Event]:
+        usage = None
+        
+        async for event in stream:
+            event_type = getattr(event, "type", None)
+            
+            if event_type == "content_block_delta":
+                delta = getattr(event, "delta", None)
+                if delta and hasattr(delta, "text"):
+                    yield L0Event(type=EventType.TOKEN, value=delta.text)
+            
+            elif event_type == "content_block_start":
+                block = getattr(event, "content_block", None)
+                if block and getattr(block, "type", None) == "tool_use":
+                    yield L0Event(
+                        type=EventType.TOOL_CALL,
+                        data={
+                            "id": getattr(block, "id", None),
+                            "name": getattr(block, "name", None),
+                        }
+                    )
+            
+            elif event_type == "message_delta":
+                msg_usage = getattr(event, "usage", None)
+                if msg_usage:
+                    usage = {
+                        "input_tokens": getattr(msg_usage, "input_tokens", 0),
+                        "output_tokens": getattr(msg_usage, "output_tokens", 0),
+                    }
+            
+            elif event_type == "message_stop":
+                yield L0Event(type=EventType.COMPLETE, usage=usage)
+
+# Register for auto-detection
+register_adapter(AnthropicAdapter())
+```
+
+### Adapter Functions
+
+```python
+from l0 import register_adapter, detect_adapter
+
+# Register custom adapter (takes priority over built-ins)
+register_adapter(MyAdapter())
+
+# Explicitly detect adapter
+adapter = detect_adapter(stream)
+print(adapter.name)
+
+# Use specific adapter by name
+result = await l0.l0(l0.L0Options(
+    stream=my_stream,
+    adapter="openai",  # Force OpenAI adapter
+))
+
+# Use adapter instance directly
+result = await l0.l0(l0.L0Options(
+    stream=my_stream,
+    adapter=MyCustomAdapter(),
+))
+```
+
+### Adapter Invariants
+
+Adapters **MUST**:
+- Preserve text exactly (no trimming, modification)
+- Convert errors to error events (never throw from wrap)
+- Emit `COMPLETE` event exactly once at end
+- Handle empty/null content gracefully
+
 ---
 
 ## Observability
@@ -507,22 +836,33 @@ class Adapter(Protocol):
 Central event bus for all L0 observability.
 
 ```python
-from l0 import EventBus, ObservabilityEventType
+from l0 import EventBus, ObservabilityEvent, ObservabilityEventType
 
-def handler(event):
+def my_handler(event: ObservabilityEvent):
     print(f"[{event.type}] stream={event.stream_id}")
-    print(f"  ts={event.ts}, meta={event.meta}")
+    print(f"  ts={event.ts}ms")
+    print(f"  meta={event.meta}")
 
+# Create event bus
 bus = EventBus(
-    handler=handler,
-    meta={"session": "abc123"},
+    handler=my_handler,
+    meta={"service": "my-app"},
 )
 
-# Events are emitted automatically during l0() execution
+# Access stream ID (UUIDv7)
+print(bus.stream_id)
+
+# Emit custom events
+bus.emit(ObservabilityEventType.CHECKPOINT_SAVED, checkpoint="...", token_count=100)
+```
+
+### Using with l0()
+
+```python
 result = await l0.l0(l0.L0Options(
     stream=my_stream,
-    on_event=handler,
-    meta={"user_id": "123"},
+    on_event=lambda e: print(f"[{e.type}] {e.meta}"),
+    meta={"user_id": "123", "request_id": "abc"},
 ))
 ```
 
@@ -532,7 +872,7 @@ result = await l0.l0(l0.L0Options(
 @dataclass
 class ObservabilityEvent:
     type: ObservabilityEventType     # Event type
-    ts: float                        # Unix epoch milliseconds
+    ts: float                        # Unix epoch MILLISECONDS
     stream_id: str                   # UUIDv7 stream identifier
     meta: dict[str, Any]             # Event metadata
 ```
@@ -579,6 +919,159 @@ class ObservabilityEventType(str, Enum):
     ERROR = "ERROR"
 ```
 
+### Event Flow
+
+```
+SESSION_START
+    │
+    ▼
+STREAM_INIT ──▶ STREAM_READY
+    │                │
+    │                ▼
+    │         [streaming tokens]
+    │                │
+    │                ├──▶ GUARDRAIL_PHASE_START ──▶ GUARDRAIL_RULE_RESULT ──▶ GUARDRAIL_PHASE_END
+    │                │
+    │                ├──▶ CHECKPOINT_SAVED
+    │                │
+    ▼                ▼
+NETWORK_ERROR ──▶ RETRY_ATTEMPT ──▶ [retry loop]
+    │
+    ├──▶ RETRY_GIVE_UP ──▶ FALLBACK_START ──▶ [restart]
+    │
+    └──▶ NETWORK_RECOVERY
+         │
+         ▼
+      COMPLETE / ERROR
+         │
+         ▼
+    SESSION_END
+```
+
+---
+
+## Error Handling
+
+### Error Categories
+
+```python
+class ErrorCategory(str, Enum):
+    NETWORK = "network"      # Connection drops, DNS, SSL
+    TRANSIENT = "transient"  # 429, 503 - temporary
+    MODEL = "model"          # Model refused, malformed
+    CONTENT = "content"      # Guardrail, drift
+    PROVIDER = "provider"    # API errors
+    FATAL = "fatal"          # Auth errors (401/403)
+    INTERNAL = "internal"    # Bugs, internal errors
+```
+
+### categorize_error(error)
+
+```python
+from l0.errors import categorize_error
+from l0.types import ErrorCategory
+
+try:
+    result = await l0.l0(options)
+except Exception as error:
+    category = categorize_error(error)
+    
+    if category in (ErrorCategory.NETWORK, ErrorCategory.TRANSIENT):
+        print("Transient error - would have retried")
+    elif category == ErrorCategory.FATAL:
+        print("Fatal error - check credentials")
+    elif category == ErrorCategory.INTERNAL:
+        print("Bug - please report")
+```
+
+### Error Category Behavior
+
+| Category | Retries | Counts Toward Limit | Example |
+| -------- | ------- | ------------------- | ------- |
+| `NETWORK` | Forever | No | Connection reset |
+| `TRANSIENT` | Forever | No | 429 rate limit |
+| `MODEL` | Limited | Yes | Model refused |
+| `CONTENT` | Limited | Yes | Guardrail violation |
+| `PROVIDER` | Depends | Depends | API error |
+| `FATAL` | Never | - | 401 unauthorized |
+| `INTERNAL` | Never | - | Bug |
+
+---
+
+## Stream Utilities
+
+### consume_stream(stream)
+
+Consume stream and return full text.
+
+```python
+import l0
+
+result = await l0.l0(options)
+text = await l0.consume_stream(result.stream)
+print(text)
+```
+
+### get_text(result)
+
+Helper to get text from L0Result.
+
+```python
+import l0
+
+result = await l0.l0(options)
+text = await l0.get_text(result)
+print(text)
+```
+
+### Aborting Streams
+
+```python
+result = await l0.l0(options)
+
+# Start consuming
+async for event in result.stream:
+    if should_stop(event):
+        result.abort()
+        break
+    process(event)
+
+# Check if aborted
+print(result.state.aborted)  # True
+```
+
+---
+
+## Utility Functions
+
+### JSON Utilities
+
+```python
+from l0._utils import auto_correct_json, extract_json_from_markdown
+
+# Fix common JSON errors
+fixed = auto_correct_json('{"a": 1,}')  # '{"a": 1}'
+fixed = auto_correct_json('{"a": {"b": 1}')  # '{"a": {"b": 1}}'
+fixed = auto_correct_json('[1, 2')  # '[1, 2]'
+
+# Extract JSON from markdown
+json_str = extract_json_from_markdown('''
+```json
+{"key": "value"}
+```
+''')
+```
+
+### Debug Logging
+
+```python
+import l0
+
+# Enable debug logging
+l0.enable_debug()
+# Outputs: [l0] DEBUG: Starting L0 stream: ...
+```
+
 ---
 
 ## Types
@@ -588,7 +1081,7 @@ class ObservabilityEventType(str, Enum):
 ```python
 @dataclass
 class L0Options:
-    stream: Callable[[], AsyncIterator[Any]]    # Stream factory
+    stream: Callable[[], AsyncIterator[Any]]
     fallbacks: list[Callable[[], AsyncIterator[Any]]] = field(default_factory=list)
     guardrails: list[GuardrailRule] = field(default_factory=list)
     retry: RetryConfig | None = None
@@ -614,12 +1107,12 @@ class L0Result:
 ```python
 @dataclass
 class L0State:
-    content: str = ""                           # Accumulated content
-    checkpoint: str = ""                        # Last checkpoint
-    token_count: int = 0                        # Total tokens
-    model_retry_count: int = 0                  # Model error retries
-    network_retry_count: int = 0                # Network error retries
-    fallback_index: int = 0                     # Current fallback (0=primary)
+    content: str = ""
+    checkpoint: str = ""
+    token_count: int = 0
+    model_retry_count: int = 0
+    network_retry_count: int = 0
+    fallback_index: int = 0
     violations: list[GuardrailViolation] = field(default_factory=list)
     drift_detected: bool = False
     completed: bool = False
@@ -637,10 +1130,10 @@ class L0State:
 @dataclass
 class L0Event:
     type: EventType
-    value: str | None = None                    # Token content
-    data: dict[str, Any] | None = None          # Tool call data
+    value: str | None = None
+    data: dict[str, Any] | None = None
     error: Exception | None = None
-    usage: dict[str, int] | None = None         # Token usage
+    usage: dict[str, int] | None = None
     timestamp: float | None = None
 ```
 
@@ -657,42 +1150,59 @@ class EventType(str, Enum):
     COMPLETE = "complete"
 ```
 
+### RetryConfig
+
+```python
+@dataclass
+class RetryConfig:
+    attempts: int = 3
+    max_retries: int = 6
+    base_delay_ms: int = 1000
+    max_delay_ms: int = 10000
+    strategy: BackoffStrategy = BackoffStrategy.FIXED_JITTER
+```
+
 ### TimeoutConfig
 
 ```python
 @dataclass
 class TimeoutConfig:
-    initial_token_ms: int = 5000     # Max wait for first token
-    inter_token_ms: int = 10000      # Max wait between tokens
+    initial_token_ms: int = 5000
+    inter_token_ms: int = 10000
 ```
 
----
-
-## Utility Functions
-
-### JSON Utilities
+### GuardrailRule
 
 ```python
-from l0._utils import auto_correct_json, extract_json_from_markdown
-
-# Fix common JSON errors
-fixed = auto_correct_json('{"a": 1,}')  # '{"a": 1}'
-
-# Extract JSON from markdown code blocks
-json_str = extract_json_from_markdown('''
-```json
-{"key": "value"}
-```
-''')
+@dataclass
+class GuardrailRule:
+    name: str
+    check: Callable[[L0State], list[GuardrailViolation]]
+    description: str | None = None
+    streaming: bool = True
+    severity: Severity = "error"
+    recoverable: bool = True
 ```
 
-### Debug Logging
+### GuardrailViolation
 
 ```python
-import l0
+@dataclass
+class GuardrailViolation:
+    rule: str
+    message: str
+    severity: Severity
+    recoverable: bool = True
+    position: int | None = None
+    timestamp: float | None = None
+    context: dict[str, Any] | None = None
+    suggestion: str | None = None
+```
 
-# Enable debug logging
-l0.enable_debug()
+### Severity
+
+```python
+Severity = Literal["warning", "error", "fatal"]
 ```
 
 ---
