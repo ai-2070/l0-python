@@ -24,8 +24,11 @@ class TestEnableDebug:
 
     def test_enable_debug_does_not_duplicate_handlers(self):
         """Test that repeated enable_debug calls don't add duplicate handlers."""
-        # Remove any existing StreamHandlers
+        # Store original state
+        original_level = logger.level
         original_handlers = logger.handlers[:]
+
+        # Remove any existing StreamHandlers
         for h in logger.handlers[:]:
             if isinstance(h, logging.StreamHandler):
                 logger.removeHandler(h)
@@ -40,6 +43,8 @@ class TestEnableDebug:
             ]
             assert len(stream_handlers) == 1
         finally:
+            # Restore original level
+            logger.setLevel(original_level)
             # Restore original handlers
             for h in logger.handlers[:]:
                 if isinstance(h, logging.StreamHandler):
