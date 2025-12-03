@@ -13,11 +13,11 @@ if TYPE_CHECKING:
 
 async def consume_stream(stream: AsyncIterator[Event]) -> str:
     """Consume stream and return full text."""
-    content = ""
+    parts: list[str] = []
     async for event in stream:
         if event.type == EventType.TOKEN and event.text:
-            content += event.text
-    return content
+            parts.append(event.text)
+    return "".join(parts)
 
 
 async def get_text(result: Stream) -> str:
