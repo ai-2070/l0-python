@@ -248,7 +248,8 @@ async def _internal_run(
                     logger.debug(f"Stream error: {e}")
 
                     # Determine error category
-                    from .errors import ErrorCategory, categorize_error
+                    from .errors import categorize_error
+                    from .types import ErrorCategory
 
                     error_category = categorize_error(e)
                     is_network = error_category == ErrorCategory.NETWORK
