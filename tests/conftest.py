@@ -7,11 +7,11 @@ import pytest
 
 # Load .env file if it exists
 try:
-    from dotenv import load_dotenv
+    from dotenv import load_dotenv  # type: ignore[import-not-found]
 
     env_path = Path(__file__).parent.parent / ".env"
     if env_path.exists():
-        load_dotenv(env_path)
+        load_dotenv(dotenv_path=env_path)
 except ImportError:
     pass  # python-dotenv not installed
 
@@ -19,7 +19,7 @@ except ImportError:
 def has_openai() -> bool:
     """Check if OpenAI is available (module installed and API key set)."""
     try:
-        import openai  # noqa: F401
+        import openai  # noqa: F401  # type: ignore[import-not-found]
 
         return bool(os.environ.get("OPENAI_API_KEY"))
     except ImportError:
