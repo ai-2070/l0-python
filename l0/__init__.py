@@ -12,6 +12,7 @@ from .adapters import (
 )
 from .consensus import (
     Agreement,
+    Consensus,
     ConsensusAnalysis,
     ConsensusOutput,
     ConsensusPreset,
@@ -20,14 +21,7 @@ from .consensus import (
     DisagreementValue,
     FieldConsensus,
     FieldConsensusInfo,
-    best_consensus,
     consensus,
-    get_consensus_value,
-    lenient_consensus,
-    quick_consensus,
-    standard_consensus,
-    strict_consensus,
-    validate_consensus,
 )
 from .errors import (
     # L0 Error (with .categorize() and .is_retryable() static methods)
@@ -367,8 +361,9 @@ __all__ = [
     "batched",
     "ParallelResult",
     "ParallelOptions",
-    # Consensus
-    "consensus",
+    # Consensus (scoped API)
+    "Consensus",  # Class with .run(), .strict(), .standard(), .lenient(), .best(), .quick(), .get_value(), .validate()
+    "consensus",  # Convenience alias for Consensus.run()
     "ConsensusResult",
     "ConsensusOutput",
     "ConsensusAnalysis",
@@ -378,13 +373,6 @@ __all__ = [
     "DisagreementValue",
     "FieldConsensus",
     "FieldConsensusInfo",
-    "quick_consensus",
-    "get_consensus_value",
-    "validate_consensus",
-    "strict_consensus",
-    "standard_consensus",
-    "lenient_consensus",
-    "best_consensus",
     # Window (document chunking)
     "create_window",
     "DocumentWindow",
