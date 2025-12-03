@@ -24,6 +24,33 @@ if TYPE_CHECKING:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Exceptions
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class CompositeStoreError(Exception):
+    """Raised when a CompositeEventStore operation partially fails.
+
+    Attributes:
+        succeeded_indices: Indices of stores that succeeded.
+        failed_indices: Indices of stores that failed.
+        errors: The exceptions from failed stores.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        succeeded_indices: list[int],
+        failed_indices: list[int],
+        errors: list[Exception],
+    ):
+        super().__init__(message)
+        self.succeeded_indices = succeeded_indices
+        self.failed_indices = failed_indices
+        self.errors = errors
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Event Store Protocol
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -561,12 +588,35 @@ class CompositeEventStore:
         return self._stores[self._primary_index]
 
     async def append(self, stream_id: str, event: RecordedEvent) -> None:
-        """Write to all stores."""
+        """Write to all stores.
+
+        Raises:
+            CompositeStoreError: If any store fails, with details of successes/failures.
+        """
         import asyncio
 
-        await asyncio.gather(
-            *[store.append(stream_id, event) for store in self._stores]
+        results = await asyncio.gather(
+            *[store.append(stream_id, event) for store in self._stores],
+            return_exceptions=True,
         )
+
+        # Check for failures
+        failures: list[tuple[int, Exception]] = []
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                failures.append((i, result))
+
+        if failures:
+            succeeded = [
+                i for i, r in enumerate(results) if not isinstance(r, Exception)
+            ]
+            raise CompositeStoreError(
+                f"Partial failure writing to CompositeEventStore: "
+                f"{len(failures)}/{len(self._stores)} stores failed",
+                succeeded_indices=succeeded,
+                failed_indices=[i for i, _ in failures],
+                errors=[e for _, e in failures],
+            )
 
     async def get_events(self, stream_id: str) -> list[EventEnvelope]:
         """Read from primary only."""
@@ -584,10 +634,35 @@ class CompositeEventStore:
         return await self._primary.get_events_after(stream_id, after_seq)
 
     async def delete(self, stream_id: str) -> None:
-        """Delete from all stores."""
+        """Delete from all stores.
+
+        Raises:
+            CompositeStoreError: If any store fails, with details of successes/failures.
+        """
         import asyncio
 
-        await asyncio.gather(*[store.delete(stream_id) for store in self._stores])
+        results = await asyncio.gather(
+            *[store.delete(stream_id) for store in self._stores],
+            return_exceptions=True,
+        )
+
+        # Check for failures
+        failures: list[tuple[int, Exception]] = []
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                failures.append((i, result))
+
+        if failures:
+            succeeded = [
+                i for i, r in enumerate(results) if not isinstance(r, Exception)
+            ]
+            raise CompositeStoreError(
+                f"Partial failure deleting from CompositeEventStore: "
+                f"{len(failures)}/{len(self._stores)} stores failed",
+                succeeded_indices=succeeded,
+                failed_indices=[i for i, _ in failures],
+                errors=[e for _, e in failures],
+            )
 
     async def list_streams(self) -> list[str]:
         return await self._primary.list_streams()
