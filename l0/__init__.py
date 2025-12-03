@@ -5,10 +5,9 @@ from typing import Any
 
 from .adapters import (
     Adapter,
+    Adapters,
     LiteLLMAdapter,
     OpenAIAdapter,
-    detect_adapter,
-    register_adapter,
 )
 from .consensus import (
     Agreement,
@@ -40,41 +39,12 @@ from .errors import (
 from .events import EventBus, ObservabilityEvent, ObservabilityEventType
 from .format import Format
 from .guardrails import (
-    # Patterns
-    BAD_PATTERNS,
-    BadPatterns,
-    # Core
     GuardrailRule,
     Guardrails,
     GuardrailViolation,
-    # Analysis result types
     JsonAnalysis,
     LatexAnalysis,
     MarkdownAnalysis,
-    # Analysis
-    analyze_json_structure,
-    analyze_latex_structure,
-    analyze_markdown_structure,
-    check_guardrails,
-    custom_pattern_rule,
-    find_bad_patterns,
-    is_noise_only,
-    is_zero_output,
-    # Rules
-    json_rule,
-    latex_rule,
-    looks_like_json,
-    looks_like_latex,
-    looks_like_markdown,
-    markdown_rule,
-    pattern_rule,
-    # Presets (legacy)
-    recommended_guardrails,
-    repetition_rule,
-    stall_rule,
-    strict_guardrails,
-    strict_json_rule,
-    zero_output_rule,
 )
 from .logging import enable_debug
 from .multimodal import Multimodal
@@ -303,44 +273,18 @@ __all__ = [
     # Stream utilities
     "consume_stream",
     "get_text",
-    # Adapters
+    # Adapters (scoped API)
+    "Adapters",  # Class with .detect(), .register(), .openai(), .litellm()
     "Adapter",
     "OpenAIAdapter",
     "LiteLLMAdapter",
-    "register_adapter",
-    "detect_adapter",
-    # Guardrails
-    "Guardrails",  # Class with .recommended(), .strict(), .minimal(), etc.
+    # Guardrails (scoped API)
+    "Guardrails",  # Class with .recommended(), .strict(), .json(), .check(), .analyze_json(), etc.
     "GuardrailRule",
     "GuardrailViolation",
-    "check_guardrails",
-    # Guardrail rules
-    "json_rule",
-    "strict_json_rule",
-    "markdown_rule",
-    "latex_rule",
-    "pattern_rule",
-    "custom_pattern_rule",
-    "zero_output_rule",
-    "stall_rule",
-    "repetition_rule",
-    "recommended_guardrails",  # Legacy
-    "strict_guardrails",  # Legacy
-    # Guardrail analysis
-    "analyze_json_structure",
-    "analyze_markdown_structure",
-    "analyze_latex_structure",
-    "looks_like_json",
-    "looks_like_markdown",
-    "looks_like_latex",
-    "is_zero_output",
-    "is_noise_only",
-    "find_bad_patterns",
     "JsonAnalysis",
     "MarkdownAnalysis",
     "LatexAnalysis",
-    "BAD_PATTERNS",
-    "BadPatterns",
     # Structured
     "structured",
     "structured_stream",

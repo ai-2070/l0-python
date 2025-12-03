@@ -92,28 +92,79 @@ LiteLLMAdapter = OpenAIAdapter  # LiteLLM uses OpenAI-compatible format
 _adapters: list[Adapter] = [OpenAIAdapter()]
 
 
-def register_adapter(adapter: Adapter) -> None:
-    """Register a custom adapter (takes priority)."""
-    _adapters.insert(0, adapter)
+# ─────────────────────────────────────────────────────────────────────────────
+# Adapters Class - Scoped API
+# ─────────────────────────────────────────────────────────────────────────────
 
 
-def detect_adapter(stream: Any, hint: Adapter | str | None = None) -> Adapter:
-    """Detect or lookup adapter for stream."""
-    if hint is not None and not isinstance(hint, str):
-        return hint
+class Adapters:
+    """Scoped API for stream adapter operations.
 
-    if isinstance(hint, str):
-        # Handle litellm hint -> use OpenAI adapter
-        if hint == "litellm":
-            hint = "openai"
+    Usage:
+        from l0 import Adapters
+
+        # Detect adapter for a stream
+        adapter = Adapters.detect(stream)
+
+        # Detect with hint
+        adapter = Adapters.detect(stream, hint="openai")
+
+        # Register a custom adapter
+        Adapters.register(my_adapter)
+
+        # Get built-in adapters
+        adapter = Adapters.openai()
+        adapter = Adapters.litellm()  # Alias for openai
+    """
+
+    @staticmethod
+    def detect(stream: Any, hint: Adapter | str | None = None) -> Adapter:
+        """Detect or lookup adapter for stream.
+
+        Args:
+            stream: The stream to detect adapter for
+            hint: Optional adapter instance or name hint
+
+        Returns:
+            Adapter instance that can handle the stream
+
+        Raises:
+            ValueError: If no adapter found or unknown hint
+        """
+        if hint is not None and not isinstance(hint, str):
+            return hint
+
+        if isinstance(hint, str):
+            # Handle litellm hint -> use OpenAI adapter
+            if hint == "litellm":
+                hint = "openai"
+            for a in _adapters:
+                if a.name == hint:
+                    return a
+            raise ValueError(f"Unknown adapter: {hint}")
+
         for a in _adapters:
-            if a.name == hint:
+            if a.detect(stream):
+                logger.debug(f"Detected adapter: {a.name}")
                 return a
-        raise ValueError(f"Unknown adapter: {hint}")
 
-    for a in _adapters:
-        if a.detect(stream):
-            logger.debug(f"Detected adapter: {a.name}")
-            return a
+        raise ValueError("No adapter found for stream")
 
-    raise ValueError("No adapter found for stream")
+    @staticmethod
+    def register(adapter: Adapter) -> None:
+        """Register a custom adapter (takes priority).
+
+        Args:
+            adapter: Adapter instance to register
+        """
+        _adapters.insert(0, adapter)
+
+    @staticmethod
+    def openai() -> OpenAIAdapter:
+        """Get the OpenAI adapter instance."""
+        return OpenAIAdapter()
+
+    @staticmethod
+    def litellm() -> OpenAIAdapter:
+        """Get the LiteLLM adapter instance (alias for OpenAI)."""
+        return OpenAIAdapter()

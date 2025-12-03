@@ -7,7 +7,7 @@ import inspect
 from collections.abc import AsyncIterator, Callable
 from typing import TYPE_CHECKING, Any
 
-from .adapters import detect_adapter
+from .adapters import Adapters
 from .events import EventBus, ObservabilityEventType
 from .logging import logger
 from .retry import RetryManager
@@ -108,7 +108,7 @@ async def _internal_run(
                         raw_stream = await raw_stream
 
                     event_bus.emit(ObservabilityEventType.ADAPTER_WRAP_START)
-                    detected_adapter = detect_adapter(raw_stream, adapter)
+                    detected_adapter = Adapters.detect(raw_stream, adapter)
                     event_bus.emit(
                         ObservabilityEventType.ADAPTER_DETECTED,
                         adapter=detected_adapter.name,
