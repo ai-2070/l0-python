@@ -5,7 +5,7 @@ from typing import Any, AsyncIterator
 
 import pytest
 
-from l0 import Timeout, TimeoutError
+from l0 import Retry, Timeout, TimeoutError
 from l0.adapters import register_adapter
 from l0.runtime import _internal_run
 from l0.types import Event, EventType
@@ -110,6 +110,7 @@ class TestTimeout:
             result = await _internal_run(
                 stream=slow_start_stream,
                 timeout=Timeout(initial_token=0.1, inter_token=1.0),
+                retry=Retry(attempts=1, max_retries=1),  # No retries
             )
             async for _ in result:
                 pass
@@ -132,6 +133,7 @@ class TestTimeout:
             result = await _internal_run(
                 stream=stalling_stream,
                 timeout=Timeout(initial_token=1.0, inter_token=0.1),
+                retry=Retry(attempts=1, max_retries=1),  # No retries
             )
             async for _ in result:
                 pass
