@@ -329,11 +329,14 @@ def format_instructions(
         >>> format_instructions("You are a helpful assistant.")
         '<system_instructions>\\nYou are a helpful assistant.\\n</system_instructions>'
     """
+    # Escape instructions to prevent delimiter injection
+    escaped = escape_delimiters(instructions, delimiter)
+
     if delimiter == "xml":
-        return f"<system_instructions>\n{instructions}\n</system_instructions>"
+        return f"<system_instructions>\n{escaped}\n</system_instructions>"
     elif delimiter == "markdown":
-        return f"## System Instructions\n\n{instructions}"
+        return f"## System Instructions\n\n{escaped}"
     elif delimiter == "brackets":
         separator = "=" * 30
-        return f"[SYSTEM INSTRUCTIONS]\n{separator}\n{instructions}\n{separator}"
+        return f"[SYSTEM INSTRUCTIONS]\n{separator}\n{escaped}\n{separator}"
     return instructions
