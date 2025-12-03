@@ -1,6 +1,6 @@
 """L0 - Reliability layer for AI/LLM streaming."""
 
-from typing import TYPE_CHECKING, Any, AsyncIterator, Callable
+from typing import Any, AsyncIterator, Callable
 
 from .adapters import (
     Adapter,
@@ -26,43 +26,38 @@ from .guardrails import (
 )
 from .logging import enable_debug
 from .parallel import batched, parallel, race
-from .runtime import _internal_run, _internal_run_with_options
+from .runtime import _internal_run
 from .stream import consume_stream, get_text
 from .structured import structured
 from .types import (
     BackoffStrategy,
     ErrorCategory,
+    Event,
     EventType,
-    L0Event,
-    L0Options,
-    L0Result,
-    L0State,
-    L0Stream,
-    RetryConfig,
-    TimeoutConfig,
+    Retry,
+    State,
+    Stream,
+    Timeout,
 )
 from .version import __version__
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Public API: run() is the main entrypoint, l0() is an alias
+# Public API
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-async def run(
+async def l0(
     stream: Callable[[], AsyncIterator[Any]],
     *,
     fallbacks: list[Callable[[], AsyncIterator[Any]]] | None = None,
     guardrails: list[GuardrailRule] | None = None,
-    retry: RetryConfig | None = None,
-    timeout: TimeoutConfig | None = None,
+    retry: Retry | None = None,
+    timeout: Timeout | None = None,
     adapter: Any | str | None = None,
     on_event: Callable[[ObservabilityEvent], None] | None = None,
     meta: dict[str, Any] | None = None,
-) -> L0Stream:
+) -> Stream:
     """Main L0 streaming runtime with guardrails and retry logic.
-
-    This is the primary entrypoint for the L0 library. It wraps LLM streams
-    with deterministic behavior, retry logic, fallbacks, and guardrails.
 
     Args:
         stream: Factory function that returns an async LLM stream
@@ -75,30 +70,28 @@ async def run(
         meta: Optional metadata attached to all events
 
     Returns:
-        L0Stream - async iterator with .state, .abort(), and .text()
+        Stream - async iterator with .state, .abort(), and .text()
 
     Example:
         ```python
-        import l0
+        from l0 import l0, json_rule, Retry
 
-        result = await l0.run(
+        result = await l0(
             stream=lambda: client.chat.completions.create(
                 model="gpt-4o",
                 messages=[{"role": "user", "content": "Hello"}],
                 stream=True,
             ),
-            guardrails=[l0.json_rule()],
+            guardrails=[json_rule()],
+            retry=Retry(attempts=3),
         )
 
-        # Iterate directly (Pythonic!)
         async for event in result:
-            if event.type == l0.EventType.TOKEN:
+            if event.type == EventType.TOKEN:
                 print(event.value, end="")
 
         # Or get full text
         text = await result.text()
-
-        # Access state
         print(result.state.token_count)
         ```
     """
@@ -114,31 +107,30 @@ async def run(
     )
 
 
-# Alias for convenience
-l0 = run
+# Alias
+run = l0
 
 
 __all__ = [
     # Version
     "__version__",
     # Core
+    "l0",
     "run",
-    "l0",  # Alias to run()
-    "L0Stream",
-    "L0Event",
-    "L0State",
-    "L0Options",  # Legacy, kept for backwards compatibility
-    "L0Result",  # Legacy, kept for backwards compatibility
-    "RetryConfig",
-    "TimeoutConfig",
+    "Stream",
+    "Event",
+    "State",
     "EventType",
-    "ErrorCategory",
+    # Config
+    "Retry",
+    "Timeout",
     "BackoffStrategy",
+    "ErrorCategory",
     # Events
     "ObservabilityEvent",
     "ObservabilityEventType",
     "EventBus",
-    # Stream
+    # Stream utilities
     "consume_stream",
     "get_text",
     # Adapters

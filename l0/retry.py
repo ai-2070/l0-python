@@ -5,14 +5,14 @@ import random
 
 from .errors import categorize_error
 from .logging import logger
-from .types import BackoffStrategy, ErrorCategory, RetryConfig
+from .types import BackoffStrategy, ErrorCategory, Retry
 
 
 class RetryManager:
-    """Manages retry logic with error-aware backoff. Matches TS RetryManager."""
+    """Manages retry logic with error-aware backoff."""
 
-    def __init__(self, config: RetryConfig | None = None):
-        self.config = config or RetryConfig()
+    def __init__(self, config: Retry | None = None):
+        self.config = config or Retry()
         self.model_retry_count = 0
         self.network_retry_count = 0
         self.total_retries = 0

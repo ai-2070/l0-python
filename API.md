@@ -61,7 +61,7 @@ result = await l0.run(
     guardrails=[l0.json_rule(), l0.pattern_rule()],
 
     # Optional: Retry configuration (defaults shown)
-    retry=l0.RetryConfig(
+    retry=l0.Retry(
         attempts=3,                              # LLM errors only
         max_retries=6,                           # Total (LLM + network)
         base_delay_ms=1000,
@@ -70,7 +70,7 @@ result = await l0.run(
     ),
 
     # Optional: Timeout configuration (defaults shown)
-    timeout=l0.TimeoutConfig(
+    timeout=l0.Timeout(
         initial_token_ms=5000,   # 5s to first token
         inter_token_ms=10000,    # 10s between tokens
     ),
@@ -115,18 +115,18 @@ print(result.state.duration)      # Duration in seconds
 | `stream` | `Callable[[], AsyncIterator]` | required | Factory returning async LLM stream |
 | `fallbacks` | `list[Callable]` | `None` | Fallback stream factories |
 | `guardrails` | `list[GuardrailRule]` | `None` | Guardrail rules to apply |
-| `retry` | `RetryConfig` | `None` | Retry configuration |
-| `timeout` | `TimeoutConfig` | `None` | Timeout configuration |
+| `retry` | `Retry` | `None` | Retry configuration |
+| `timeout` | `Timeout` | `None` | Timeout configuration |
 | `adapter` | `str \| Adapter` | `None` | Adapter hint or instance |
 | `on_event` | `Callable` | `None` | Observability callback |
 | `meta` | `dict` | `None` | Metadata for events |
 
-**Returns:** `L0Stream` - Async iterator with attached state
+**Returns:** `Stream` - Async iterator with attached state
 
 | Property/Method | Type | Description |
 | --------------- | ---- | ----------- |
 | `__aiter__` | - | Iterate directly over events |
-| `state` | `L0State` | Runtime state |
+| `state` | `State` | Runtime state |
 | `abort()` | `Callable[[], None]` | Abort the stream |
 | `text()` | `async -> str` | Consume stream, return full text |
 | `errors` | `list[Exception]` | Errors encountered |
@@ -284,11 +284,11 @@ L0 wraps LLM streams with deterministic behavior and unified event types.
 
 ### Unified Event Format
 
-All streams are normalized to `L0Event` objects:
+All streams are normalized to `Event` objects:
 
 ```python
 @dataclass
-class L0Event:
+class Event:
     type: EventType                           # Event type
     value: str | None = None                  # Token content
     data: dict[str, Any] | None = None        # Tool call / misc data
@@ -333,7 +333,7 @@ result = await l0.run(
     ),
 ))
 
-async for event in result.stream:
+async for event in result:
     if event.type == l0.EventType.TOOL_CALL:
         print(f"Tool: {event.data['name']}")
         print(f"Args: {event.data['arguments']}")
@@ -366,11 +366,11 @@ state.resumed           # Resumed from checkpoint
 
 ## Retry Configuration
 
-### RetryConfig
+### Retry
 
 ```python
 @dataclass
-class RetryConfig:
+class Retry:
     attempts: int = 3                 # Model errors only
     max_retries: int = 6              # Absolute cap (all errors)
     base_delay_ms: int = 1000         # Starting delay (ms)
@@ -416,9 +416,9 @@ class BackoffStrategy(str, Enum):
 
 ```python
 from l0.retry import RetryManager
-from l0.types import RetryConfig, BackoffStrategy
+from l0.types import Retry, BackoffStrategy
 
-manager = RetryManager(RetryConfig(
+manager = RetryManager(Retry(
     attempts=3,
     strategy=BackoffStrategy.EXPONENTIAL,
 ))
@@ -565,7 +565,7 @@ print(result.tags)    # list[str]
 | Parameter | Type | Default | Description |
 | --------- | ---- | ------- | ----------- |
 | `schema` | `Type[BaseModel]` | required | Pydantic model class |
-| `options` | `L0Options` | required | L0 configuration |
+| `stream` | `Callable[[], AsyncIterator]` | required | Factory returning async LLM stream |
 | `auto_correct` | `bool` | `True` | Auto-fix common JSON errors |
 
 ### JSON Auto-Correction
@@ -685,12 +685,12 @@ guardrails = strict_guardrails()
 
 ```python
 from l0 import GuardrailRule, GuardrailViolation
-from l0.types import L0State
+from l0.types import State
 
 def profanity_rule(words: list[str]) -> GuardrailRule:
     """Detect profanity in output."""
     
-    def check(state: L0State) -> list[GuardrailViolation]:
+    def check(state: State) -> list[GuardrailViolation]:
         violations = []
         content_lower = state.content.lower()
         
@@ -727,7 +727,7 @@ result = await l0.run(
 @dataclass
 class GuardrailRule:
     name: str                                    # Unique name
-    check: Callable[[L0State], list[GuardrailViolation]]
+    check: Callable[[State], list[GuardrailViolation]]
     description: str | None = None               # Human description
     streaming: bool = True                       # Check during streaming
     severity: Severity = "error"                 # Default severity
@@ -930,8 +930,8 @@ class Adapter(Protocol):
         """Return True if this adapter can handle the stream."""
         ...
     
-    def wrap(self, stream: Any) -> AsyncIterator[L0Event]:
-        """Wrap raw stream into L0Event stream."""
+    def wrap(self, stream: Any) -> AsyncIterator[Event]:
+        """Wrap raw stream into Event stream."""
         ...
 ```
 
@@ -945,7 +945,7 @@ class Adapter(Protocol):
 ### Creating Custom Adapters
 
 ```python
-from l0 import Adapter, register_adapter, L0Event, EventType
+from l0 import Adapter, register_adapter, Event, EventType
 from typing import Any, AsyncIterator
 
 class AnthropicAdapter:
@@ -955,7 +955,7 @@ class AnthropicAdapter:
     def detect(self, stream: Any) -> bool:
         return "anthropic" in type(stream).__module__
     
-    async def wrap(self, stream: Any) -> AsyncIterator[L0Event]:
+    async def wrap(self, stream: Any) -> AsyncIterator[Event]:
         usage = None
         
         async for event in stream:
@@ -964,12 +964,12 @@ class AnthropicAdapter:
             if event_type == "content_block_delta":
                 delta = getattr(event, "delta", None)
                 if delta and hasattr(delta, "text"):
-                    yield L0Event(type=EventType.TOKEN, value=delta.text)
+                    yield Event(type=EventType.TOKEN, value=delta.text)
             
             elif event_type == "content_block_start":
                 block = getattr(event, "content_block", None)
                 if block and getattr(block, "type", None) == "tool_use":
-                    yield L0Event(
+                    yield Event(
                         type=EventType.TOOL_CALL,
                         data={
                             "id": getattr(block, "id", None),
@@ -986,7 +986,7 @@ class AnthropicAdapter:
                     }
             
             elif event_type == "message_stop":
-                yield L0Event(type=EventType.COMPLETE, usage=usage)
+                yield Event(type=EventType.COMPLETE, usage=usage)
 
 # Register for auto-detection
 register_adapter(AnthropicAdapter())
@@ -1325,7 +1325,7 @@ print(text)
 
 ### get_text(result)
 
-Helper to get text from L0Result.
+Helper to get text from Stream result.
 
 ```python
 import l0
@@ -1387,37 +1387,34 @@ l0.enable_debug()
 
 ## Types
 
-### L0Options
+### Stream
 
 ```python
-@dataclass
-class L0Options:
-    stream: Callable[[], AsyncIterator[Any]]
-    fallbacks: list[Callable[[], AsyncIterator[Any]]] = field(default_factory=list)
-    guardrails: list[GuardrailRule] = field(default_factory=list)
-    retry: RetryConfig | None = None
-    timeout: TimeoutConfig | None = None
-    adapter: Adapter | str | None = None
-    on_event: Callable[[ObservabilityEvent], None] | None = None
-    meta: dict[str, Any] | None = None
+class Stream:
+    """Async iterator result with state and abort attached."""
+    __slots__ = ("_iterator", "_consumed", "_text", "state", "abort", "errors")
+    
+    state: State                              # Runtime state
+    abort: Callable[[], None]                 # Abort the stream
+    errors: list[Exception]                   # Errors encountered
+    
+    def __aiter__(self) -> "Stream":
+        return self
+    
+    async def __anext__(self) -> Event:
+        # Yields events from the stream
+        ...
+    
+    async def text(self) -> str:
+        """Consume the stream and return the full text content."""
+        ...
 ```
 
-### L0Result
+### State
 
 ```python
 @dataclass
-class L0Result:
-    stream: AsyncIterator[L0Event]
-    state: L0State
-    abort: Callable[[], None]
-    errors: list[Exception] = field(default_factory=list)
-```
-
-### L0State
-
-```python
-@dataclass
-class L0State:
+class State:
     content: str = ""
     checkpoint: str = ""
     token_count: int = 0
@@ -1435,11 +1432,11 @@ class L0State:
     network_errors: list[Any] = field(default_factory=list)
 ```
 
-### L0Event
+### Event
 
 ```python
 @dataclass
-class L0Event:
+class Event:
     type: EventType
     value: str | None = None
     data: dict[str, Any] | None = None
@@ -1461,11 +1458,11 @@ class EventType(str, Enum):
     COMPLETE = "complete"
 ```
 
-### RetryConfig
+### Retry
 
 ```python
 @dataclass
-class RetryConfig:
+class Retry:
     attempts: int = 3
     max_retries: int = 6
     base_delay_ms: int = 1000
@@ -1473,11 +1470,11 @@ class RetryConfig:
     strategy: BackoffStrategy = BackoffStrategy.FIXED_JITTER
 ```
 
-### TimeoutConfig
+### Timeout
 
 ```python
 @dataclass
-class TimeoutConfig:
+class Timeout:
     initial_token_ms: int = 5000
     inter_token_ms: int = 10000
 ```
@@ -1488,7 +1485,7 @@ class TimeoutConfig:
 @dataclass
 class GuardrailRule:
     name: str
-    check: Callable[[L0State], list[GuardrailViolation]]
+    check: Callable[[State], list[GuardrailViolation]]
     description: str | None = None
     streaming: bool = True
     severity: Severity = "error"
@@ -1569,14 +1566,14 @@ from l0 import (
     # Core
     run,
     l0,  # Alias to run()
-    L0Stream,
-    L0State,
-    L0Event,
+    Stream,
+    State,
+    Event,
     EventType,
     
     # Retry
-    RetryConfig,
-    TimeoutConfig,
+    Retry,
+    Timeout,
     BackoffStrategy,
     
     # Guardrails
@@ -1618,19 +1615,15 @@ from l0 import (
     consume_stream,
     get_text,
     enable_debug,
-    
-    # Legacy (backwards compatibility)
-    L0Options,
-    L0Result,
 )
 ```
 
-### Public Exports (40 total)
+### Public Exports
 
 | Category | Exports |
 | -------- | ------- |
-| Core | `run`, `l0` (alias), `L0Stream`, `L0State`, `L0Event`, `EventType` |
-| Retry | `RetryConfig`, `TimeoutConfig`, `BackoffStrategy`, `RETRY_DEFAULTS` |
+| Core | `run`, `l0` (alias), `Stream`, `State`, `Event`, `EventType` |
+| Retry | `Retry`, `Timeout`, `BackoffStrategy`, `RETRY_DEFAULTS` |
 | Guardrails | `GuardrailRule`, `GuardrailViolation`, `json_rule`, `strict_json_rule`, `pattern_rule`, `zero_output_rule`, `stall_rule`, `repetition_rule`, `recommended_guardrails`, `strict_guardrails` |
 | Structured | `structured` |
 | Parallel | `parallel`, `race`, `batched`, `consensus` |

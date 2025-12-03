@@ -10,16 +10,7 @@ from .events import EventBus, ObservabilityEventType
 from .logging import logger
 from .retry import RetryManager
 from .state import append_token, create_state, mark_completed, update_checkpoint
-from .types import (
-    EventType,
-    L0Event,
-    L0Options,
-    L0Result,
-    L0State,
-    L0Stream,
-    RetryConfig,
-    TimeoutConfig,
-)
+from .types import Event, EventType, Retry, State, Stream, Timeout
 
 if TYPE_CHECKING:
     from .events import ObservabilityEvent
@@ -31,12 +22,12 @@ async def _internal_run(
     *,
     fallbacks: list[Callable[[], AsyncIterator[Any]]] | None = None,
     guardrails: list[GuardrailRule] | None = None,
-    retry: RetryConfig | None = None,
-    timeout: TimeoutConfig | None = None,
+    retry: Retry | None = None,
+    timeout: Timeout | None = None,
     adapter: Any | str | None = None,
     on_event: Callable[[ObservabilityEvent], None] | None = None,
     meta: dict[str, Any] | None = None,
-) -> L0Stream:
+) -> Stream:
     """Internal implementation of the L0 runtime.
 
     Args:
@@ -50,7 +41,7 @@ async def _internal_run(
         meta: Optional metadata attached to all events
 
     Returns:
-        L0Stream - async iterator with .state, .abort(), and .text()
+        Stream - async iterator with .state, .abort(), and .text()
     """
     fallbacks = fallbacks or []
     guardrails = guardrails or []
@@ -69,7 +60,7 @@ async def _internal_run(
         state.aborted = True
         logger.debug("Abort requested")
 
-    async def run_stream() -> AsyncIterator[L0Event]:
+    async def run_stream() -> AsyncIterator[Event]:
         nonlocal state
 
         streams = [stream] + fallbacks
@@ -165,31 +156,9 @@ async def _internal_run(
             raise errors[-1]
         raise RuntimeError("All streams and fallbacks exhausted")
 
-    return L0Stream(
+    return Stream(
         iterator=run_stream(),
         state=state,
         abort=abort,
         errors=errors,
-    )
-
-
-# Legacy function that accepts L0Options for backwards compatibility
-async def _internal_run_with_options(options: L0Options) -> L0Result:
-    """Legacy wrapper that accepts L0Options."""
-    result = await _internal_run(
-        stream=options.stream,
-        fallbacks=options.fallbacks,
-        guardrails=options.guardrails,
-        retry=options.retry,
-        timeout=options.timeout,
-        adapter=options.adapter,
-        on_event=options.on_event,
-        meta=options.meta,
-    )
-    # Convert L0Stream to L0Result for backwards compatibility
-    return L0Result(
-        stream=result,
-        state=result.state,
-        abort=result.abort,
-        errors=result.errors,
     )

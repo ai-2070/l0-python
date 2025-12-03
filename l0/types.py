@@ -1,6 +1,7 @@
+"""L0 types - clean Pythonic naming without module prefixes."""
+
 from __future__ import annotations
 
-import time
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING, Any, AsyncIterator, Callable
@@ -10,11 +11,13 @@ if TYPE_CHECKING:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Event Types (matches TS: token | message | data | progress | error | complete)
+# Event Types
 # ─────────────────────────────────────────────────────────────────────────────
 
 
 class EventType(str, Enum):
+    """Type of streaming event."""
+
     TOKEN = "token"
     MESSAGE = "message"
     DATA = "data"
@@ -25,7 +28,7 @@ class EventType(str, Enum):
 
 
 @dataclass
-class L0Event:
+class Event:
     """Unified event from adapter-normalized LLM stream."""
 
     type: EventType
@@ -37,11 +40,13 @@ class L0Event:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Error Categories (matches TS ErrorCategory enum)
+# Error Categories
 # ─────────────────────────────────────────────────────────────────────────────
 
 
 class ErrorCategory(str, Enum):
+    """Category of error for retry decisions."""
+
     NETWORK = "network"
     TRANSIENT = "transient"
     MODEL = "model"
@@ -52,6 +57,8 @@ class ErrorCategory(str, Enum):
 
 
 class BackoffStrategy(str, Enum):
+    """Backoff strategy for retries."""
+
     EXPONENTIAL = "exponential"
     LINEAR = "linear"
     FIXED = "fixed"
@@ -60,12 +67,14 @@ class BackoffStrategy(str, Enum):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# State Object (matches TS L0State)
+# State
 # ─────────────────────────────────────────────────────────────────────────────
 
 
 @dataclass
-class L0State:
+class State:
+    """Runtime state tracking."""
+
     content: str = ""
     checkpoint: str = ""
     token_count: int = 0
@@ -84,12 +93,14 @@ class L0State:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Retry + Timeout Configs (matches TS defaults)
+# Retry + Timeout
 # ─────────────────────────────────────────────────────────────────────────────
 
 
 @dataclass
-class RetryConfig:
+class Retry:
+    """Retry configuration."""
+
     attempts: int = 3
     max_retries: int = 6
     base_delay_ms: int = 1000
@@ -98,45 +109,25 @@ class RetryConfig:
 
 
 @dataclass
-class TimeoutConfig:
+class Timeout:
+    """Timeout configuration."""
+
     initial_token_ms: int = 5000
     inter_token_ms: int = 10000
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Options + Results
+# Stream (the result type)
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-@dataclass
-class L0Options:
-    stream: Callable[[], AsyncIterator[Any]]
-    fallbacks: list[Callable[[], AsyncIterator[Any]]] = field(default_factory=list)
-    guardrails: list[Any] = field(default_factory=list)
-    retry: RetryConfig | None = None
-    timeout: TimeoutConfig | None = None
-    adapter: Any | str | None = None
-    on_event: Callable[[ObservabilityEvent], None] | None = None
-    meta: dict[str, Any] | None = None
-
-
-@dataclass
-class L0Result:
-    """Legacy result type - use L0Stream instead."""
-
-    stream: AsyncIterator[L0Event]
-    state: L0State
-    abort: Callable[[], None]
-    errors: list[Exception] = field(default_factory=list)
-
-
-class L0Stream:
-    """Pythonic async iterator result with state and abort attached.
+class Stream:
+    """Async iterator result with state and abort attached.
 
     Usage:
         result = await l0(stream=my_stream)
 
-        # Iterate directly (no .stream needed)
+        # Iterate directly
         async for event in result:
             print(event)
 
@@ -155,8 +146,8 @@ class L0Stream:
 
     def __init__(
         self,
-        iterator: AsyncIterator[L0Event],
-        state: L0State,
+        iterator: AsyncIterator[Event],
+        state: State,
         abort: Callable[[], None],
         errors: list[Exception] | None = None,
     ) -> None:
@@ -167,10 +158,10 @@ class L0Stream:
         self.abort = abort
         self.errors = errors or []
 
-    def __aiter__(self) -> "L0Stream":
+    def __aiter__(self) -> "Stream":
         return self
 
-    async def __anext__(self) -> L0Event:
+    async def __anext__(self) -> Event:
         try:
             return await self._iterator.__anext__()
         except StopAsyncIteration:
@@ -193,6 +184,6 @@ class L0Stream:
         return self._text
 
     @property
-    def stream(self) -> "L0Stream":
+    def stream(self) -> "Stream":
         """Backwards compatibility: result.stream returns self."""
         return self

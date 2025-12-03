@@ -12,7 +12,7 @@ from __future__ import annotations
 from typing import Any, AsyncIterator, Protocol, runtime_checkable
 
 from .logging import logger
-from .types import EventType, L0Event
+from .types import Event, EventType
 
 
 @runtime_checkable
@@ -25,8 +25,8 @@ class Adapter(Protocol):
         """Check if this adapter can handle the given stream."""
         ...
 
-    def wrap(self, stream: Any) -> AsyncIterator[L0Event]:
-        """Wrap raw stream into L0Event stream."""
+    def wrap(self, stream: Any) -> AsyncIterator[Event]:
+        """Wrap raw stream into Event stream."""
         ...
 
 
@@ -40,8 +40,8 @@ class OpenAIAdapter:
         type_name = type(stream).__module__
         return "openai" in type_name or "litellm" in type_name
 
-    async def wrap(self, stream: Any) -> AsyncIterator[L0Event]:
-        """Wrap OpenAI/LiteLLM stream into L0Events."""
+    async def wrap(self, stream: Any) -> AsyncIterator[Event]:
+        """Wrap OpenAI/LiteLLM stream into Events."""
         usage = None
         async for chunk in stream:
             if hasattr(chunk, "choices") and chunk.choices:
@@ -51,12 +51,12 @@ class OpenAIAdapter:
                 if delta:
                     # Text content
                     if hasattr(delta, "content") and delta.content:
-                        yield L0Event(type=EventType.TOKEN, value=delta.content)
+                        yield Event(type=EventType.TOKEN, value=delta.content)
 
                     # Tool calls
                     if hasattr(delta, "tool_calls") and delta.tool_calls:
                         for tc in delta.tool_calls:
-                            yield L0Event(
+                            yield Event(
                                 type=EventType.TOOL_CALL,
                                 data={
                                     "id": getattr(tc, "id", None),
@@ -80,7 +80,7 @@ class OpenAIAdapter:
                     "output_tokens": getattr(chunk.usage, "completion_tokens", 0),
                 }
 
-        yield L0Event(type=EventType.COMPLETE, usage=usage)
+        yield Event(type=EventType.COMPLETE, usage=usage)
 
 
 # Alias for clarity

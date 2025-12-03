@@ -156,7 +156,7 @@ result = await l0.run(
     # guardrails=l0.strict_guardrails()
 
     # Optional: Retry configuration (defaults shown)
-    retry=l0.RetryConfig(
+    retry=l0.Retry(
         attempts=3,                              # LLM errors only
         max_retries=6,                           # Total (LLM + network)
         base_delay_ms=1000,
@@ -165,7 +165,7 @@ result = await l0.run(
     ),
 
     # Optional: Timeout configuration (defaults shown)
-    timeout=l0.TimeoutConfig(
+    timeout=l0.Timeout(
         initial_token_ms=5000,   # 5s to first token
         inter_token_ms=10000,    # 10s between tokens
     ),
@@ -219,7 +219,7 @@ result = await l0.run(
         stream=True,
     ),
     # Optional: Timeouts (ms)
-    timeout=l0.TimeoutConfig(
+    timeout=l0.Timeout(
         initial_token_ms=5000,   # 5s to first token
         inter_token_ms=10000,    # 10s between tokens
     ),
@@ -254,7 +254,7 @@ Smart retry system that distinguishes network errors from model errors:
 ```python
 result = await l0.run(
     stream=lambda: client.chat.completions.create(..., stream=True),
-    retry=l0.RetryConfig(
+    retry=l0.Retry(
         attempts=3,                              # Model errors only (default: 3)
         max_retries=6,                           # Absolute cap across all error types (default: 6)
         base_delay_ms=1000,
@@ -344,12 +344,10 @@ class UserProfile(BaseModel):
 
 result = await l0.structured(
     schema=UserProfile,
-    options=l0.L0Options(
-        stream=lambda: client.chat.completions.create(
-            model="gpt-4o",
-            messages=[{"role": "user", "content": "Generate user data as JSON"}],
-            stream=True,
-        ),
+    stream=lambda: client.chat.completions.create(
+        model="gpt-4o",
+        messages=[{"role": "user", "content": "Generate user data as JSON"}],
+        stream=True,
     ),
     auto_correct=True,  # Fix trailing commas, missing braces, etc.
 )
@@ -479,10 +477,10 @@ guardrails = strict_guardrails()
 
 ```python
 from l0 import GuardrailRule, GuardrailViolation
-from l0.types import L0State
+from l0.types import State
 
 def max_length_rule(limit: int = 1000) -> GuardrailRule:
-    def check(state: L0State) -> list[GuardrailViolation]:
+    def check(state: State) -> list[GuardrailViolation]:
         if len(state.content) > limit:
             return [GuardrailViolation(
                 rule="max_length",
@@ -610,7 +608,7 @@ L0 supports custom adapters for integrating any LLM provider:
 ### Building Custom Adapters
 
 ```python
-from l0 import Adapter, register_adapter, L0Event, EventType
+from l0 import Adapter, register_adapter, Event, EventType
 from typing import Any, AsyncIterator
 
 class MyProviderAdapter:
@@ -620,19 +618,19 @@ class MyProviderAdapter:
         """Check if this adapter can handle the given stream."""
         return "my_provider" in type(stream).__module__
     
-    async def wrap(self, stream: Any) -> AsyncIterator[L0Event]:
+    async def wrap(self, stream: Any) -> AsyncIterator[Event]:
         """Convert provider stream to L0 events."""
         usage = None
         
         async for chunk in stream:
             # Emit text tokens
             if chunk.text:
-                yield L0Event(type=EventType.TOKEN, value=chunk.text)
+                yield Event(type=EventType.TOKEN, value=chunk.text)
             
             # Emit tool calls
             if chunk.tool_calls:
                 for tc in chunk.tool_calls:
-                    yield L0Event(
+                    yield Event(
                         type=EventType.TOOL_CALL,
                         data={
                             "id": tc.id,
@@ -649,7 +647,7 @@ class MyProviderAdapter:
                 }
         
         # Emit completion
-        yield L0Event(type=EventType.COMPLETE, usage=usage)
+        yield Event(type=EventType.COMPLETE, usage=usage)
 
 # Register for auto-detection
 register_adapter(MyProviderAdapter())
@@ -672,8 +670,8 @@ class Adapter(Protocol):
         """Return True if this adapter can handle the stream."""
         ...
     
-    def wrap(self, stream: Any) -> AsyncIterator[L0Event]:
-        """Wrap raw stream into L0Event stream."""
+    def wrap(self, stream: Any) -> AsyncIterator[Event]:
+        """Wrap raw stream into Event stream."""
         ...
 ```
 

@@ -3,7 +3,7 @@
 import pytest
 
 from l0.retry import RetryManager
-from l0.types import BackoffStrategy, ErrorCategory, RetryConfig
+from l0.types import BackoffStrategy, ErrorCategory, Retry
 
 
 class TestRetryManager:
@@ -27,7 +27,7 @@ class TestRetryManager:
 
     def test_should_retry_model_error_limited(self):
         """Model errors should respect attempt limit."""
-        mgr = RetryManager(RetryConfig(attempts=2))
+        mgr = RetryManager(Retry(attempts=2))
         error = Exception("Model error")
 
         assert mgr.should_retry(error) is True
@@ -47,7 +47,7 @@ class TestRetryManager:
 
     def test_max_retries_absolute_limit(self):
         """Total retries should not exceed max_retries."""
-        mgr = RetryManager(RetryConfig(max_retries=3))
+        mgr = RetryManager(Retry(max_retries=3))
         error = Exception("Connection reset")
 
         for _ in range(3):
@@ -70,7 +70,7 @@ class TestRetryManager:
 
     def test_get_delay_exponential(self):
         mgr = RetryManager(
-            RetryConfig(
+            Retry(
                 base_delay_ms=1000,
                 max_delay_ms=10000,
                 strategy=BackoffStrategy.EXPONENTIAL,
@@ -89,7 +89,7 @@ class TestRetryManager:
 
     def test_get_delay_linear(self):
         mgr = RetryManager(
-            RetryConfig(
+            Retry(
                 base_delay_ms=1000,
                 max_delay_ms=10000,
                 strategy=BackoffStrategy.LINEAR,
@@ -106,7 +106,7 @@ class TestRetryManager:
 
     def test_get_delay_fixed(self):
         mgr = RetryManager(
-            RetryConfig(
+            Retry(
                 base_delay_ms=1000,
                 strategy=BackoffStrategy.FIXED,
             )
@@ -122,7 +122,7 @@ class TestRetryManager:
 
     def test_get_delay_capped_at_max(self):
         mgr = RetryManager(
-            RetryConfig(
+            Retry(
                 base_delay_ms=5000,
                 max_delay_ms=8000,
                 strategy=BackoffStrategy.EXPONENTIAL,

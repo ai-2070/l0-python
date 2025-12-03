@@ -5,10 +5,10 @@ import pytest
 
 @pytest.fixture
 def sample_state():
-    """Create a sample L0State for testing."""
-    from l0.types import L0State
+    """Create a sample State for testing."""
+    from l0.types import State
 
-    return L0State(
+    return State(
         content="Hello world",
         token_count=2,
     )

@@ -11,14 +11,14 @@ from typing import TYPE_CHECKING, Any, Callable, Literal
 from .logging import logger
 
 if TYPE_CHECKING:
-    from .types import L0State
+    from .types import State
 
 Severity = Literal["warning", "error", "fatal"]
 
 
 @dataclass
 class GuardrailViolation:
-    """Matches TS GuardrailViolation interface."""
+    """Guardrail violation details."""
 
     rule: str  # Name of the rule that was violated
     message: str  # Human-readable message
@@ -32,10 +32,10 @@ class GuardrailViolation:
 
 @dataclass
 class GuardrailRule:
-    """Matches TS GuardrailRule interface."""
+    """Guardrail rule definition."""
 
     name: str  # Unique name of the rule
-    check: Callable[[L0State], list[GuardrailViolation]]  # Check function
+    check: Callable[[State], list[GuardrailViolation]]  # Check function
     description: str | None = None  # Description of what the rule checks
     streaming: bool = True  # Whether to run on every token or only at completion
     severity: Severity = "error"  # Default severity for violations from this rule
@@ -43,7 +43,7 @@ class GuardrailRule:
 
 
 def check_guardrails(
-    state: L0State, rules: list[GuardrailRule]
+    state: State, rules: list[GuardrailRule]
 ) -> list[GuardrailViolation]:
     """Run all guardrail rules against current state."""
     violations = []
@@ -63,7 +63,7 @@ def check_guardrails(
 def json_rule() -> GuardrailRule:
     """Check for balanced JSON braces."""
 
-    def check(state: L0State) -> list[GuardrailViolation]:
+    def check(state: State) -> list[GuardrailViolation]:
         content = state.content
         opens = content.count("{") + content.count("[")
         closes = content.count("}") + content.count("]")
@@ -83,7 +83,7 @@ def json_rule() -> GuardrailRule:
 def strict_json_rule() -> GuardrailRule:
     """Validate complete JSON on completion."""
 
-    def check(state: L0State) -> list[GuardrailViolation]:
+    def check(state: State) -> list[GuardrailViolation]:
         if not state.completed:
             return []
         try:
@@ -112,7 +112,7 @@ def pattern_rule(patterns: list[str] | None = None) -> GuardrailRule:
     ]
     patterns = patterns or default_patterns
 
-    def check(state: L0State) -> list[GuardrailViolation]:
+    def check(state: State) -> list[GuardrailViolation]:
         violations = []
         for pattern in patterns:
             if re.search(pattern, state.content, re.IGNORECASE):
@@ -131,7 +131,7 @@ def pattern_rule(patterns: list[str] | None = None) -> GuardrailRule:
 def zero_output_rule() -> GuardrailRule:
     """Detect empty or whitespace-only output."""
 
-    def check(state: L0State) -> list[GuardrailViolation]:
+    def check(state: State) -> list[GuardrailViolation]:
         if state.completed and not state.content.strip():
             return [
                 GuardrailViolation(
@@ -153,7 +153,7 @@ def zero_output_rule() -> GuardrailRule:
 def stall_rule(max_gap: float = 5.0) -> GuardrailRule:
     """Detect token stalls (no tokens for too long)."""
 
-    def check(state: L0State) -> list[GuardrailViolation]:
+    def check(state: State) -> list[GuardrailViolation]:
         if state.last_token_at is None:
             return []
         gap = time.time() - state.last_token_at
@@ -174,7 +174,7 @@ def stall_rule(max_gap: float = 5.0) -> GuardrailRule:
 def repetition_rule(window: int = 100, threshold: float = 0.5) -> GuardrailRule:
     """Detect repetitive output (model looping)."""
 
-    def check(state: L0State) -> list[GuardrailViolation]:
+    def check(state: State) -> list[GuardrailViolation]:
         content = state.content
         if len(content) < window * 2:
             return []

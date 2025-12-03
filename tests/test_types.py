@@ -5,13 +5,11 @@ import pytest
 from l0.types import (
     BackoffStrategy,
     ErrorCategory,
+    Event,
     EventType,
-    L0Event,
-    L0Options,
-    L0Result,
-    L0State,
-    RetryConfig,
-    TimeoutConfig,
+    Retry,
+    State,
+    Timeout,
 )
 
 
@@ -46,16 +44,16 @@ class TestBackoffStrategy:
         assert BackoffStrategy.FIXED_JITTER == "fixed-jitter"
 
 
-class TestL0Event:
+class TestEvent:
     def test_create_token_event(self):
-        event = L0Event(type=EventType.TOKEN, value="hello")
+        event = Event(type=EventType.TOKEN, value="hello")
         assert event.type == EventType.TOKEN
         assert event.value == "hello"
         assert event.data is None
         assert event.error is None
 
     def test_create_tool_call_event(self):
-        event = L0Event(
+        event = Event(
             type=EventType.TOOL_CALL,
             data={"id": "call_123", "name": "get_weather"},
         )
@@ -63,7 +61,7 @@ class TestL0Event:
         assert event.data["id"] == "call_123"
 
     def test_create_complete_event_with_usage(self):
-        event = L0Event(
+        event = Event(
             type=EventType.COMPLETE,
             usage={"input_tokens": 100, "output_tokens": 50},
         )
@@ -71,9 +69,9 @@ class TestL0Event:
         assert event.usage["input_tokens"] == 100
 
 
-class TestL0State:
+class TestState:
     def test_default_state(self):
-        state = L0State()
+        state = State()
         assert state.content == ""
         assert state.checkpoint == ""
         assert state.token_count == 0
@@ -86,9 +84,9 @@ class TestL0State:
         assert state.aborted is False
 
 
-class TestRetryConfig:
+class TestRetry:
     def test_default_values(self):
-        config = RetryConfig()
+        config = Retry()
         assert config.attempts == 3
         assert config.max_retries == 6
         assert config.base_delay_ms == 1000
@@ -96,7 +94,7 @@ class TestRetryConfig:
         assert config.strategy == BackoffStrategy.FIXED_JITTER
 
     def test_custom_values(self):
-        config = RetryConfig(
+        config = Retry(
             attempts=5,
             base_delay_ms=500,
             strategy=BackoffStrategy.EXPONENTIAL,
@@ -106,8 +104,8 @@ class TestRetryConfig:
         assert config.strategy == BackoffStrategy.EXPONENTIAL
 
 
-class TestTimeoutConfig:
+class TestTimeout:
     def test_default_values(self):
-        config = TimeoutConfig()
+        config = Timeout()
         assert config.initial_token_ms == 5000
         assert config.inter_token_ms == 10000

@@ -2,28 +2,27 @@
 
 from __future__ import annotations
 
-from typing import Type, TypeVar
+from typing import Any, AsyncIterator, Callable, Type, TypeVar
 
 from pydantic import BaseModel, ValidationError
 
 from ._utils import auto_correct_json, extract_json_from_markdown
-from .runtime import l0
-from .stream import consume_stream
-from .types import L0Options
+from .runtime import _internal_run
 
 T = TypeVar("T", bound=BaseModel)
 
 
 async def structured(
     schema: Type[T],
-    options: L0Options,
+    stream: Callable[[], AsyncIterator[Any]],
+    *,
     auto_correct: bool = True,
 ) -> T:
     """Get structured output validated against Pydantic schema.
 
     Args:
         schema: Pydantic model class to validate against
-        options: L0Options for the stream
+        stream: Factory function that returns an async LLM stream
         auto_correct: Whether to attempt JSON auto-correction
 
     Returns:
@@ -32,8 +31,8 @@ async def structured(
     Raises:
         ValueError: If schema validation fails
     """
-    result = await l0(options)
-    text = await consume_stream(result.stream)
+    result = await _internal_run(stream=stream)
+    text = await result.text()
 
     # Extract JSON from markdown if present
     text = extract_json_from_markdown(text)

@@ -4,13 +4,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, AsyncIterator
 
-from .types import EventType, L0Event
+from .types import Event, EventType
 
 if TYPE_CHECKING:
-    from .types import L0Result
+    from .types import Stream
 
 
-async def consume_stream(stream: AsyncIterator[L0Event]) -> str:
+async def consume_stream(stream: AsyncIterator[Event]) -> str:
     """Consume stream and return full text."""
     content = ""
     async for event in stream:
@@ -19,6 +19,6 @@ async def consume_stream(stream: AsyncIterator[L0Event]) -> str:
     return content
 
 
-async def get_text(result: L0Result) -> str:
-    """Helper to get text from L0Result."""
-    return await consume_stream(result.stream)
+async def get_text(result: Stream) -> str:
+    """Helper to get text from Stream result."""
+    return await result.text()
