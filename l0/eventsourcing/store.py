@@ -519,8 +519,9 @@ class FileEventStore(BaseEventStoreWithSnapshots):
         file_path = self._get_file_path(stream_id)
         lock_path = file_path.with_suffix(".lock")
 
-        # Ensure lock file exists
-        lock_path.touch(exist_ok=True)
+        # Ensure lock file exists with at least 1 byte (required for Windows msvcrt.locking)
+        if not lock_path.exists() or lock_path.stat().st_size == 0:
+            lock_path.write_bytes(b"\x00")
 
         with open(lock_path, "r+b") as lock_file:
             # Acquire exclusive lock
