@@ -386,11 +386,15 @@ async def structured_stream(
         print(validated.data)
         ```
     """
-    # Get stream
-    if callable(stream) and not hasattr(stream, "__anext__"):
-        current_stream = stream()
-    else:
-        current_stream = stream
+
+    # _internal_run expects a callable factory
+    def make_stream_factory(src: Any) -> Callable[[], AsyncIterator[Any]]:
+        if callable(src) and not hasattr(src, "__anext__"):
+            return src
+        else:
+            return lambda: src
+
+    stream_factory = make_stream_factory(stream)
 
     # Create result holder
     result_holder = StructuredStreamResult[T]()
@@ -400,7 +404,7 @@ async def structured_stream(
 
     # Run through L0 runtime
     l0_result = await _internal_run(
-        stream=current_stream if callable(stream) else (lambda s=current_stream: s),
+        stream=stream_factory,
         on_event=on_event,
         adapter=adapter,
     )
