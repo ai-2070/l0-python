@@ -226,6 +226,10 @@ async def _internal_run(
 
                     # Success
                     mark_completed(state)
+                    if fallback_idx > 0:
+                        event_bus.emit(
+                            ObservabilityEventType.FALLBACK_END, index=fallback_idx
+                        )
                     event_bus.emit(ObservabilityEventType.FINALIZATION_START)
                     event_bus.emit(
                         ObservabilityEventType.COMPLETE, token_count=state.token_count

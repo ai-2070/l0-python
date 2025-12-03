@@ -95,6 +95,38 @@ class TestLazyWrap:
         assert tokens == ["test"]
 
 
+class TestFallback:
+    @pytest.mark.asyncio
+    async def test_fallback_end_emitted_on_success(self):
+        """Test that FALLBACK_END is emitted when fallback succeeds."""
+        events_received = []
+
+        def on_event(event):
+            events_received.append(event.type.value)
+
+        async def failing_stream():
+            raise ValueError("Primary failed")
+            yield  # Make it a generator
+
+        async def working_stream():
+            yield Event(type=EventType.TOKEN, text="fallback")
+            yield Event(type=EventType.COMPLETE)
+
+        result = await _internal_run(
+            stream=failing_stream,
+            fallbacks=[working_stream],
+            on_event=on_event,
+            retry=Retry(attempts=1, max_retries=1),
+        )
+
+        async for _ in result:
+            pass
+
+        # Should have both FALLBACK_START and FALLBACK_END
+        assert "FALLBACK_START" in events_received
+        assert "FALLBACK_END" in events_received
+
+
 class TestTimeout:
     @pytest.mark.asyncio
     async def test_initial_token_timeout(self):
