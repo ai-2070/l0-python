@@ -457,6 +457,27 @@ class TestEventSourcing:
         assert comparison.identical is False
         assert len(comparison.differences) > 0
 
+    def test_compare_different_violations_same_length(self):
+        """Test that violations with same length but different contents are detected."""
+        from l0.eventsourcing import ReplayedState
+
+        state1 = ReplayedState(
+            content="Hello",
+            token_count=1,
+            completed=True,
+            violations=["violation_a"],
+        )
+        state2 = ReplayedState(
+            content="Hello",
+            token_count=1,
+            completed=True,
+            violations=["violation_b"],
+        )
+
+        comparison = EventSourcing.compare(state1, state2)
+        assert comparison.identical is False
+        assert any("violations" in diff for diff in comparison.differences)
+
     def test_list_adapters(self):
         adapters = EventSourcing.list_adapters()
         assert "memory" in adapters

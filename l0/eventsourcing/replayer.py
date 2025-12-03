@@ -411,9 +411,9 @@ def compare_replays(state1: ReplayedState, state2: ReplayedState) -> ReplayCompa
             f"fallback_index: {state1.fallback_index} vs {state2.fallback_index}"
         )
 
-    if len(state1.violations) != len(state2.violations):
+    if state1.violations != state2.violations:
         differences.append(
-            f"violations: {len(state1.violations)} vs {len(state2.violations)}"
+            f"violations: {state1.violations!r} vs {state2.violations!r}"
         )
 
     return ReplayComparison(
