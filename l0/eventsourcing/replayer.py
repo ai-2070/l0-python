@@ -136,6 +136,7 @@ class EventReplayer:
 
             elif event.type == RecordedEventType.CONTINUATION:
                 state.content = event.checkpoint
+                state.token_count = event.at
 
             elif event.type == RecordedEventType.COMPLETE:
                 state.completed = True
@@ -264,6 +265,7 @@ class ReplayResult:
 
             elif event.type == RecordedEventType.CONTINUATION:
                 self._state.content = event.checkpoint
+                self._state.token_count = event.at
 
             elif event.type == RecordedEventType.COMPLETE:
                 self._state.completed = True

@@ -374,6 +374,52 @@ class TestEventReplayer:
         assert state.retry_attempts == 1
         assert state.network_retry_count == 1
 
+    @pytest.mark.asyncio
+    async def test_replay_continuation_rewinds_token_count(self, store):
+        """Test that continuation events properly rewind token_count."""
+        recorder = EventRecorder(store, "test-stream")
+        await recorder.record_start({})
+        # Stream some tokens
+        await recorder.record_token("Hello", 0)
+        await recorder.record_token(" ", 1)
+        await recorder.record_token("world", 2)
+        # Simulate a continuation from checkpoint at token 1
+        await recorder.record_continuation("Hello ", 2)
+        # Continue with new tokens
+        await recorder.record_token("there", 2)
+        await recorder.record_complete("Hello there", 3)
+
+        replayer = EventReplayer(store)
+        state = await replayer.replay_to_state("test-stream")
+
+        assert state.content == "Hello there"
+        assert state.token_count == 3
+        assert state.completed is True
+
+    @pytest.mark.asyncio
+    async def test_replay_result_continuation_rewinds_token_count(self, store):
+        """Test that ReplayResult also rewinds token_count on continuation."""
+        from l0.eventsourcing.replayer import replay
+
+        recorder = EventRecorder(store, "test-stream")
+        await recorder.record_start({})
+        await recorder.record_token("Hello", 0)
+        await recorder.record_token(" ", 1)
+        await recorder.record_token("world", 2)
+        # Continuation rewinds to checkpoint
+        await recorder.record_continuation("Hello ", 2)
+        await recorder.record_token("there", 2)
+        await recorder.record_complete("Hello there", 3)
+
+        result = await replay("test-stream", store)
+
+        # Consume all events
+        async for _ in result:
+            pass
+
+        assert result.state.content == "Hello there"
+        assert result.state.token_count == 3
+
 
 class TestEventSourcing:
     def test_memory_store(self):
