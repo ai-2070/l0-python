@@ -91,18 +91,20 @@ class TestHtmlEscaping:
     def test_unescape_html_quotes(self):
         assert unescape_html("&quot;test&quot;") == '"test"'
 
-    def test_unescape_html_nested_entities(self):
-        """Test that nested entities like &amp;lt; are fully unescaped.
+    def test_unescape_html_double_encoded_entities(self):
+        """Test that double-encoded entities are only decoded once.
 
-        By replacing &amp; first, we ensure &amp;lt; becomes &lt; then <
-        in a single pass, rather than staying as &lt;
+        By replacing &amp; last, we prevent injection attacks where
+        &amp;lt;script&amp;gt; could become <script> if decoded incorrectly.
         """
-        # &amp;lt; should become < (not &lt;)
-        assert unescape_html("&amp;lt;") == "<"
-        # &amp;gt; should become > (not &gt;)
-        assert unescape_html("&amp;gt;") == ">"
-        # &amp;amp; becomes &amp; in one pass (correct single-pass behavior)
+        # &amp;lt; should become &lt; (not <) - only one level of decoding
+        assert unescape_html("&amp;lt;") == "&lt;"
+        # &amp;gt; should become &gt; (not >)
+        assert unescape_html("&amp;gt;") == "&gt;"
+        # &amp;amp; becomes &amp; (only one level decoded)
         assert unescape_html("&amp;amp;") == "&amp;"
+        # Verify injection attack is prevented
+        assert unescape_html("&amp;lt;script&amp;gt;") == "&lt;script&gt;"
 
     def test_roundtrip_html(self):
         original = '<script>alert("xss")</script>'

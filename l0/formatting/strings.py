@@ -118,13 +118,13 @@ def unescape_html(s: str) -> str:
         >>> unescape_html('&lt;div&gt;')
         '<div>'
     """
-    # Replace &amp; first so nested entities like &amp;lt; become &lt; then <
+    # Replace &amp; last to prevent double-decoding (e.g., &amp;lt; -> &lt; -> <)
     return (
-        s.replace("&amp;", "&")
-        .replace("&#39;", "'")
+        s.replace("&#39;", "'")
         .replace("&quot;", '"')
         .replace("&gt;", ">")
         .replace("&lt;", "<")
+        .replace("&amp;", "&")
     )
 
 
