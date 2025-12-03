@@ -213,7 +213,12 @@ def _format_structured(
                 attrs.append(f'{safe_key}="{safe_value}"')
 
         attr_str = " ".join(attrs)
-        messages.append(f"  <message {attr_str}>{entry.content}</message>")
+        safe_content = (
+            entry.content.replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+        )
+        messages.append(f"  <message {attr_str}>{safe_content}</message>")
 
     return (
         "<conversation_history>\n" + "\n".join(messages) + "\n</conversation_history>"

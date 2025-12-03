@@ -127,6 +127,23 @@ class TestFormatMemory:
         # Verify raw special characters are not present in attributes
         assert "key<>&\"'" not in result
 
+    def test_structured_content_escapes_special_chars(self):
+        """Test that message content with special XML characters is properly escaped."""
+        memory = [
+            MemoryEntry(
+                role="user",
+                content="Check if x < 10 && y > 5",
+            ),
+        ]
+        result = format_memory(memory, {"style": "structured"})
+        # Verify special characters in content are escaped
+        assert "&lt;" in result
+        assert "&gt;" in result
+        assert "&amp;" in result
+        # Verify raw special characters are not in content
+        assert "x < 10" not in result
+        assert "y > 5" not in result
+
     def test_format_with_options_object(self):
         memory = [{"role": "user", "content": "Test"}]
         opts = MemoryFormatOptions(style="compact")
