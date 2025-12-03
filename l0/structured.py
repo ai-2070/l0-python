@@ -185,9 +185,11 @@ async def structured(
         fallback_index += 1
 
     # All attempts exhausted
-    raise ValueError(
-        f"Schema validation failed after all retries: {last_error}"
-    ) from last_error
+    if isinstance(last_error, ValidationError):
+        raise ValueError(
+            f"Schema validation failed after all retries: {last_error}"
+        ) from last_error
+    raise last_error
 
 
 @dataclass

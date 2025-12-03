@@ -115,6 +115,23 @@ class TestStructured:
             )
 
     @pytest.mark.asyncio
+    async def test_structured_reraises_non_validation_errors(self):
+        """Test that non-validation errors are re-raised as-is."""
+
+        class CustomError(Exception):
+            pass
+
+        async def failing_stream():
+            raise CustomError("Something went wrong")
+            yield  # Make it a generator  # noqa: B030
+
+        with pytest.raises(CustomError, match="Something went wrong"):
+            await structured(
+                schema=UserProfile,
+                stream=failing_stream,
+            )
+
+    @pytest.mark.asyncio
     async def test_structured_without_auto_correct(self):
         """Test structured with auto_correct disabled."""
 
