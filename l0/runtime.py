@@ -65,12 +65,14 @@ async def _internal_run(
     aborted = False
 
     logger.debug(f"Starting L0 stream: {event_bus.stream_id}")
+    event_bus.emit(ObservabilityEventType.SESSION_START, session_id=event_bus.stream_id)
 
     def abort() -> None:
         nonlocal aborted
         aborted = True
         state.aborted = True
         logger.debug("Abort requested")
+        event_bus.emit(ObservabilityEventType.ABORT_REQUESTED, source="user")
 
     async def run_stream() -> AsyncIterator[Event]:
         nonlocal state
@@ -83,7 +85,13 @@ async def _internal_run(
             if fallback_idx > 0:
                 logger.debug(f"Trying fallback {fallback_idx}")
                 event_bus.emit(
-                    ObservabilityEventType.FALLBACK_START, index=fallback_idx
+                    ObservabilityEventType.FALLBACK_START,
+                    index=fallback_idx,
+                    from_index=fallback_idx - 1,
+                    reason="previous_failed",
+                )
+                event_bus.emit(
+                    ObservabilityEventType.FALLBACK_MODEL_SELECTED, index=fallback_idx
                 )
 
             while True:
@@ -99,7 +107,12 @@ async def _internal_run(
                     if inspect.iscoroutine(raw_stream):
                         raw_stream = await raw_stream
 
+                    event_bus.emit(ObservabilityEventType.ADAPTER_WRAP_START)
                     detected_adapter = detect_adapter(raw_stream, adapter)
+                    event_bus.emit(
+                        ObservabilityEventType.ADAPTER_DETECTED,
+                        adapter=detected_adapter.name,
+                    )
                     event_bus.emit(ObservabilityEventType.STREAM_READY)
 
                     # Set up timeout tracking
@@ -107,7 +120,15 @@ async def _internal_run(
                     initial_timeout = timeout.initial_token if timeout else None
                     inter_timeout = timeout.inter_token if timeout else None
 
+                    if initial_timeout is not None:
+                        event_bus.emit(
+                            ObservabilityEventType.TIMEOUT_START,
+                            timeout_type="initial_token",
+                            duration_seconds=initial_timeout,
+                        )
+
                     adapted_stream = detected_adapter.wrap(raw_stream)
+                    event_bus.emit(ObservabilityEventType.ADAPTER_WRAP_END)
 
                     while True:
                         if aborted:
@@ -136,6 +157,11 @@ async def _internal_run(
                             # current_timeout is guaranteed to be float here
                             # (asyncio.TimeoutError only raised if wait_for was called)
                             assert current_timeout is not None
+                            event_bus.emit(
+                                ObservabilityEventType.TIMEOUT_TRIGGERED,
+                                timeout_type=timeout_type,
+                                elapsed_seconds=current_timeout,
+                            )
                             token_desc = "next" if first_token_received else "first"
                             raise TimeoutError(
                                 f"Timeout waiting for {token_desc} token "
@@ -145,54 +171,125 @@ async def _internal_run(
                             ) from e
 
                         if event.type == EventType.TOKEN and event.text:
+                            if not first_token_received and inter_timeout is not None:
+                                # First token received, switch to inter-token timeout
+                                event_bus.emit(
+                                    ObservabilityEventType.TIMEOUT_RESET,
+                                    timeout_type="inter_token",
+                                    token_index=state.token_count,
+                                )
                             first_token_received = True
                             append_token(state, event.text)
 
                             # Check guardrails periodically
                             if state.token_count % 5 == 0 and guardrails:
-                                # Import here to avoid circular import
-                                from .guardrails import check_guardrails
+                                event_bus.emit(
+                                    ObservabilityEventType.GUARDRAIL_PHASE_START,
+                                    context_size=len(state.content),
+                                    rule_count=len(guardrails),
+                                )
+
+                                all_violations = []
+                                for idx, rule in enumerate(guardrails):
+                                    event_bus.emit(
+                                        ObservabilityEventType.GUARDRAIL_RULE_START,
+                                        index=idx,
+                                        rule_id=rule.name,
+                                    )
+                                    rule_violations = rule.check(state)
+                                    if rule_violations:
+                                        all_violations.extend(rule_violations)
+                                        event_bus.emit(
+                                            ObservabilityEventType.GUARDRAIL_RULE_RESULT,
+                                            index=idx,
+                                            rule_id=rule.name,
+                                            violations=[
+                                                v.__dict__ for v in rule_violations
+                                            ],
+                                        )
+                                    event_bus.emit(
+                                        ObservabilityEventType.GUARDRAIL_RULE_END,
+                                        index=idx,
+                                        rule_id=rule.name,
+                                    )
+
+                                if all_violations:
+                                    state.violations.extend(all_violations)
 
                                 event_bus.emit(
-                                    ObservabilityEventType.GUARDRAIL_PHASE_START
-                                )
-                                violations = check_guardrails(state, guardrails)
-                                if violations:
-                                    state.violations.extend(violations)
-                                    event_bus.emit(
-                                        ObservabilityEventType.GUARDRAIL_RULE_RESULT,
-                                        violations=[v.__dict__ for v in violations],
-                                    )
-                                event_bus.emit(
-                                    ObservabilityEventType.GUARDRAIL_PHASE_END
+                                    ObservabilityEventType.GUARDRAIL_PHASE_END,
+                                    rule_count=len(guardrails),
+                                    violation_count=len(all_violations),
                                 )
 
                         yield event
 
                     # Success
                     mark_completed(state)
+                    event_bus.emit(ObservabilityEventType.FINALIZATION_START)
                     event_bus.emit(
                         ObservabilityEventType.COMPLETE, token_count=state.token_count
                     )
+                    event_bus.emit(ObservabilityEventType.FINALIZATION_END)
+                    event_bus.emit(
+                        ObservabilityEventType.SESSION_SUMMARY,
+                        token_count=state.token_count,
+                        duration=state.duration,
+                        guardrail_violations=len(state.violations),
+                        fallback_depth=state.fallback_index,
+                        retry_count=state.model_retry_count + state.network_retry_count,
+                    )
+                    event_bus.emit(ObservabilityEventType.SESSION_END)
                     logger.debug(f"Stream complete: {state.token_count} tokens")
                     return
 
                 except Exception as e:
                     errors.append(e)
                     logger.debug(f"Stream error: {e}")
-                    event_bus.emit(ObservabilityEventType.NETWORK_ERROR, error=str(e))
+
+                    # Determine error category
+                    from .errors import ErrorCategory, categorize_error
+
+                    error_category = categorize_error(e)
+                    is_network = error_category == ErrorCategory.NETWORK
+
+                    if is_network:
+                        event_bus.emit(
+                            ObservabilityEventType.NETWORK_ERROR,
+                            error=str(e),
+                            retryable=retry_mgr.should_retry(e),
+                        )
+                    else:
+                        event_bus.emit(
+                            ObservabilityEventType.ERROR,
+                            error=str(e),
+                            category=error_category.value,
+                        )
 
                     if retry_mgr.should_retry(e):
+                        event_bus.emit(
+                            ObservabilityEventType.RETRY_START,
+                            attempt=retry_mgr.total_retries + 1,
+                            max_attempts=retry_mgr.config.max_retries,
+                        )
                         retry_mgr.record_attempt(e)
                         state.model_retry_count = retry_mgr.model_retry_count
                         state.network_retry_count = retry_mgr.network_retry_count
                         event_bus.emit(
                             ObservabilityEventType.RETRY_ATTEMPT,
                             attempt=retry_mgr.total_retries,
+                            reason=str(e),
+                            is_network=is_network,
                         )
                         await retry_mgr.wait(e)
+                        event_bus.emit(
+                            ObservabilityEventType.CHECKPOINT_SAVED,
+                            checkpoint=state.checkpoint,
+                            token_count=state.token_count,
+                        )
                         update_checkpoint(state)
                         state.resumed = True
+                        event_bus.emit(ObservabilityEventType.RETRY_END, success=False)
                         continue
                     else:
                         # Try next fallback
@@ -202,7 +299,12 @@ async def _internal_run(
                         break
 
         # All fallbacks exhausted
-        event_bus.emit(ObservabilityEventType.RETRY_GIVE_UP)
+        event_bus.emit(
+            ObservabilityEventType.RETRY_GIVE_UP,
+            attempts=retry_mgr.total_retries,
+            last_error=str(errors[-1]) if errors else None,
+        )
+        event_bus.emit(ObservabilityEventType.SESSION_END)
         if errors:
             raise errors[-1]
         raise RuntimeError("All streams and fallbacks exhausted")
