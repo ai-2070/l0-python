@@ -2,7 +2,7 @@
 
 import pytest
 
-from l0.adapters import OpenAIAdapter, detect_adapter, register_adapter
+from l0.adapters import Adapters, OpenAIAdapter
 from l0.types import Event, EventType
 
 
@@ -156,26 +156,26 @@ class TestOpenAIAdapter:
         assert events[0].type == EventType.COMPLETE
 
 
-class TestDetectAdapter:
+class TestAdaptersDetect:
     def test_detect_by_hint(self):
         """Test adapter detection by hint."""
-        adapter = detect_adapter(object(), hint="openai")
+        adapter = Adapters.detect(object(), hint="openai")
         assert adapter.name == "openai"
 
     def test_detect_litellm_hint(self):
         """Test that litellm hint maps to openai adapter."""
-        adapter = detect_adapter(object(), hint="litellm")
+        adapter = Adapters.detect(object(), hint="litellm")
         assert adapter.name == "openai"
 
     def test_detect_unknown_hint_raises(self):
         """Test that unknown hint raises ValueError."""
         with pytest.raises(ValueError, match="Unknown adapter"):
-            detect_adapter(object(), hint="unknown")
+            Adapters.detect(object(), hint="unknown")
 
     def test_detect_adapter_instance(self):
         """Test that adapter instance is returned directly."""
         custom = OpenAIAdapter()
-        adapter = detect_adapter(object(), hint=custom)
+        adapter = Adapters.detect(object(), hint=custom)
         assert adapter is custom
 
     def test_detect_no_match_raises(self):
@@ -185,10 +185,18 @@ class TestDetectAdapter:
             pass
 
         with pytest.raises(ValueError, match="No adapter found"):
-            detect_adapter(UnknownStream())
+            Adapters.detect(UnknownStream())
 
 
-class TestRegisterAdapter:
+class TestAdaptersRegister:
+    def setup_method(self):
+        """Reset adapters before each test."""
+        Adapters.reset()
+
+    def teardown_method(self):
+        """Reset adapters after each test."""
+        Adapters.reset()
+
     def test_register_custom_adapter(self):
         """Test registering a custom adapter."""
 
@@ -201,10 +209,133 @@ class TestRegisterAdapter:
             async def wrap(self, stream):
                 yield Event(type=EventType.COMPLETE)
 
-        register_adapter(CustomAdapter())
+        Adapters.register(CustomAdapter())
 
         class CustomStream:
             _custom_marker = True
 
-        adapter = detect_adapter(CustomStream())
+        adapter = Adapters.detect(CustomStream())
         assert adapter.name == "custom"
+
+
+class TestAdaptersList:
+    def setup_method(self):
+        """Reset adapters before each test."""
+        Adapters.reset()
+
+    def teardown_method(self):
+        """Reset adapters after each test."""
+        Adapters.reset()
+
+    def test_list_default(self):
+        """Test listing default adapters."""
+        names = Adapters.list()
+        assert names == ["openai"]
+
+    def test_list_after_register(self):
+        """Test listing after registering an adapter."""
+
+        class FakeAdapter:
+            name = "fake"
+
+            def detect(self, s):
+                return False
+
+            def wrap(self, s):
+                pass
+
+        Adapters.register(FakeAdapter())
+        names = Adapters.list()
+        assert names == ["fake", "openai"]
+
+
+class TestAdaptersUnregister:
+    def setup_method(self):
+        """Reset adapters before each test."""
+        Adapters.reset()
+
+    def teardown_method(self):
+        """Reset adapters after each test."""
+        Adapters.reset()
+
+    def test_unregister_existing(self):
+        """Test unregistering an existing adapter."""
+
+        class FakeAdapter:
+            name = "fake"
+
+            def detect(self, s):
+                return False
+
+            def wrap(self, s):
+                pass
+
+        Adapters.register(FakeAdapter())
+        assert "fake" in Adapters.list()
+
+        result = Adapters.unregister("fake")
+        assert result is True
+        assert "fake" not in Adapters.list()
+
+    def test_unregister_nonexistent(self):
+        """Test unregistering a non-existent adapter."""
+        result = Adapters.unregister("nonexistent")
+        assert result is False
+
+
+class TestAdaptersClear:
+    def setup_method(self):
+        """Reset adapters before each test."""
+        Adapters.reset()
+
+    def teardown_method(self):
+        """Reset adapters after each test."""
+        Adapters.reset()
+
+    def test_clear(self):
+        """Test clearing all adapters."""
+        assert len(Adapters.list()) > 0
+        Adapters.clear()
+        assert Adapters.list() == []
+
+
+class TestAdaptersReset:
+    def test_reset_restores_default(self):
+        """Test that reset restores default adapters."""
+        Adapters.clear()
+        assert Adapters.list() == []
+
+        Adapters.reset()
+        assert Adapters.list() == ["openai"]
+
+    def test_reset_removes_custom(self):
+        """Test that reset removes custom adapters."""
+
+        class FakeAdapter:
+            name = "fake"
+
+            def detect(self, s):
+                return False
+
+            def wrap(self, s):
+                pass
+
+        Adapters.register(FakeAdapter())
+        assert "fake" in Adapters.list()
+
+        Adapters.reset()
+        assert Adapters.list() == ["openai"]
+
+
+class TestAdaptersFactories:
+    def test_openai_factory(self):
+        """Test Adapters.openai() factory."""
+        adapter = Adapters.openai()
+        assert isinstance(adapter, OpenAIAdapter)
+        assert adapter.name == "openai"
+
+    def test_litellm_factory(self):
+        """Test Adapters.litellm() factory."""
+        adapter = Adapters.litellm()
+        assert isinstance(adapter, OpenAIAdapter)
+        assert adapter.name == "openai"

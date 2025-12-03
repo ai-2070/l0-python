@@ -112,6 +112,15 @@ class Adapters:
         # Register a custom adapter
         Adapters.register(my_adapter)
 
+        # List registered adapters
+        names = Adapters.list()
+
+        # Unregister an adapter
+        Adapters.unregister("my_adapter")
+
+        # Clear all adapters (for testing)
+        Adapters.clear()
+
         # Get built-in adapters
         adapter = Adapters.openai()
         adapter = Adapters.litellm()  # Alias for openai
@@ -158,6 +167,52 @@ class Adapters:
             adapter: Adapter instance to register
         """
         _adapters.insert(0, adapter)
+
+    @staticmethod
+    def unregister(name: str) -> bool:
+        """Unregister an adapter by name.
+
+        Args:
+            name: Name of the adapter to remove
+
+        Returns:
+            True if adapter was found and removed, False otherwise
+        """
+        global _adapters
+        for i, adapter in enumerate(_adapters):
+            if adapter.name == name:
+                _adapters.pop(i)
+                return True
+        return False
+
+    @staticmethod
+    def list() -> list[str]:
+        """List names of all registered adapters.
+
+        Returns:
+            List of adapter names in priority order
+        """
+        return [a.name for a in _adapters]
+
+    @staticmethod
+    def clear() -> None:
+        """Clear all registered adapters.
+
+        Useful for testing. After clearing, you may want to
+        re-register the default OpenAI adapter.
+        """
+        global _adapters
+        _adapters.clear()
+
+    @staticmethod
+    def reset() -> None:
+        """Reset to default adapters (OpenAI only).
+
+        Useful for testing cleanup.
+        """
+        global _adapters
+        _adapters.clear()
+        _adapters.append(OpenAIAdapter())
 
     @staticmethod
     def openai() -> OpenAIAdapter:
