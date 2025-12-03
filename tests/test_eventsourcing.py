@@ -44,6 +44,22 @@ class TestSerializeError:
         deserialized = deserialize_error(serialized)
         assert str(deserialized) == "test error"
 
+    def test_deserialize_error_preserves_stack(self):
+        """Test that deserialized errors preserve the stored stack trace."""
+        captured_error = None
+        try:
+            raise ValueError("test with traceback")
+        except ValueError as e:
+            captured_error = e
+
+        serialized = serialize_error(captured_error)
+        deserialized = deserialize_error(serialized)
+
+        assert hasattr(deserialized, "stack")
+        assert deserialized.stack == serialized.stack
+        assert "ValueError" in deserialized.stack
+        assert "test with traceback" in deserialized.stack
+
     def test_serialize_error_captures_stack_outside_except_block(self):
         """Test that stack trace is captured from error, not ambient state."""
         # Capture an error with a real traceback

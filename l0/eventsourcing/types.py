@@ -335,6 +335,8 @@ def deserialize_error(stored: SerializedError) -> Exception:
     setattr(error, "original_type", stored.name)
     if stored.code:
         setattr(error, "code", stored.code)
+    if stored.stack:
+        setattr(error, "stack", stored.stack)
     if stored.metadata:
         setattr(error, "metadata", stored.metadata)
     return error
