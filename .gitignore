@@ -1,0 +1,112 @@
+# -----------------------------
+# Python bytecode / cache
+# -----------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+
+# -----------------------------
+# Virtual environments
+# -----------------------------
+.venv/
+venv/
+env/
+.conda/
+.venv*/               # hatch/poetry variants
+*.env                 # environment variables (if used)
+.venv.bak/
+
+# pyenv
+.python-version
+
+# -----------------------------
+# Build / packaging
+# -----------------------------
+build/
+dist/
+wheelhouse/
+*.egg-info/
+*.egg
+.eggs/
+
+# Hatch
+.hatch/
+.hatch-build/
+
+# Poetry (metadata)
+.poetry/
+
+# PDM
+.pdm-python
+__pypackages__/
+
+# -----------------------------
+# Cache / tools
+# -----------------------------
+.cache/
+.mypy_cache/
+.dmypy.json
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# -----------------------------
+# IDE / editor files
+# -----------------------------
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# -----------------------------
+# Logs / temp files
+# -----------------------------
+*.log
+*.tmp
+*.temp
+*.bak
+
+# -----------------------------
+# Jupyter / notebooks
+# -----------------------------
+.ipynb_checkpoints/
+*.ipynb
+
+# -----------------------------
+# OS-generated files
+# -----------------------------
+.DS_Store
+Thumbs.db
+
+# -----------------------------
+# Docs build artifacts
+# -----------------------------
+site/
+docs/_build/
+docs/build/
+docs/.doctrees/
+
+# -----------------------------
+# C extensions / compiled artifacts
+# -----------------------------
+*.so
+*.dylib
+*.pyd
+*.c
+*.cpp
+*.o
+
+# -----------------------------
+# Local test data
+# -----------------------------
+tests/data/
+tests/tmp/
+
+# -----------------------------
+# Project-specific ignores
+# -----------------------------
+# L0 Python temporary checkpoints or replay artifacts
+.replay/
+.checkpoints/
+.state/
