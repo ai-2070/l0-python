@@ -46,8 +46,8 @@ requires_openai = pytest.mark.skipif(
     reason="OpenAI not available (module not installed or OPENAI_API_KEY not set)",
 )
 
-# Marker for integration tests requiring LiteLLM
+# Marker for integration tests requiring LiteLLM (with OpenAI)
 requires_litellm = pytest.mark.skipif(
     not has_litellm(),
-    reason="LiteLLM not available (module not installed or no API key set)",
+    reason="LiteLLM not available (module not installed or OPENAI_API_KEY not set)",
 )
