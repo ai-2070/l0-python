@@ -512,13 +512,14 @@ async def l0(options: L0Options) -> L0Result:
     """Main L0 wrapper function."""
     
     state = create_state()
-    retry_mgr = RetryManager(options.retry or RetryConfig())
-    event_bus = EventBus(options.on_event)
+    retry_mgr = RetryManager(options.retry)
+    event_bus = EventBus(options.on_event, meta=options.meta)
+    errors: list[Exception] = []
     aborted = False
     
-    logger.debug(f"Starting L0 session: {event_bus.session_id}")
+    logger.debug(f"Starting L0 stream: {event_bus.stream_id}")
     
-    def abort():
+    def abort() -> None:
         nonlocal aborted
         aborted = True
         logger.debug("Abort requested")
@@ -537,45 +538,51 @@ async def l0(options: L0Options) -> L0Result:
             
             while True:
                 try:
-                    event_bus.emit(ObservabilityEventType.STREAM_START)
+                    event_bus.emit(ObservabilityEventType.STREAM_INIT)
                     raw_stream = await stream_fn()
                     adapter = detect_adapter(raw_stream, options.adapter)
+                    event_bus.emit(ObservabilityEventType.STREAM_READY)
                     
                     async for event in adapter.wrap(raw_stream):
                         if aborted:
                             state.aborted = True
                             return
                         
-                        if event.type == EventType.TOKEN and event.text:
-                            append_token(state, event.text)
+                        if event.type == EventType.TOKEN and event.value:
+                            append_token(state, event.value)
                             
                             # Check guardrails periodically
-                            if state.token_count % 10 == 0 and options.guardrails:
+                            if state.token_count % 5 == 0 and options.guardrails:
+                                event_bus.emit(ObservabilityEventType.GUARDRAIL_PHASE_START)
                                 violations = check_guardrails(state, options.guardrails)
                                 if violations:
                                     state.violations.extend(violations)
                                     event_bus.emit(
-                                        ObservabilityEventType.GUARDRAIL_VIOLATION,
+                                        ObservabilityEventType.GUARDRAIL_RULE_RESULT,
                                         violations=[v.__dict__ for v in violations]
                                     )
+                                event_bus.emit(ObservabilityEventType.GUARDRAIL_PHASE_END)
                         
                         yield event
                     
                     # Success
-                    state.completed = True
-                    event_bus.emit(ObservabilityEventType.STREAM_COMPLETE)
+                    mark_completed(state)
+                    event_bus.emit(ObservabilityEventType.COMPLETE, token_count=state.token_count)
                     logger.debug(f"Stream complete: {state.token_count} tokens")
                     return
                     
                 except Exception as e:
+                    errors.append(e)
                     logger.debug(f"Stream error: {e}")
-                    event_bus.emit(ObservabilityEventType.ERROR_NETWORK, error=str(e))
+                    event_bus.emit(ObservabilityEventType.NETWORK_ERROR, error=str(e))
                     
                     if retry_mgr.should_retry(e):
                         retry_mgr.record_attempt(e)
+                        state.model_retry_count = retry_mgr.model_retry_count
+                        state.network_retry_count = retry_mgr.network_retry_count
                         event_bus.emit(
                             ObservabilityEventType.RETRY_ATTEMPT,
-                            attempt=retry_mgr.model_attempts
+                            attempt=retry_mgr.total_retries
                         )
                         await retry_mgr.wait(e)
                         update_checkpoint(state)
@@ -585,13 +592,14 @@ async def l0(options: L0Options) -> L0Result:
                         break
         
         # All fallbacks exhausted
-        event_bus.emit(ObservabilityEventType.RETRY_EXHAUSTED)
+        event_bus.emit(ObservabilityEventType.RETRY_GIVE_UP)
         raise RuntimeError("All streams and fallbacks exhausted")
     
     return L0Result(
         stream=run_stream(),
         state=state,
-        abort=abort
+        abort=abort,
+        errors=errors,
     )
 ```
 
