@@ -2,9 +2,13 @@
 
 Complete API reference for L0 Python.
 
+> Most applications should simply use `import l0`.
+> See [Imports](#imports) for details on available exports.
+
 ## Table of Contents
 
 - [Core Functions](#core-functions)
+- [Lifecycle Callbacks](#lifecycle-callbacks)
 - [Streaming Runtime](#streaming-runtime)
 - [Retry Configuration](#retry-configuration)
 - [Network Protection](#network-protection)
@@ -16,9 +20,12 @@ Complete API reference for L0 Python.
 - [Custom Adapters](#custom-adapters)
 - [Observability](#observability)
 - [Error Handling](#error-handling)
+- [State Machine](#state-machine)
+- [Metrics](#metrics)
 - [Stream Utilities](#stream-utilities)
 - [Utility Functions](#utility-functions)
 - [Types](#types)
+- [Imports](#imports)
 
 ---
 
@@ -104,6 +111,151 @@ print(result.state.duration)      # Duration in seconds
 | `state` | `L0State` | Runtime state |
 | `abort` | `Callable[[], None]` | Abort function |
 | `errors` | `list[Exception]` | Errors encountered |
+
+---
+
+## Lifecycle Callbacks
+
+L0 provides lifecycle callbacks for monitoring and responding to runtime events. All callbacks are optional and are pure side-effect handlers (they don't affect execution flow).
+
+### Callback Flow Diagram
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                            L0 LIFECYCLE FLOW                                │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+                                ┌──────────┐
+                                │  START   │
+                                └────┬─────┘
+                                     │
+                                     ▼
+                      ┌──────────────────────────────┐
+                      │       on_event(event)        │
+                      └──────────────┬───────────────┘
+                                     │
+                                     ▼
+┌────────────────────────────────────────────────────────────────────────────┐
+│                              STREAMING PHASE                               │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │                         on_event(event)                             │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                                                            │
+│  During streaming, events fire as conditions occur:                        │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐   │
+│  │  CHECKPOINT  │  │  TOOL_CALL   │  │    DRIFT     │  │   TIMEOUT    │   │
+│  │    SAVED     │  │   detected   │  │   detected   │  │   occurred   │   │
+│  └──────────────┘  └──────────────┘  └──────┬───────┘  └──────┬───────┘   │
+│                                             │                  │           │
+│                                             └────────┬─────────┘           │
+│                                                      │ triggers retry      │
+└──────────────────────────────────────────────────────┼─────────────────────┘
+                                                       │
+              ┌────────────────────────────────────────┼────────────────┐
+              │                    │                   │                │
+              ▼                    ▼                   ▼                ▼
+        ┌─────────┐          ┌───────────┐      ┌──────────┐      ┌─────────┐
+        │ SUCCESS │          │   ERROR   │      │VIOLATION │      │  ABORT  │
+        └────┬────┘          └─────┬─────┘      └────┬─────┘      └────┬────┘
+             │                     │                 │                 │
+             │                     ▼                 ▼                 ▼
+             │              ┌────────────────────────────────┐   ┌───────────┐
+             │              │      on_event(ERROR)           │   │ ABORTED   │
+             │              └──────────────┬─────────────────┘   └───────────┘
+             │                             │
+             │                 ┌───────────┼───────────┐
+             │                 │           │           │
+             │                 ▼           ▼           ▼
+             │           ┌──────────┐ ┌──────────┐ ┌──────────┐
+             │           │  RETRY   │ │ FALLBACK │ │  FATAL   │
+             │           └────┬─────┘ └────┬─────┘ └────┬─────┘
+             │                │            │            │
+             │                │    ┌───────┘            │
+             │                │    │                    │
+             │                ▼    ▼                    │
+             │          ┌─────────────────────┐         │
+             │          │  Has checkpoint?    │         │
+             │          └──────────┬──────────┘         │
+             │                YES  │  NO                │
+             │                ┌────┴────┐               │
+             │                ▼         ▼               │
+             │          ┌──────────┐    │               │
+             │          │  RESUME  │    │               │
+             │          └────┬─────┘    │               │
+             │               │          │               │
+             │               ▼          ▼               │
+             │          ┌─────────────────────────┐     │
+             │          │    Back to STREAMING    │─────┘
+             │          └─────────────────────────┘
+             │
+             ▼
+      ┌─────────────┐
+      │  COMPLETE   │
+      └─────────────┘
+```
+
+### Callback Reference
+
+| Callback | Signature | When Called |
+| -------- | --------- | ----------- |
+| `on_event` | `(event: ObservabilityEvent) -> None` | Any runtime event emitted |
+
+### ObservabilityEventType Reference
+
+| Event Type | Description |
+| ---------- | ----------- |
+| `SESSION_START` | New execution session begins |
+| `SESSION_END` | Session completed |
+| `STREAM_INIT` | Stream initialized |
+| `STREAM_READY` | Stream ready for tokens |
+| `RETRY_START` | Retry sequence starting |
+| `RETRY_ATTEMPT` | Individual retry attempt |
+| `RETRY_END` | Retry sequence completed |
+| `RETRY_GIVE_UP` | All retries exhausted |
+| `FALLBACK_START` | Switching to fallback model |
+| `FALLBACK_END` | Fallback sequence completed |
+| `GUARDRAIL_PHASE_START` | Guardrail check starting |
+| `GUARDRAIL_RULE_RESULT` | Individual rule result |
+| `GUARDRAIL_PHASE_END` | Guardrail check completed |
+| `DRIFT_CHECK_RESULT` | Drift detection result |
+| `NETWORK_ERROR` | Network error occurred |
+| `NETWORK_RECOVERY` | Recovered from network error |
+| `CHECKPOINT_SAVED` | Checkpoint saved |
+| `COMPLETE` | Stream completed successfully |
+| `ERROR` | Error occurred |
+
+### Usage Example
+
+```python
+import l0
+
+def handle_event(event: l0.ObservabilityEvent):
+    match event.type:
+        case l0.ObservabilityEventType.SESSION_START:
+            print(f"Session started: {event.stream_id}")
+        case l0.ObservabilityEventType.RETRY_ATTEMPT:
+            print(f"Retrying (attempt {event.meta.get('attempt', '?')})")
+        case l0.ObservabilityEventType.FALLBACK_START:
+            print(f"Switching to fallback {event.meta.get('index', '?')}")
+        case l0.ObservabilityEventType.CHECKPOINT_SAVED:
+            print(f"Checkpoint saved ({event.meta.get('token_count', 0)} tokens)")
+        case l0.ObservabilityEventType.NETWORK_ERROR:
+            print(f"Network error: {event.meta.get('error', 'unknown')}")
+        case l0.ObservabilityEventType.COMPLETE:
+            print(f"Complete! Duration: {event.meta.get('duration', 0)}s")
+        case l0.ObservabilityEventType.ERROR:
+            print(f"Error: {event.meta.get('error', 'unknown')}")
+
+result = await l0.l0(l0.L0Options(
+    stream=lambda: client.chat.completions.create(
+        model="gpt-4o",
+        messages=[{"role": "user", "content": prompt}],
+        stream=True,
+    ),
+    on_event=handle_event,
+    meta={"user_id": "123", "request_id": "abc"},
+))
+```
 
 ---
 
@@ -245,7 +397,7 @@ class BackoffStrategy(str, Enum):
 
 ```python
 from l0.retry import RetryManager
-from l0.types import RetryConfig
+from l0.types import RetryConfig, BackoffStrategy
 
 manager = RetryManager(RetryConfig(
     attempts=3,
@@ -264,6 +416,21 @@ state = manager.get_state()
 
 # Reset
 manager.reset()
+```
+
+### Centralized Defaults
+
+```python
+from l0.types import RETRY_DEFAULTS
+
+# RETRY_DEFAULTS is a dict with:
+# {
+#     "attempts": 3,
+#     "max_retries": 6,
+#     "base_delay_ms": 1000,
+#     "max_delay_ms": 10000,
+#     "strategy": BackoffStrategy.FIXED_JITTER,
+# }
 ```
 
 ---
@@ -322,6 +489,22 @@ L0 automatically detects these patterns in error messages:
 | 500-599 | `TRANSIENT` | Retry forever |
 | 401 | `FATAL` | No retry |
 | 403 | `FATAL` | No retry |
+
+### Error Code Mapping
+
+Complete mapping of L0 error codes to failure types, categories, and retry behavior.
+
+| Error Code | FailureType | Category | Counts Toward Limit | Description |
+|------------|-------------|----------|---------------------|-------------|
+| `NETWORK_ERROR` | `network` | `network` | No | Connection drops, DNS, SSL, fetch errors |
+| `INITIAL_TOKEN_TIMEOUT` | `timeout` | `transient` | No | No first token within timeout |
+| `INTER_TOKEN_TIMEOUT` | `timeout` | `transient` | No | Gap between tokens exceeded threshold |
+| `ZERO_OUTPUT` | `zero_output` | `content` | Yes | Model returned empty response |
+| `GUARDRAIL_VIOLATION` | `model` | `content` | Yes | Recoverable guardrail rule violated |
+| `FATAL_GUARDRAIL_VIOLATION` | `model` | `content` | Yes | Fatal guardrail, no retry |
+| `DRIFT_DETECTED` | `model` | `content` | Yes | Output drifted from expected pattern |
+| `STREAM_ABORTED` | `abort` | `provider` | N/A | User or signal aborted stream |
+| `ALL_STREAMS_EXHAUSTED` | `unknown` | `provider` | N/A | All retries and fallbacks failed |
 
 ---
 
@@ -703,7 +886,7 @@ embeddings = await l0.batched(
 | Parameter | Type | Default | Description |
 | --------- | ---- | ------- | ----------- |
 | `items` | `list[T]` | required | Items to process |
-| `handler` | `Callable[[T], Awaitable[T]]` | required | Async handler |
+| `handler` | `Callable[[T], Awaitable[R]]` | required | Async handler |
 | `batch_size` | `int` | `10` | Batch size |
 
 ### Pattern Comparison
@@ -996,6 +1179,119 @@ except Exception as error:
 | `FATAL` | Never | - | 401 unauthorized |
 | `INTERNAL` | Never | - | Bug |
 
+### L0Error
+
+```python
+from l0.errors import L0Error, L0ErrorCode
+
+try:
+    result = await l0.l0(options)
+except L0Error as error:
+    print(error.code)           # L0ErrorCode
+    print(error.message)        # Human-readable message
+    print(error.context)        # Additional context dict
+    print(error.recoverable)    # Can retry?
+```
+
+### Error Codes
+
+| Code | Description |
+| ---- | ----------- |
+| `STREAM_ABORTED` | Stream aborted |
+| `INITIAL_TOKEN_TIMEOUT` | First token timeout |
+| `INTER_TOKEN_TIMEOUT` | Token gap timeout |
+| `ZERO_OUTPUT` | No meaningful output |
+| `GUARDRAIL_VIOLATION` | Guardrail failed |
+| `FATAL_GUARDRAIL_VIOLATION` | Fatal guardrail |
+| `INVALID_STREAM` | Invalid stream factory |
+| `ALL_STREAMS_EXHAUSTED` | All fallbacks failed |
+| `NETWORK_ERROR` | Network failure |
+| `DRIFT_DETECTED` | Output drift |
+
+---
+
+## State Machine
+
+L0 includes a lightweight state machine for tracking runtime state. Useful for debugging and monitoring.
+
+### RuntimeState
+
+```python
+from l0.state import RuntimeState
+
+class RuntimeState(str, Enum):
+    INIT = "init"                           # Initial setup
+    WAITING_FOR_TOKEN = "waiting_for_token" # Waiting for first chunk
+    STREAMING = "streaming"                 # Receiving tokens
+    RETRYING = "retrying"                   # About to retry same stream
+    FALLBACK = "fallback"                   # Switching to fallback stream
+    FINALIZING = "finalizing"               # Finalizing (final guardrails, etc.)
+    COMPLETE = "complete"                   # Success
+    ERROR = "error"                         # Failed
+```
+
+### StateMachine
+
+```python
+from l0.state import StateMachine, RuntimeState
+
+sm = StateMachine()
+
+# Transition to a new state
+sm.transition(RuntimeState.STREAMING)
+
+# Get current state
+sm.get()  # RuntimeState.STREAMING
+
+# Check if in specific state
+sm.is_state(RuntimeState.STREAMING)  # True
+
+# Check if terminal
+sm.is_terminal()  # False (True for COMPLETE or ERROR)
+
+# Get history for debugging
+sm.get_history()
+# [{"from": "init", "to": "waiting_for_token", "timestamp": 1234567890}, ...]
+
+# Reset to initial state
+sm.reset()
+```
+
+---
+
+## Metrics
+
+Simple counters for runtime metrics.
+
+### Metrics Class
+
+```python
+from l0.state import Metrics
+
+metrics = Metrics()
+
+# Available counters
+metrics.requests       # Total stream requests
+metrics.tokens         # Total tokens processed
+metrics.retries        # Total retry attempts
+metrics.network_retries # Network retries (subset)
+metrics.errors         # Total errors
+metrics.violations     # Guardrail violations
+metrics.drift_detections # Drift detections
+metrics.fallbacks      # Fallback activations
+metrics.completions    # Successful completions
+metrics.timeouts       # Timeouts (initial + inter-token)
+
+# Get snapshot
+snapshot = metrics.snapshot()
+
+# Reset all counters
+metrics.reset()
+
+# Convert to dict
+metrics.to_dict()
+```
+
 ---
 
 ## Stream Utilities
@@ -1204,6 +1500,119 @@ class GuardrailViolation:
 ```python
 Severity = Literal["warning", "error", "fatal"]
 ```
+
+### BackoffStrategy
+
+```python
+class BackoffStrategy(str, Enum):
+    EXPONENTIAL = "exponential"    # delay * 2^attempt
+    LINEAR = "linear"              # delay * (attempt + 1)
+    FIXED = "fixed"                # constant delay
+    FULL_JITTER = "full-jitter"    # random(0, exponential)
+    FIXED_JITTER = "fixed-jitter"  # base/2 + random(base/2)
+```
+
+### ErrorCategory
+
+```python
+class ErrorCategory(str, Enum):
+    NETWORK = "network"
+    TRANSIENT = "transient"
+    MODEL = "model"
+    CONTENT = "content"
+    PROVIDER = "provider"
+    FATAL = "fatal"
+    INTERNAL = "internal"
+```
+
+---
+
+## Imports
+
+### Main Import (Recommended)
+
+```python
+import l0
+
+# All main exports available
+result = await l0.l0(l0.L0Options(...))
+guardrails = l0.recommended_guardrails()
+structured = await l0.structured(schema, options)
+```
+
+### Direct Imports
+
+```python
+from l0 import (
+    # Core
+    l0,
+    L0Options,
+    L0Result,
+    L0State,
+    L0Event,
+    EventType,
+    
+    # Retry
+    RetryConfig,
+    TimeoutConfig,
+    BackoffStrategy,
+    
+    # Guardrails
+    GuardrailRule,
+    GuardrailViolation,
+    json_rule,
+    strict_json_rule,
+    pattern_rule,
+    zero_output_rule,
+    stall_rule,
+    repetition_rule,
+    recommended_guardrails,
+    strict_guardrails,
+    
+    # Structured output
+    structured,
+    
+    # Parallel operations
+    parallel,
+    race,
+    batched,
+    consensus,
+    
+    # Adapters
+    Adapter,
+    register_adapter,
+    detect_adapter,
+    
+    # Observability
+    EventBus,
+    ObservabilityEvent,
+    ObservabilityEventType,
+    
+    # Errors
+    ErrorCategory,
+    categorize_error,
+    
+    # Utilities
+    consume_stream,
+    get_text,
+    enable_debug,
+)
+```
+
+### Public Exports (38 total)
+
+| Category | Exports |
+| -------- | ------- |
+| Core | `l0`, `L0Options`, `L0Result`, `L0State`, `L0Event`, `EventType` |
+| Retry | `RetryConfig`, `TimeoutConfig`, `BackoffStrategy`, `RETRY_DEFAULTS` |
+| Guardrails | `GuardrailRule`, `GuardrailViolation`, `json_rule`, `strict_json_rule`, `pattern_rule`, `zero_output_rule`, `stall_rule`, `repetition_rule`, `recommended_guardrails`, `strict_guardrails` |
+| Structured | `structured` |
+| Parallel | `parallel`, `race`, `batched`, `consensus` |
+| Adapters | `Adapter`, `register_adapter`, `detect_adapter` |
+| Observability | `EventBus`, `ObservabilityEvent`, `ObservabilityEventType` |
+| Errors | `ErrorCategory`, `categorize_error` |
+| Utilities | `consume_stream`, `get_text`, `enable_debug` |
+| Version | `__version__` |
 
 ---
 
