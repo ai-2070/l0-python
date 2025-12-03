@@ -266,8 +266,10 @@ def format_document(
 
         if meta_parts:
             meta_section = "<metadata>\n" + "\n".join(meta_parts) + "\n</metadata>"
-            return f"<document>\n{meta_section}\n<content>\n{content}\n</content>\n</document>"
-        return f"<document>\n<content>\n{content}\n</content>\n</document>"
+            safe_content = _escape_xml(content)
+            return f"<document>\n{meta_section}\n<content>\n{safe_content}\n</content>\n</document>"
+        safe_content = _escape_xml(content)
+        return f"<document>\n<content>\n{safe_content}\n</content>\n</document>"
 
     elif delimiter == "markdown":
         meta_parts = []

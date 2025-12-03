@@ -144,6 +144,19 @@ class TestFormatDocument:
         # Raw special chars should not appear in values
         assert "<script>" not in result
 
+    def test_document_content_escapes_xml_special_chars(self):
+        """Test that XML special characters in content are escaped."""
+        result = format_document(
+            "Check if x < 10 && y > 5, use </content><inject>evil</inject>",
+            {"title": "Test"},
+        )
+        # Content should be escaped
+        assert "&lt;" in result
+        assert "&gt;" in result
+        assert "&amp;" in result
+        # Raw injection attempt should not appear
+        assert "</content><inject>" not in result
+
     def test_document_sanitizes_extra_metadata_keys(self):
         """Test that extra metadata keys are sanitized for XML."""
         result = format_document(
