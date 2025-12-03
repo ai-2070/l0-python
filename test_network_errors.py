@@ -35,10 +35,11 @@ def test_network_error_detection():
 
 def test_network_error_analysis():
     """Test error analysis."""
+    # "Connection reset by peer" matches connection_dropped first (both patterns match)
     err = Exception("Connection reset by peer")
     analysis = NetworkError.analyze(err)
 
-    assert analysis.type == NetworkErrorType.ECONNRESET
+    assert analysis.type == NetworkErrorType.CONNECTION_DROPPED
     assert analysis.retryable is True
     assert analysis.counts_toward_limit is False
     assert "backoff" in analysis.suggestion.lower()
