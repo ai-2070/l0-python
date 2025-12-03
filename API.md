@@ -31,7 +31,7 @@ Complete API reference for L0 Python.
 
 ## Core Functions
 
-### run(options)
+### run(stream, *, fallbacks, guardrails, retry, timeout, adapter, on_event, meta)
 
 Main streaming runtime with guardrails and retry logic.
 
@@ -40,7 +40,7 @@ Main streaming runtime with guardrails and retry logic.
 ```python
 import l0
 
-result = await l0.run(l0.L0Options(
+result = await l0.run(
     # Required: Stream factory
     stream=lambda: client.chat.completions.create(
         model="gpt-4o",
@@ -58,7 +58,7 @@ result = await l0.run(l0.L0Options(
     ],
 
     # Optional: Guardrails
-    guardrails=l0.recommended_guardrails(),
+    guardrails=[l0.json_rule(), l0.pattern_rule()],
 
     # Optional: Retry configuration (defaults shown)
     retry=l0.RetryConfig(
@@ -83,10 +83,10 @@ result = await l0.run(l0.L0Options(
 
     # Optional: Metadata for events
     meta={"user_id": "123"},
-))
+)
 
-# Consume stream
-async for event in result.stream:
+# Iterate directly - result IS the async iterator
+async for event in result:
     match event.type:
         case l0.EventType.TOKEN:
             print(event.value, end="")
@@ -98,20 +98,37 @@ async for event in result.stream:
         case l0.EventType.ERROR:
             print(f"Error: {event.error}")
 
-# Access final state
+# Or get full text directly
+text = await result.text()
+
+# Access state anytime
 print(result.state.content)       # Full accumulated content
 print(result.state.token_count)   # Total tokens received
 print(result.state.checkpoint)    # Last stable checkpoint
 print(result.state.duration)      # Duration in seconds
 ```
 
-**Returns:** `L0Result`
+**Parameters:**
 
-| Property | Type | Description |
-| -------- | ---- | ----------- |
-| `stream` | `AsyncIterator[L0Event]` | Event stream |
+| Parameter | Type | Default | Description |
+| --------- | ---- | ------- | ----------- |
+| `stream` | `Callable[[], AsyncIterator]` | required | Factory returning async LLM stream |
+| `fallbacks` | `list[Callable]` | `None` | Fallback stream factories |
+| `guardrails` | `list[GuardrailRule]` | `None` | Guardrail rules to apply |
+| `retry` | `RetryConfig` | `None` | Retry configuration |
+| `timeout` | `TimeoutConfig` | `None` | Timeout configuration |
+| `adapter` | `str \| Adapter` | `None` | Adapter hint or instance |
+| `on_event` | `Callable` | `None` | Observability callback |
+| `meta` | `dict` | `None` | Metadata for events |
+
+**Returns:** `L0Stream` - Async iterator with attached state
+
+| Property/Method | Type | Description |
+| --------------- | ---- | ----------- |
+| `__aiter__` | - | Iterate directly over events |
 | `state` | `L0State` | Runtime state |
-| `abort` | `Callable[[], None]` | Abort function |
+| `abort()` | `Callable[[], None]` | Abort the stream |
+| `text()` | `async -> str` | Consume stream, return full text |
 | `errors` | `list[Exception]` | Errors encountered |
 
 ---
@@ -296,7 +313,7 @@ class EventType(str, Enum):
 ### Tool Call Handling
 
 ```python
-result = await l0.run(l0.L0Options(
+result = await l0.run(
     stream=lambda: client.chat.completions.create(
         model="gpt-4o",
         messages=[{"role": "user", "content": "What's the weather?"}],
