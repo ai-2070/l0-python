@@ -44,6 +44,23 @@ class TestSerializeError:
         deserialized = deserialize_error(serialized)
         assert str(deserialized) == "test error"
 
+    def test_serialize_error_captures_stack_outside_except_block(self):
+        """Test that stack trace is captured from error, not ambient state."""
+        # Capture an error with a real traceback
+        captured_error = None
+        try:
+            raise ValueError("test with traceback")
+        except ValueError as e:
+            captured_error = e
+
+        # Serialize OUTSIDE the except block (ambient exc_info is now None)
+        serialized = serialize_error(captured_error)
+
+        # Stack should contain the actual traceback, not 'NoneType: None'
+        assert "NoneType" not in serialized.stack
+        assert "ValueError" in serialized.stack
+        assert "test with traceback" in serialized.stack
+
 
 class TestInMemoryEventStore:
     @pytest.fixture

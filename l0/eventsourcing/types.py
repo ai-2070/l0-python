@@ -318,7 +318,9 @@ def serialize_error(error: Exception) -> SerializedError:
         name=type(error).__name__,
         message=str(error),
         code=getattr(error, "code", None),
-        stack=traceback.format_exc(),
+        stack="".join(
+            traceback.format_exception(type(error), error, error.__traceback__)
+        ),
         metadata=getattr(error, "metadata", None),
     )
 
