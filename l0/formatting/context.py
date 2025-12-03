@@ -1,0 +1,313 @@
+"""Context formatting utilities for L0.
+
+This module provides functions for formatting context, documents, and
+instructions with proper delimiters for LLM consumption.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Any, Literal
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Types
+# ─────────────────────────────────────────────────────────────────────────────
+
+DelimiterType = Literal["xml", "markdown", "brackets"]
+
+
+@dataclass
+class ContextOptions:
+    """Options for formatting context."""
+
+    label: str = "context"
+    delimiter: DelimiterType = "xml"
+
+
+@dataclass
+class DocumentMetadata:
+    """Metadata for a document."""
+
+    title: str | None = None
+    author: str | None = None
+    date: str | None = None
+    source: str | None = None
+    extra: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class ContextItem:
+    """An item for multiple context formatting."""
+
+    content: str
+    label: str = "context"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Delimiter Escaping
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def escape_delimiters(content: str, delimiter: DelimiterType = "xml") -> str:
+    """Escape delimiters in content to prevent injection attacks.
+
+    Args:
+        content: The content to escape.
+        delimiter: The delimiter type to escape for.
+
+    Returns:
+        The escaped content.
+
+    Example:
+        >>> escape_delimiters("<script>alert('xss')</script>", "xml")
+        "&lt;script&gt;alert('xss')&lt;/script&gt;"
+    """
+    if delimiter == "xml":
+        return content.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    elif delimiter == "markdown":
+        # Escape markdown heading markers and code fences
+        lines = content.split("\n")
+        escaped = []
+        for line in lines:
+            if line.startswith("#"):
+                line = "\\" + line
+            if line.startswith("```"):
+                line = "\\" + line
+            escaped.append(line)
+        return "\n".join(escaped)
+    elif delimiter == "brackets":
+        # Escape bracket markers
+        return content.replace("[", "\\[").replace("]", "\\]")
+    return content
+
+
+def unescape_delimiters(content: str, delimiter: DelimiterType = "xml") -> str:
+    """Unescape delimiters in content.
+
+    Args:
+        content: The content to unescape.
+        delimiter: The delimiter type to unescape.
+
+    Returns:
+        The unescaped content.
+
+    Example:
+        >>> unescape_delimiters("&lt;div&gt;", "xml")
+        '<div>'
+    """
+    if delimiter == "xml":
+        return content.replace("&gt;", ">").replace("&lt;", "<").replace("&amp;", "&")
+    elif delimiter == "markdown":
+        lines = content.split("\n")
+        unescaped = []
+        for line in lines:
+            if line.startswith("\\#"):
+                line = line[1:]
+            if line.startswith("\\```"):
+                line = line[1:]
+            unescaped.append(line)
+        return "\n".join(unescaped)
+    elif delimiter == "brackets":
+        return content.replace("\\[", "[").replace("\\]", "]")
+    return content
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Context Formatting
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def format_context(
+    content: str,
+    *,
+    label: str = "context",
+    delimiter: DelimiterType = "xml",
+) -> str:
+    """Wrap content with proper delimiters.
+
+    Args:
+        content: The content to wrap.
+        label: The label for the context section.
+        delimiter: The delimiter type - "xml", "markdown", or "brackets".
+
+    Returns:
+        The formatted context string.
+
+    Example:
+        >>> format_context("User manual content", label="Documentation")
+        '<documentation>\\nUser manual content\\n</documentation>'
+
+        >>> format_context("Content", label="Context", delimiter="markdown")
+        '# Context\\n\\nContent'
+
+        >>> format_context("Content", delimiter="brackets")
+        '[CONTEXT]\\n==============================\\nContent\\n=============================='
+    """
+    label_lower = label.lower()
+    label_upper = label.upper()
+
+    if delimiter == "xml":
+        return f"<{label_lower}>\n{content}\n</{label_lower}>"
+    elif delimiter == "markdown":
+        return f"# {label}\n\n{content}"
+    elif delimiter == "brackets":
+        separator = "=" * 30
+        return f"[{label_upper}]\n{separator}\n{content}\n{separator}"
+    return content
+
+
+def format_multiple_contexts(
+    items: list[ContextItem] | list[dict[str, str]],
+    *,
+    delimiter: DelimiterType = "xml",
+) -> str:
+    """Format multiple contexts with the specified delimiter.
+
+    Args:
+        items: List of ContextItem objects or dicts with 'content' and 'label'.
+        delimiter: The delimiter type for all contexts.
+
+    Returns:
+        The formatted contexts as a single string.
+
+    Example:
+        >>> items = [
+        ...     {"content": "Document 1", "label": "Doc1"},
+        ...     {"content": "Document 2", "label": "Doc2"},
+        ... ]
+        >>> format_multiple_contexts(items)
+        '<doc1>\\nDocument 1\\n</doc1>\\n\\n<doc2>\\nDocument 2\\n</doc2>'
+    """
+    formatted = []
+    for item in items:
+        if isinstance(item, dict):
+            content = item.get("content", "")
+            label = item.get("label", "context")
+        else:
+            content = item.content
+            label = item.label
+        formatted.append(format_context(content, label=label, delimiter=delimiter))
+    return "\n\n".join(formatted)
+
+
+def format_document(
+    content: str,
+    metadata: DocumentMetadata | dict[str, Any] | None = None,
+    *,
+    delimiter: DelimiterType = "xml",
+) -> str:
+    """Format a document with optional metadata.
+
+    Args:
+        content: The document content.
+        metadata: Document metadata (title, author, date, source, etc.).
+        delimiter: The delimiter type for formatting.
+
+    Returns:
+        The formatted document string.
+
+    Example:
+        >>> format_document("Report content", {"title": "Q4 Report", "author": "Team"})
+        '<document>\\n<metadata>\\n<title>Q4 Report</title>\\n<author>Team</author>\\n</metadata>\\n<content>\\nReport content\\n</content>\\n</document>'
+    """
+    if metadata is None:
+        return format_context(content, label="document", delimiter=delimiter)
+
+    if isinstance(metadata, dict):
+        meta = DocumentMetadata(
+            title=metadata.get("title"),
+            author=metadata.get("author"),
+            date=metadata.get("date"),
+            source=metadata.get("source"),
+            extra={
+                k: v
+                for k, v in metadata.items()
+                if k not in ("title", "author", "date", "source")
+            },
+        )
+    else:
+        meta = metadata
+
+    if delimiter == "xml":
+        meta_parts = []
+        if meta.title:
+            meta_parts.append(f"<title>{meta.title}</title>")
+        if meta.author:
+            meta_parts.append(f"<author>{meta.author}</author>")
+        if meta.date:
+            meta_parts.append(f"<date>{meta.date}</date>")
+        if meta.source:
+            meta_parts.append(f"<source>{meta.source}</source>")
+        for key, value in meta.extra.items():
+            meta_parts.append(f"<{key}>{value}</{key}>")
+
+        if meta_parts:
+            meta_section = "<metadata>\n" + "\n".join(meta_parts) + "\n</metadata>"
+            return f"<document>\n{meta_section}\n<content>\n{content}\n</content>\n</document>"
+        return f"<document>\n<content>\n{content}\n</content>\n</document>"
+
+    elif delimiter == "markdown":
+        meta_parts = []
+        if meta.title:
+            meta_parts.append(f"**Title:** {meta.title}")
+        if meta.author:
+            meta_parts.append(f"**Author:** {meta.author}")
+        if meta.date:
+            meta_parts.append(f"**Date:** {meta.date}")
+        if meta.source:
+            meta_parts.append(f"**Source:** {meta.source}")
+        for key, value in meta.extra.items():
+            meta_parts.append(f"**{key.title()}:** {value}")
+
+        if meta_parts:
+            return "# Document\n\n" + "\n".join(meta_parts) + "\n\n---\n\n" + content
+        return "# Document\n\n" + content
+
+    elif delimiter == "brackets":
+        separator = "=" * 30
+        meta_parts = []
+        if meta.title:
+            meta_parts.append(f"Title: {meta.title}")
+        if meta.author:
+            meta_parts.append(f"Author: {meta.author}")
+        if meta.date:
+            meta_parts.append(f"Date: {meta.date}")
+        if meta.source:
+            meta_parts.append(f"Source: {meta.source}")
+        for key, value in meta.extra.items():
+            meta_parts.append(f"{key.title()}: {value}")
+
+        if meta_parts:
+            meta_section = "\n".join(meta_parts)
+            return f"[DOCUMENT]\n{separator}\n{meta_section}\n{separator}\n{content}\n{separator}"
+        return f"[DOCUMENT]\n{separator}\n{content}\n{separator}"
+
+    return content
+
+
+def format_instructions(
+    instructions: str,
+    *,
+    delimiter: DelimiterType = "xml",
+) -> str:
+    """Format system instructions with proper delimiters.
+
+    Args:
+        instructions: The system instructions.
+        delimiter: The delimiter type for formatting.
+
+    Returns:
+        The formatted instructions string.
+
+    Example:
+        >>> format_instructions("You are a helpful assistant.")
+        '<system_instructions>\\nYou are a helpful assistant.\\n</system_instructions>'
+    """
+    if delimiter == "xml":
+        return f"<system_instructions>\n{instructions}\n</system_instructions>"
+    elif delimiter == "markdown":
+        return f"## System Instructions\n\n{instructions}"
+    elif delimiter == "brackets":
+        separator = "=" * 30
+        return f"[SYSTEM INSTRUCTIONS]\n{separator}\n{instructions}\n{separator}"
+    return instructions

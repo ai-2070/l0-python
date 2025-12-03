@@ -30,6 +30,7 @@ from .consensus import (
     validate_consensus,
 )
 from .events import EventBus, ObservabilityEvent, ObservabilityEventType
+from .format import Format
 from .guardrails import (
     GuardrailRule,
     Guardrails,
@@ -306,4 +307,6 @@ __all__ = [
     "sentence_window",
     # Debug
     "enable_debug",
+    # Formatting
+    "Format",
 ]
