@@ -341,3 +341,202 @@ class TestTimeout:
                 tokens.append(event.text)
 
         assert tokens == ["hello", " world"]
+
+
+class TestToolCallBuffering:
+    """Test tool call buffering feature."""
+
+    @pytest.mark.asyncio
+    async def test_buffer_tool_calls_accumulates_arguments(self):
+        """Test that buffer_tool_calls=True accumulates chunked arguments."""
+
+        async def stream_with_chunked_tool_call():
+            # Simulates OpenAI streaming pattern:
+            # First chunk: index, id, name, partial arguments
+            yield Event(
+                type=EventType.TOOL_CALL,
+                data={
+                    "index": 0,
+                    "id": "call_123",
+                    "name": "get_weather",
+                    "arguments": '{"loc',
+                },
+            )
+            # Subsequent chunks: just more arguments
+            yield Event(
+                type=EventType.TOOL_CALL,
+                data={
+                    "index": 0,
+                    "id": None,
+                    "name": None,
+                    "arguments": 'ation": "',
+                },
+            )
+            yield Event(
+                type=EventType.TOOL_CALL,
+                data={
+                    "index": 0,
+                    "id": None,
+                    "name": None,
+                    "arguments": 'NYC"}',
+                },
+            )
+            yield Event(type=EventType.COMPLETE)
+
+        result = await _internal_run(
+            stream=stream_with_chunked_tool_call,
+            buffer_tool_calls=True,
+        )
+
+        tool_calls = []
+        async for event in result:
+            if event.is_tool_call:
+                tool_calls.append(event.data)
+
+        # Should get one complete tool call
+        assert len(tool_calls) == 1
+        assert tool_calls[0]["id"] == "call_123"
+        assert tool_calls[0]["name"] == "get_weather"
+        assert tool_calls[0]["arguments"] == '{"location": "NYC"}'
+
+    @pytest.mark.asyncio
+    async def test_buffer_tool_calls_multiple_tools(self):
+        """Test buffering multiple tool calls."""
+
+        async def stream_with_multiple_tool_calls():
+            # Tool call 0 - first chunk
+            yield Event(
+                type=EventType.TOOL_CALL,
+                data={
+                    "index": 0,
+                    "id": "call_1",
+                    "name": "get_weather",
+                    "arguments": '{"city":',
+                },
+            )
+            # Tool call 1 - first chunk (interleaved)
+            yield Event(
+                type=EventType.TOOL_CALL,
+                data={
+                    "index": 1,
+                    "id": "call_2",
+                    "name": "get_time",
+                    "arguments": '{"tz":',
+                },
+            )
+            # Tool call 0 - continuation
+            yield Event(
+                type=EventType.TOOL_CALL,
+                data={
+                    "index": 0,
+                    "id": None,
+                    "name": None,
+                    "arguments": ' "LA"}',
+                },
+            )
+            # Tool call 1 - continuation
+            yield Event(
+                type=EventType.TOOL_CALL,
+                data={
+                    "index": 1,
+                    "id": None,
+                    "name": None,
+                    "arguments": ' "UTC"}',
+                },
+            )
+            yield Event(type=EventType.COMPLETE)
+
+        result = await _internal_run(
+            stream=stream_with_multiple_tool_calls,
+            buffer_tool_calls=True,
+        )
+
+        tool_calls = []
+        async for event in result:
+            if event.is_tool_call:
+                tool_calls.append(event.data)
+
+        # Should get two complete tool calls in order
+        assert len(tool_calls) == 2
+        assert tool_calls[0]["id"] == "call_1"
+        assert tool_calls[0]["name"] == "get_weather"
+        assert tool_calls[0]["arguments"] == '{"city": "LA"}'
+        assert tool_calls[1]["id"] == "call_2"
+        assert tool_calls[1]["name"] == "get_time"
+        assert tool_calls[1]["arguments"] == '{"tz": "UTC"}'
+
+    @pytest.mark.asyncio
+    async def test_no_buffering_by_default(self):
+        """Test that tool calls are emitted immediately without buffering."""
+
+        async def stream_with_chunked_tool_call():
+            yield Event(
+                type=EventType.TOOL_CALL,
+                data={
+                    "index": 0,
+                    "id": "call_123",
+                    "name": "get_weather",
+                    "arguments": '{"loc',
+                },
+            )
+            yield Event(
+                type=EventType.TOOL_CALL,
+                data={
+                    "index": 0,
+                    "id": None,
+                    "name": None,
+                    "arguments": 'ation": "NYC"}',
+                },
+            )
+            yield Event(type=EventType.COMPLETE)
+
+        result = await _internal_run(
+            stream=stream_with_chunked_tool_call,
+            buffer_tool_calls=False,  # Default
+        )
+
+        tool_calls = []
+        async for event in result:
+            if event.is_tool_call:
+                tool_calls.append(event.data)
+
+        # Should get two separate (partial) tool call events
+        assert len(tool_calls) == 2
+        assert tool_calls[0]["arguments"] == '{"loc'
+        assert tool_calls[1]["arguments"] == 'ation": "NYC"}'
+
+    @pytest.mark.asyncio
+    async def test_buffer_tool_calls_with_wrap(self):
+        """Test that buffer_tool_calls works with l0.wrap()."""
+        import l0
+
+        async def stream_with_chunked_tool_call():
+            yield Event(
+                type=EventType.TOOL_CALL,
+                data={
+                    "index": 0,
+                    "id": "call_abc",
+                    "name": "search",
+                    "arguments": '{"q',
+                },
+            )
+            yield Event(
+                type=EventType.TOOL_CALL,
+                data={
+                    "index": 0,
+                    "id": None,
+                    "name": None,
+                    "arguments": 'uery": "test"}',
+                },
+            )
+            yield Event(type=EventType.COMPLETE)
+
+        tool_calls = []
+        async for event in l0.wrap(
+            stream_with_chunked_tool_call(), buffer_tool_calls=True
+        ):
+            if event.is_tool_call:
+                tool_calls.append(event.data)
+
+        assert len(tool_calls) == 1
+        assert tool_calls[0]["arguments"] == '{"query": "test"}'

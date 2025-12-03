@@ -60,6 +60,7 @@ class OpenAIAdapter:
                             yield Event(
                                 type=EventType.TOOL_CALL,
                                 data={
+                                    "index": getattr(tc, "index", None),
                                     "id": getattr(tc, "id", None),
                                     "name": (
                                         getattr(tc.function, "name", None)

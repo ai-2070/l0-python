@@ -3,7 +3,7 @@
 import pytest
 from pydantic import BaseModel, ValidationError
 
-from l0.adapters import register_adapter
+from l0.adapters import Adapters
 from l0.structured import (
     AutoCorrectInfo,
     StructuredResult,
@@ -26,7 +26,7 @@ class PassthroughAdapter:
 
 
 # Ensure adapter is registered
-register_adapter(PassthroughAdapter())
+Adapters.register(PassthroughAdapter())
 
 
 class UserProfile(BaseModel):

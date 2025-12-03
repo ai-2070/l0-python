@@ -39,6 +39,7 @@ async def _internal_run(
     adapter: Any | str | None = None,
     on_event: Callable[[ObservabilityEvent], None] | None = None,
     meta: dict[str, Any] | None = None,
+    buffer_tool_calls: bool = False,
 ) -> Stream:
     """Internal implementation of the L0 runtime.
 
@@ -51,6 +52,7 @@ async def _internal_run(
         adapter: Optional adapter hint ("openai", "litellm", or Adapter instance)
         on_event: Optional callback for observability events
         meta: Optional metadata attached to all events
+        buffer_tool_calls: Buffer tool call arguments until complete (default: False)
 
     Returns:
         Stream - async iterator with .state, .abort(), and .read()
@@ -129,6 +131,24 @@ async def _internal_run(
 
                     adapted_stream = detected_adapter.wrap(raw_stream)
                     event_bus.emit(ObservabilityEventType.ADAPTER_WRAP_END)
+
+                    # Tool call buffering state (when buffer_tool_calls=True)
+                    # Maps tool call index -> {id, name, arguments}
+                    tool_call_buffers: dict[int, dict[str, Any]] = {}
+
+                    async def emit_buffered_tool_calls() -> AsyncIterator[Event]:
+                        """Emit all buffered tool calls."""
+                        for idx in sorted(tool_call_buffers.keys()):
+                            buffered = tool_call_buffers[idx]
+                            yield Event(
+                                type=EventType.TOOL_CALL,
+                                data={
+                                    "id": buffered.get("id"),
+                                    "name": buffered.get("name"),
+                                    "arguments": buffered.get("arguments", ""),
+                                },
+                            )
+                        tool_call_buffers.clear()
 
                     while True:
                         if aborted:
@@ -222,7 +242,42 @@ async def _internal_run(
                                     violation_count=len(all_violations),
                                 )
 
+                        # Handle tool call buffering
+                        if buffer_tool_calls and event.type == EventType.TOOL_CALL:
+                            # Buffer tool call data by index
+                            tc_data = event.data or {}
+                            # Use 'index' if provided, otherwise use length as index
+                            tc_index = tc_data.get("index", len(tool_call_buffers))
+
+                            if tc_index not in tool_call_buffers:
+                                # New tool call - initialize buffer
+                                tool_call_buffers[tc_index] = {
+                                    "id": tc_data.get("id"),
+                                    "name": tc_data.get("name"),
+                                    "arguments": tc_data.get("arguments") or "",
+                                }
+                            else:
+                                # Existing tool call - accumulate arguments
+                                buffered = tool_call_buffers[tc_index]
+                                # Update id/name if provided (first chunk has these)
+                                if tc_data.get("id"):
+                                    buffered["id"] = tc_data["id"]
+                                if tc_data.get("name"):
+                                    buffered["name"] = tc_data["name"]
+                                # Append arguments
+                                if tc_data.get("arguments"):
+                                    buffered["arguments"] += tc_data["arguments"]
+
+                            # Don't yield partial tool calls - they'll be emitted
+                            # when stream ends
+                            continue
+
                         yield event
+
+                    # Emit any buffered tool calls at end of stream
+                    if buffer_tool_calls and tool_call_buffers:
+                        async for tc_event in emit_buffered_tool_calls():
+                            yield tc_event
 
                     # Success
                     mark_completed(state)

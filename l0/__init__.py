@@ -104,6 +104,7 @@ def wrap(
     adapter: Any | str | None = None,
     on_event: Callable[[ObservabilityEvent], None] | None = None,
     meta: dict[str, Any] | None = None,
+    buffer_tool_calls: bool = False,
 ) -> LazyStream:
     """Wrap a raw LLM stream with L0 reliability.
 
@@ -118,6 +119,7 @@ def wrap(
         adapter: Optional adapter hint ("openai", "litellm", or Adapter instance)
         on_event: Optional callback for observability events
         meta: Optional metadata attached to all events
+        buffer_tool_calls: Buffer tool call arguments until complete (default: False)
 
     Returns:
         LazyStream - async iterator with .state, .abort(), and .read()
@@ -157,6 +159,7 @@ def wrap(
         adapter=adapter,
         on_event=on_event,
         meta=meta,
+        buffer_tool_calls=buffer_tool_calls,
     )
 
 
@@ -170,6 +173,7 @@ async def run(
     adapter: Any | str | None = None,
     on_event: Callable[[ObservabilityEvent], None] | None = None,
     meta: dict[str, Any] | None = None,
+    buffer_tool_calls: bool = False,
 ) -> Stream:
     """Run L0 with a stream factory (supports retries and fallbacks).
 
@@ -185,6 +189,7 @@ async def run(
         adapter: Optional adapter hint ("openai", "litellm", or Adapter instance)
         on_event: Optional callback for observability events
         meta: Optional metadata attached to all events
+        buffer_tool_calls: Buffer tool call arguments until complete (default: False)
 
     Returns:
         Stream - async iterator with .state, .abort(), and .read()
@@ -227,6 +232,7 @@ async def run(
         adapter=adapter,
         on_event=on_event,
         meta=meta,
+        buffer_tool_calls=buffer_tool_calls,
     )
 
 

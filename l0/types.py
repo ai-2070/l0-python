@@ -497,6 +497,7 @@ class LazyStream:
         "_adapter",
         "_on_event",
         "_meta",
+        "_buffer_tool_calls",
         "_runner",
         "_started",
     )
@@ -511,6 +512,7 @@ class LazyStream:
         adapter: Any | str | None = None,
         on_event: Callable[[ObservabilityEvent], None] | None = None,
         meta: dict[str, Any] | None = None,
+        buffer_tool_calls: bool = False,
     ) -> None:
         self._stream = stream
         self._guardrails = guardrails
@@ -519,6 +521,7 @@ class LazyStream:
         self._adapter = adapter
         self._on_event = on_event
         self._meta = meta
+        self._buffer_tool_calls = buffer_tool_calls
         self._runner: Stream | None = None
         self._started = False
 
@@ -543,6 +546,7 @@ class LazyStream:
                 adapter=self._adapter,
                 on_event=self._on_event,
                 meta=self._meta,
+                buffer_tool_calls=self._buffer_tool_calls,
             )
             self._started = True
         return self._runner
