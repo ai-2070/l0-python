@@ -187,6 +187,26 @@ class TestFormatToolTypescript:
         result = format_tool(tool, {"style": "typescript"})
         assert "// Test description" in result
 
+    def test_optional_params_reordered_after_required(self):
+        """Optional parameters should be reordered after required ones for valid TypeScript."""
+        tool = create_tool(
+            "test",
+            "Test",
+            [
+                create_parameter("optional1", "string", "Optional first", False),
+                create_parameter("required1", "string", "Required", True),
+                create_parameter("optional2", "number", "Optional second", False),
+                create_parameter("required2", "boolean", "Required second", True),
+            ],
+        )
+        result = format_tool(tool, {"style": "typescript"})
+        # Required params should come before optional params
+        # Within each group, params are sorted alphabetically
+        assert (
+            "required1: string, required2: boolean, optional1?: string, optional2?: number"
+            in result
+        )
+
 
 class TestFormatToolNatural:
     """Tests for format_tool with natural style."""

@@ -239,16 +239,20 @@ def _format_json_schema(tool: Tool, include_description: bool) -> dict[str, Any]
 
 def _format_typescript(tool: Tool) -> str:
     """Format tool as TypeScript function signature."""
+    type_map = {
+        "string": "string",
+        "number": "number",
+        "integer": "number",
+        "boolean": "boolean",
+        "array": "any[]",
+        "object": "object",
+    }
+
+    # Sort parameters: required first, then optional (TypeScript requirement)
+    sorted_params = sorted(tool.parameters, key=lambda p: (not p.required, p.name))
+
     params = []
-    for param in tool.parameters:
-        type_map = {
-            "string": "string",
-            "number": "number",
-            "integer": "number",
-            "boolean": "boolean",
-            "array": "any[]",
-            "object": "object",
-        }
+    for param in sorted_params:
         ts_type = type_map.get(param.type, "any")
 
         if param.required:
