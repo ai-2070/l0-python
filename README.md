@@ -762,7 +762,7 @@ from l0.errors import categorize_error
 from l0.types import ErrorCategory
 
 try:
-    result = await l0.run(l0.L0Options(stream=my_stream))
+    result = await l0.run(stream=my_stream)
 except Exception as error:
     category = categorize_error(error)
     
