@@ -535,7 +535,7 @@ def analyze_latex_structure(content: str) -> LatexAnalysis:
     # Check inline math $...$ (excluding $$)
     # This is tricky because $ is used for both open and close
     # Count single $ not preceded or followed by another $
-    singles = re.findall(r"(?<!\$)\$(?!\$)", content)
+    singles = re.findall(r"(?<![\\$])\$(?!\$)", content)
     inline_math_balanced = len(singles) % 2 == 0
     if not inline_math_balanced:
         issues.append("Unbalanced inline math ($)")

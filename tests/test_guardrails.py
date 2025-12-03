@@ -230,6 +230,34 @@ class TestAnalyzeLatexStructure:
         result = analyze_latex_structure(r"\[x=1")
         assert result.bracket_math_balanced is False
 
+    def test_inline_math_balanced(self):
+        result = analyze_latex_structure("$x=1$")
+        assert result.inline_math_balanced is True
+
+    def test_inline_math_unbalanced(self):
+        result = analyze_latex_structure("$x=1")
+        assert result.inline_math_balanced is False
+
+    def test_escaped_dollar_not_counted_as_math(self):
+        """Escaped dollar signs should not be treated as math delimiters."""
+        result = analyze_latex_structure(r"The price is \$100")
+        assert result.inline_math_balanced is True
+
+    def test_escaped_dollar_with_actual_math(self):
+        """Escaped dollars mixed with real math should work correctly."""
+        result = analyze_latex_structure(r"Cost is \$50 and $x=1$")
+        assert result.inline_math_balanced is True
+
+    def test_multiple_escaped_dollars(self):
+        """Multiple escaped dollar signs should all be ignored."""
+        result = analyze_latex_structure(r"\$10, \$20, and \$30")
+        assert result.inline_math_balanced is True
+
+    def test_unbalanced_with_escaped_dollar(self):
+        """Unbalanced math should still be detected with escaped dollars present."""
+        result = analyze_latex_structure(r"\$100 and $x=1")
+        assert result.inline_math_balanced is False
+
 
 class TestLooksLikeLatex:
     def test_begin_end(self):
