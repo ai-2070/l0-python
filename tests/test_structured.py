@@ -4,6 +4,7 @@ import pytest
 from pydantic import BaseModel, ValidationError
 
 from l0.adapters import Adapters
+from l0.events import ObservabilityEventType
 from l0.structured import (
     AutoCorrectInfo,
     StructuredResult,
@@ -198,6 +199,29 @@ class TestStructured:
         assert len(errors_received) == 2
         assert errors_received[0][1] == 1
         assert errors_received[1][1] == 2
+
+    @pytest.mark.asyncio
+    async def test_structured_emits_parse_end_on_validation_failure(self):
+        """Test that PARSE_END is emitted even when validation fails."""
+        events_emitted = []
+
+        def on_event(event):
+            events_emitted.append(event.type)
+
+        async def invalid_stream():
+            yield Event(type=EventType.TOKEN, text='{"wrong": "field"}')
+            yield Event(type=EventType.COMPLETE)
+
+        with pytest.raises(ValueError):
+            await structured(
+                schema=UserProfile,
+                stream=invalid_stream,
+                on_event=on_event,
+            )
+
+        # Verify PARSE_START and PARSE_END are both emitted
+        assert ObservabilityEventType.PARSE_START in events_emitted
+        assert ObservabilityEventType.PARSE_END in events_emitted
 
 
 class TestStructuredStream:

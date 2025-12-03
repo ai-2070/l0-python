@@ -289,6 +289,12 @@ def _parse_and_validate(
             valid=False,
             duration_ms=validation_duration,
         )
+        parse_duration = (time.time() - parse_start) * 1000
+        event_bus.emit(
+            ObservabilityEventType.PARSE_END,
+            success=False,
+            duration_ms=parse_duration,
+        )
         raise
 
 
