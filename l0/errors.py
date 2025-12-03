@@ -95,6 +95,10 @@ class NetworkError:
             or "econnreset" in msg
             or "pipe broken" in msg
             or "broken pipe" in msg
+            or "socket error" in msg
+            or "eof occurred" in msg
+            or "network unreachable" in msg
+            or "host unreachable" in msg
         )
 
     @staticmethod
@@ -262,6 +266,7 @@ class NetworkError:
             or NetworkError.is_runtime_killed(error)
             or NetworkError.is_background_throttle(error)
             or NetworkError.is_dns(error)
+            or NetworkError.is_ssl(error)
             or NetworkError.is_timeout(error)
         )
 
