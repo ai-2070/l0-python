@@ -283,10 +283,11 @@ def merge_memory(
                 all_entries.append(item)
 
     # Sort by timestamp (entries without timestamp go to the end)
-    def sort_key(e: MemoryEntry) -> tuple[int, datetime]:
+    # Use float timestamp to avoid comparing timezone-aware and naive datetimes
+    def sort_key(e: MemoryEntry) -> tuple[int, float]:
         if e.timestamp is None:
-            return (1, datetime.min)
-        return (0, e.timestamp)
+            return (1, 0.0)
+        return (0, e.timestamp.timestamp())
 
     return sorted(all_entries, key=sort_key)
 

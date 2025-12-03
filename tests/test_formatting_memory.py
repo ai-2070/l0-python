@@ -199,6 +199,34 @@ class TestMergeMemory:
         merged = merge_memory([], [])
         assert merged == []
 
+    def test_merge_mixed_timezone_aware_and_naive_datetimes(self):
+        """Test that merging works with mixed timezone-aware and naive datetimes."""
+        from datetime import timezone
+
+        naive_dt = datetime(2024, 1, 1, 12, 0, 0)
+        aware_dt = datetime(2024, 1, 1, 13, 0, 0, tzinfo=timezone.utc)
+
+        m1 = [MemoryEntry(role="user", content="Naive", timestamp=naive_dt)]
+        m2 = [MemoryEntry(role="assistant", content="Aware", timestamp=aware_dt)]
+
+        # This should not raise TypeError
+        merged = merge_memory(m1, m2)
+        assert len(merged) == 2
+        # Both entries should be present (order depends on timezone interpretation)
+        contents = {e.content for e in merged}
+        assert contents == {"Naive", "Aware"}
+
+    def test_merge_with_none_timestamps(self):
+        """Test that entries without timestamps are sorted to the end."""
+        now = datetime.now()
+        m1 = [MemoryEntry(role="user", content="With timestamp", timestamp=now)]
+        m2 = [MemoryEntry(role="assistant", content="No timestamp", timestamp=None)]
+
+        merged = merge_memory(m1, m2)
+        assert len(merged) == 2
+        assert merged[0].content == "With timestamp"
+        assert merged[1].content == "No timestamp"
+
 
 class TestFilterMemoryByRole:
     """Tests for filter_memory_by_role function."""
