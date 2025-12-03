@@ -35,6 +35,7 @@ from .types import (
     ErrorCategory,
     Event,
     EventType,
+    LazyStream,
     Retry,
     State,
     Stream,
@@ -47,7 +48,7 @@ from .version import __version__
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-async def wrap(
+def wrap(
     stream: AsyncIterator[Any],
     *,
     guardrails: list[GuardrailRule] | None = None,
@@ -56,10 +57,11 @@ async def wrap(
     adapter: Any | str | None = None,
     on_event: Callable[[ObservabilityEvent], None] | None = None,
     meta: dict[str, Any] | None = None,
-) -> Stream:
+) -> LazyStream:
     """Wrap a raw LLM stream with L0 reliability.
 
-    This is the preferred API - takes a raw stream directly, no lambda needed.
+    This is the preferred API - returns immediately, no await needed!
+    Like httpx.AsyncClient() or aiohttp.ClientSession().
 
     Args:
         stream: Raw async iterator from OpenAI/LiteLLM/etc.
@@ -71,7 +73,7 @@ async def wrap(
         meta: Optional metadata attached to all events
 
     Returns:
-        Stream - async iterator with .state, .abort(), and .read()
+        LazyStream - async iterator with .state, .abort(), and .read()
 
     Example:
         ```python
@@ -84,26 +86,24 @@ async def wrap(
             stream=True,
         )
 
-        async with await l0.wrap(raw, guardrails=l0.Guardrails.recommended()) as result:
+        # Simple - no double await!
+        result = l0.wrap(raw)
+        text = await result.read()
+
+        # Streaming
+        async for event in l0.wrap(raw):
+            if event.is_token:
+                print(event.text, end="")
+
+        # Context manager
+        async with l0.wrap(raw, guardrails=l0.Guardrails.recommended()) as result:
             async for event in result:
                 if event.is_token:
                     print(event.text, end="")
-
-        text = await result.read()
         ```
     """
-
-    # Wrap the stream in a lambda for internal use
-    # The stream is already created, so we just return it
-    async def stream_factory() -> AsyncIterator[Any]:
-        # If it's a coroutine (awaitable), await it first
-        if hasattr(stream, "__await__"):
-            return await stream  # type: ignore
-        return stream
-
-    return await _internal_run(
-        stream=stream_factory,
-        fallbacks=None,
+    return LazyStream(
+        stream=stream,
         guardrails=guardrails,
         retry=retry,
         timeout=timeout,
@@ -196,6 +196,7 @@ __all__ = [
     "l0",  # Alias to run
     # Types
     "Stream",
+    "LazyStream",
     "Event",
     "State",
     "EventType",

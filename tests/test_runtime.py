@@ -30,6 +30,71 @@ class PassthroughAdapter:
 register_adapter(PassthroughAdapter())
 
 
+class TestLazyWrap:
+    """Test that l0.wrap() returns immediately (no await needed)."""
+
+    @pytest.mark.asyncio
+    async def test_wrap_returns_immediately(self):
+        """Test that wrap() is sync and returns LazyStream."""
+        import l0
+
+        async def my_stream():
+            yield Event(type=EventType.TOKEN, text="hello")
+            yield Event(type=EventType.COMPLETE)
+
+        # No await needed!
+        result = l0.wrap(my_stream())
+        assert isinstance(result, l0.LazyStream)
+
+    @pytest.mark.asyncio
+    async def test_wrap_read_works(self):
+        """Test that await result.read() works."""
+        import l0
+
+        async def my_stream():
+            yield Event(type=EventType.TOKEN, text="hello")
+            yield Event(type=EventType.COMPLETE)
+
+        result = l0.wrap(my_stream())
+        text = await result.read()
+        assert text == "hello"
+
+    @pytest.mark.asyncio
+    async def test_wrap_iteration_works(self):
+        """Test that async for works directly."""
+        import l0
+
+        async def my_stream():
+            yield Event(type=EventType.TOKEN, text="hello")
+            yield Event(type=EventType.TOKEN, text=" world")
+            yield Event(type=EventType.COMPLETE)
+
+        tokens = []
+        async for event in l0.wrap(my_stream()):
+            if event.is_token:
+                tokens.append(event.text)
+
+        assert tokens == ["hello", " world"]
+
+    @pytest.mark.asyncio
+    async def test_wrap_context_manager_works(self):
+        """Test that async with works without double await."""
+        import l0
+
+        async def my_stream():
+            yield Event(type=EventType.TOKEN, text="test")
+            yield Event(type=EventType.COMPLETE)
+
+        # No double await!
+        async with l0.wrap(my_stream()) as result:
+            tokens = []
+            async for event in result:
+                if event.is_token:
+                    tokens.append(event.text)
+
+        assert tokens == ["test"]
+
+
 class TestTimeout:
     @pytest.mark.asyncio
     async def test_initial_token_timeout(self):

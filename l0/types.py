@@ -183,14 +183,14 @@ class Stream:
 
     Supports both iteration and context manager patterns:
 
-        # Pattern 1: Direct iteration
-        result = await l0.run(stream=my_stream)
+        # Pattern 1: Direct iteration (l0.wrap - no await needed!)
+        result = l0.wrap(stream)
         async for event in result:
             if event.is_token:
                 print(event.text, end="")
 
         # Pattern 2: Context manager (auto-cleanup)
-        async with await l0.run(stream=my_stream) as result:
+        async with l0.wrap(stream) as result:
             async for event in result:
                 if event.is_token:
                     print(event.text, end="")
@@ -198,7 +198,7 @@ class Stream:
         # Get full text
         text = await result.read()
 
-        # Access state
+        # Access state (after iteration)
         print(result.state.content)
         print(result.state.token_count)
     """
@@ -270,4 +270,146 @@ class Stream:
         Some async libraries use collect() pattern. This is an alias
         for read() to support that convention.
         """
+        return await self.read()
+
+
+class LazyStream:
+    """Lazy stream wrapper - no await needed on creation.
+
+    Like httpx.AsyncClient() or aiohttp.ClientSession(), this returns
+    immediately and only does async work when you iterate or read.
+
+    Usage:
+        # Simple - no double await!
+        result = l0.wrap(stream)
+        text = await result.read()
+
+        # Streaming
+        async for event in l0.wrap(stream):
+            print(event.text)
+
+        # Context manager
+        async with l0.wrap(stream) as result:
+            async for event in result:
+                print(event.text)
+    """
+
+    __slots__ = (
+        "_stream",
+        "_guardrails",
+        "_retry",
+        "_timeout",
+        "_adapter",
+        "_on_event",
+        "_meta",
+        "_runner",
+        "_started",
+    )
+
+    def __init__(
+        self,
+        stream: AsyncIterator[Any],
+        *,
+        guardrails: list[Any] | None = None,
+        retry: Retry | None = None,
+        timeout: Timeout | None = None,
+        adapter: Any | str | None = None,
+        on_event: Callable[["ObservabilityEvent"], None] | None = None,
+        meta: dict[str, Any] | None = None,
+    ) -> None:
+        self._stream = stream
+        self._guardrails = guardrails
+        self._retry = retry
+        self._timeout = timeout
+        self._adapter = adapter
+        self._on_event = on_event
+        self._meta = meta
+        self._runner: Stream | None = None
+        self._started = False
+
+    async def _ensure_started(self) -> Stream:
+        """Lazily start the L0 runtime."""
+        if self._runner is None:
+            # Import here to avoid circular import
+            from .runtime import _internal_run
+
+            # Wrap stream in factory
+            stream = self._stream
+
+            async def stream_factory() -> AsyncIterator[Any]:
+                if hasattr(stream, "__await__"):
+                    return await stream  # type: ignore
+                return stream
+
+            self._runner = await _internal_run(
+                stream=stream_factory,
+                fallbacks=None,
+                guardrails=self._guardrails,
+                retry=self._retry,
+                timeout=self._timeout,
+                adapter=self._adapter,
+                on_event=self._on_event,
+                meta=self._meta,
+            )
+            self._started = True
+        return self._runner
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Proxy properties (delegate to runner once started)
+    # ─────────────────────────────────────────────────────────────────────────
+
+    @property
+    def state(self) -> State:
+        """Get state (only valid after iteration starts)."""
+        if self._runner is None:
+            # Return empty state before started
+            return State()
+        return self._runner.state
+
+    @property
+    def errors(self) -> list[Exception]:
+        """Get errors list."""
+        if self._runner is None:
+            return []
+        return self._runner.errors
+
+    def abort(self) -> None:
+        """Abort the stream."""
+        if self._runner is not None:
+            self._runner.abort()
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Async iterator protocol
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def __aiter__(self) -> "LazyStream":
+        return self
+
+    async def __anext__(self) -> Event:
+        runner = await self._ensure_started()
+        return await runner.__anext__()
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Context manager protocol
+    # ─────────────────────────────────────────────────────────────────────────
+
+    async def __aenter__(self) -> "LazyStream":
+        await self._ensure_started()
+        return self
+
+    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> bool:
+        self.abort()
+        return False
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Read interface
+    # ─────────────────────────────────────────────────────────────────────────
+
+    async def read(self) -> str:
+        """Consume the stream and return the full text content."""
+        runner = await self._ensure_started()
+        return await runner.read()
+
+    async def collect(self) -> str:
+        """Alias for read()."""
         return await self.read()
