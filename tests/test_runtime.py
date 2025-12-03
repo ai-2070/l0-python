@@ -1,12 +1,13 @@
 """Tests for l0.runtime module."""
 
 import asyncio
-from typing import Any, AsyncIterator
+from collections.abc import AsyncIterator
+from typing import Any
 
 import pytest
 
 from l0 import Retry, Timeout, TimeoutError
-from l0.adapters import register_adapter
+from l0.adapters import Adapters
 from l0.runtime import _internal_run
 from l0.types import Event, EventType
 
@@ -26,8 +27,12 @@ class PassthroughAdapter:
             yield event
 
 
-# Register the test adapter
-register_adapter(PassthroughAdapter())
+@pytest.fixture(autouse=True)
+def register_passthrough_adapter():
+    """Register and cleanup the passthrough adapter for tests."""
+    Adapters.register(PassthroughAdapter())
+    yield
+    Adapters.reset()
 
 
 class TestLazyWrap:
