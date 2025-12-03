@@ -1201,25 +1201,50 @@ def strict_guardrails() -> list[GuardrailRule]:
 
 
 class Guardrails:
-    """Guardrail presets for common use cases.
+    """Guardrails namespace for presets, rules, and analysis.
 
     Usage:
-        result = await l0.run(
-            stream=my_stream,
-            guardrails=l0.Guardrails.recommended(),
-        )
+        # Presets
+        guardrails = l0.Guardrails.recommended()
+        guardrails = l0.Guardrails.strict()
 
-        # Or strict mode
-        guardrails=l0.Guardrails.strict()
+        # Individual rules
+        rules = [l0.Guardrails.json(), l0.Guardrails.pattern()]
+
+        # Analysis
+        result = l0.Guardrails.analyze_json('{"key": "value"}')
+
+        # Patterns
+        patterns = l0.Guardrails.BAD_PATTERNS.META_COMMENTARY
     """
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Patterns
+    # ─────────────────────────────────────────────────────────────────────────
+
+    BAD_PATTERNS = BAD_PATTERNS
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Types (for type hints)
+    # ─────────────────────────────────────────────────────────────────────────
+
+    Rule = GuardrailRule
+    Violation = GuardrailViolation
+    JsonAnalysis = JsonAnalysis
+    MarkdownAnalysis = MarkdownAnalysis
+    LatexAnalysis = LatexAnalysis
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Presets
+    # ─────────────────────────────────────────────────────────────────────────
 
     @staticmethod
     def minimal() -> list[GuardrailRule]:
         """Minimal guardrails - JSON + zero output only.
 
         Includes:
-        - json_rule: Check balanced JSON brackets
-        - zero_output_rule: Detect empty output
+        - json: Check balanced JSON brackets
+        - zero_output: Detect empty output
         """
         return [json_rule(), zero_output_rule()]
 
@@ -1228,10 +1253,10 @@ class Guardrails:
         """Recommended guardrails for most use cases.
 
         Includes:
-        - json_rule: Check balanced JSON brackets
-        - markdown_rule: Check Markdown structure
-        - pattern_rule: Detect AI slop patterns
-        - zero_output_rule: Detect empty output
+        - json: Check balanced JSON brackets
+        - markdown: Check Markdown structure
+        - pattern: Detect AI slop patterns
+        - zero_output: Detect empty output
         """
         return [json_rule(), markdown_rule(), pattern_rule(), zero_output_rule()]
 
@@ -1240,10 +1265,10 @@ class Guardrails:
         """Strict guardrails including drift detection.
 
         Includes everything in recommended(), plus:
-        - strict_json_rule: Validate complete JSON
-        - latex_rule: Validate LaTeX structure
-        - stall_rule: Detect token stalls
-        - repetition_rule: Detect model looping
+        - strict_json: Validate complete JSON
+        - latex: Validate LaTeX structure
+        - stall: Detect token stalls
+        - repetition: Detect model looping
         """
         return [
             json_rule(),
@@ -1275,3 +1300,163 @@ class Guardrails:
     def none() -> list[GuardrailRule]:
         """No guardrails (explicit opt-out)."""
         return []
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Rules
+    # ─────────────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def json() -> GuardrailRule:
+        """Check for balanced JSON structure during streaming."""
+        return json_rule()
+
+    @staticmethod
+    def strict_json() -> GuardrailRule:
+        """Validate complete JSON on completion."""
+        return strict_json_rule()
+
+    @staticmethod
+    def markdown() -> GuardrailRule:
+        """Validate Markdown structure."""
+        return markdown_rule()
+
+    @staticmethod
+    def latex() -> GuardrailRule:
+        """Validate LaTeX environments and math."""
+        return latex_rule()
+
+    @staticmethod
+    def pattern(
+        patterns: list[str] | None = None,
+        *,
+        include_categories: list[str] | None = None,
+        exclude_categories: list[str] | None = None,
+    ) -> GuardrailRule:
+        """Detect unwanted patterns in output.
+
+        Args:
+            patterns: Custom patterns. If None, uses BAD_PATTERNS.
+            include_categories: Categories to include.
+            exclude_categories: Categories to exclude.
+        """
+        return pattern_rule(
+            patterns,
+            include_categories=include_categories,
+            exclude_categories=exclude_categories,
+        )
+
+    @staticmethod
+    def custom_pattern(
+        patterns: list[str],
+        message: str = "Custom pattern violation",
+        severity: Severity = "error",
+    ) -> GuardrailRule:
+        """Create a custom pattern rule.
+
+        Args:
+            patterns: List of regex patterns to detect.
+            message: Message to show when pattern is matched.
+            severity: Severity level for violations.
+        """
+        return custom_pattern_rule(patterns, message, severity)
+
+    @staticmethod
+    def zero_output(*, min_completion_time: float | None = 0.5) -> GuardrailRule:
+        """Detect empty or meaningless output.
+
+        Args:
+            min_completion_time: Minimum expected completion time.
+        """
+        return zero_output_rule(min_completion_time=min_completion_time)
+
+    @staticmethod
+    def stall(max_gap: float = 5.0) -> GuardrailRule:
+        """Detect token stalls.
+
+        Args:
+            max_gap: Maximum seconds between tokens.
+        """
+        return stall_rule(max_gap)
+
+    @staticmethod
+    def repetition(
+        window: int = 100,
+        threshold: float = 0.5,
+        *,
+        sentence_check: bool = True,
+        sentence_repeat_count: int = 3,
+    ) -> GuardrailRule:
+        """Detect repetitive output.
+
+        Args:
+            window: Character window size.
+            threshold: Similarity threshold (0-1).
+            sentence_check: Check for repeated sentences.
+            sentence_repeat_count: Number of repeats to trigger.
+        """
+        return repetition_rule(
+            window,
+            threshold,
+            sentence_check=sentence_check,
+            sentence_repeat_count=sentence_repeat_count,
+        )
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Analysis Functions
+    # ─────────────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def analyze_json(content: str) -> JsonAnalysis:
+        """Analyze JSON structure for balance and issues."""
+        return analyze_json_structure(content)
+
+    @staticmethod
+    def analyze_markdown(content: str) -> MarkdownAnalysis:
+        """Analyze Markdown structure for issues."""
+        return analyze_markdown_structure(content)
+
+    @staticmethod
+    def analyze_latex(content: str) -> LatexAnalysis:
+        """Analyze LaTeX structure for balance and issues."""
+        return analyze_latex_structure(content)
+
+    @staticmethod
+    def looks_like_json(content: str) -> bool:
+        """Check if content looks like JSON."""
+        return looks_like_json(content)
+
+    @staticmethod
+    def looks_like_markdown(content: str) -> bool:
+        """Check if content looks like Markdown."""
+        return looks_like_markdown(content)
+
+    @staticmethod
+    def looks_like_latex(content: str) -> bool:
+        """Check if content looks like LaTeX."""
+        return looks_like_latex(content)
+
+    @staticmethod
+    def is_zero_output(content: str) -> bool:
+        """Check if content is effectively empty."""
+        return is_zero_output(content)
+
+    @staticmethod
+    def is_noise_only(content: str) -> bool:
+        """Check if content is just noise."""
+        return is_noise_only(content)
+
+    @staticmethod
+    def find_patterns(
+        content: str, patterns: list[str]
+    ) -> list[tuple[str, re.Match[str]]]:
+        """Find all matches of patterns in content."""
+        return find_bad_patterns(content, patterns)
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Check Function
+    # ─────────────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def check(state: State, rules: list[GuardrailRule]) -> list[GuardrailViolation]:
+        """Run all guardrail rules against current state."""
+        return check_guardrails(state, rules)

@@ -650,3 +650,99 @@ class TestPresets:
     def test_legacy_strict(self):
         rules = strict_guardrails()
         assert len(rules) == 8
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Guardrails Namespace
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestGuardrailsNamespace:
+    """Tests for the Guardrails namespace class."""
+
+    def test_rules_json(self):
+        rule = Guardrails.json()
+        assert rule.name == "json"
+
+    def test_rules_strict_json(self):
+        rule = Guardrails.strict_json()
+        assert rule.name == "strict_json"
+
+    def test_rules_markdown(self):
+        rule = Guardrails.markdown()
+        assert rule.name == "markdown"
+
+    def test_rules_latex(self):
+        rule = Guardrails.latex()
+        assert rule.name == "latex"
+
+    def test_rules_pattern(self):
+        rule = Guardrails.pattern()
+        assert rule.name == "pattern"
+
+    def test_rules_custom_pattern(self):
+        rule = Guardrails.custom_pattern([r"test"], "Test msg", "warning")
+        assert rule.name == "custom_pattern"
+
+    def test_rules_zero_output(self):
+        rule = Guardrails.zero_output()
+        assert rule.name == "zero_output"
+
+    def test_rules_stall(self):
+        rule = Guardrails.stall(max_gap=10.0)
+        assert rule.name == "stall"
+
+    def test_rules_repetition(self):
+        rule = Guardrails.repetition(window=50)
+        assert rule.name == "repetition"
+
+    def test_analyze_json(self):
+        result = Guardrails.analyze_json('{"key": 1}')
+        assert result.is_balanced is True
+
+    def test_analyze_markdown(self):
+        result = Guardrails.analyze_markdown("```\ncode\n```")
+        assert result.is_balanced is True
+
+    def test_analyze_latex(self):
+        result = Guardrails.analyze_latex(r"\begin{doc}\end{doc}")
+        assert result.is_balanced is True
+
+    def test_looks_like_json(self):
+        assert Guardrails.looks_like_json("{}") is True
+        assert Guardrails.looks_like_json("hello") is False
+
+    def test_looks_like_markdown(self):
+        assert Guardrails.looks_like_markdown("# Header") is True
+
+    def test_looks_like_latex(self):
+        assert Guardrails.looks_like_latex(r"\begin{doc}") is True
+
+    def test_is_zero_output(self):
+        assert Guardrails.is_zero_output("") is True
+        assert Guardrails.is_zero_output("hello") is False
+
+    def test_is_noise_only(self):
+        assert Guardrails.is_noise_only("...") is True
+        assert Guardrails.is_noise_only("hello") is False
+
+    def test_find_patterns(self):
+        matches = Guardrails.find_patterns(
+            "As an AI", Guardrails.BAD_PATTERNS.META_COMMENTARY
+        )
+        assert len(matches) > 0
+
+    def test_bad_patterns(self):
+        assert len(Guardrails.BAD_PATTERNS.META_COMMENTARY) > 0
+        assert len(Guardrails.BAD_PATTERNS.HEDGING) > 0
+
+    def test_types_accessible(self):
+        assert Guardrails.Rule is not None
+        assert Guardrails.Violation is not None
+        assert Guardrails.JsonAnalysis is not None
+
+    def test_check(self):
+        state = State(content="As an AI", completed=True)
+        rules = [Guardrails.pattern()]
+        violations = Guardrails.check(state, rules)
+        assert len(violations) >= 1
