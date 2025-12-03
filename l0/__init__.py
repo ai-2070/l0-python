@@ -70,6 +70,23 @@ from .guardrails import (
     zero_output_rule,
 )
 from .logging import enable_debug
+from .multimodal import (
+    # Event creators
+    create_audio_event,
+    # Payload creators
+    create_audio_payload,
+    create_complete_event,
+    create_data_event,
+    create_error_event,
+    create_file_event,
+    create_image_event,
+    create_image_payload,
+    create_json_event,
+    create_progress_event,
+    create_video_event,
+    # Stream converter
+    to_multimodal_events,
+)
 from .parallel import (
     ParallelOptions,
     ParallelResult,
@@ -89,11 +106,14 @@ from .structured import (
 )
 from .types import (
     BackoffStrategy,
+    ContentType,
+    DataPayload,
     ErrorCategory,
     ErrorTypeDelays,
     Event,
     EventType,
     LazyStream,
+    Progress,
     Retry,
     State,
     Stream,
@@ -378,4 +398,21 @@ __all__ = [
     "enable_debug",
     # Formatting
     "Format",
+    # Multimodal
+    "ContentType",
+    "DataPayload",
+    "Progress",
+    # Multimodal helpers
+    "create_image_event",
+    "create_audio_event",
+    "create_video_event",
+    "create_file_event",
+    "create_json_event",
+    "create_data_event",
+    "create_progress_event",
+    "create_complete_event",
+    "create_error_event",
+    "create_image_payload",
+    "create_audio_payload",
+    "to_multimodal_events",
 ]

@@ -28,6 +28,99 @@ class EventType(str, Enum):
     COMPLETE = "complete"
 
 
+class ContentType(str, Enum):
+    """Type of multimodal content."""
+
+    TEXT = "text"
+    IMAGE = "image"
+    AUDIO = "audio"
+    VIDEO = "video"
+    FILE = "file"
+    JSON = "json"
+    BINARY = "binary"
+
+
+@dataclass
+class DataPayload:
+    """Multimodal data payload.
+
+    Carries image, audio, video, file, or structured data from
+    multimodal AI outputs.
+
+    Attributes:
+        content_type: Type of content (image, audio, video, file, json, binary)
+        mime_type: MIME type (e.g., "image/png", "audio/mp3")
+        base64: Base64-encoded data
+        url: URL to content
+        data: Raw bytes
+        json: Structured JSON data
+        metadata: Additional metadata (dimensions, duration, etc.)
+    """
+
+    content_type: ContentType
+    mime_type: str | None = None
+    base64: str | None = None
+    url: str | None = None
+    data: bytes | None = None
+    json: Any | None = None
+    metadata: dict[str, Any] | None = None
+
+    # Convenience properties for common metadata
+    @property
+    def width(self) -> int | None:
+        """Image/video width."""
+        return self.metadata.get("width") if self.metadata else None
+
+    @property
+    def height(self) -> int | None:
+        """Image/video height."""
+        return self.metadata.get("height") if self.metadata else None
+
+    @property
+    def duration(self) -> float | None:
+        """Audio/video duration in seconds."""
+        return self.metadata.get("duration") if self.metadata else None
+
+    @property
+    def size(self) -> int | None:
+        """File size in bytes."""
+        return self.metadata.get("size") if self.metadata else None
+
+    @property
+    def filename(self) -> str | None:
+        """Filename if available."""
+        return self.metadata.get("filename") if self.metadata else None
+
+    @property
+    def seed(self) -> int | None:
+        """Generation seed for reproducibility."""
+        return self.metadata.get("seed") if self.metadata else None
+
+    @property
+    def model(self) -> str | None:
+        """Model used for generation."""
+        return self.metadata.get("model") if self.metadata else None
+
+
+@dataclass
+class Progress:
+    """Progress update for long-running operations.
+
+    Attributes:
+        percent: Progress percentage (0-100)
+        step: Current step number
+        total_steps: Total number of steps
+        message: Status message
+        eta: Estimated time remaining in seconds
+    """
+
+    percent: float | None = None
+    step: int | None = None
+    total_steps: int | None = None
+    message: str | None = None
+    eta: float | None = None
+
+
 @dataclass
 class Event:
     """Unified event from adapter-normalized LLM stream.
@@ -36,6 +129,11 @@ class Event:
         async for event in result:
             if event.is_token:
                 print(event.text, end="")
+            elif event.is_data:
+                if event.payload.content_type == ContentType.IMAGE:
+                    save_image(event.payload.base64)
+            elif event.is_progress:
+                print(f"Progress: {event.progress.percent}%")
             elif event.is_complete:
                 print(f"Done! Usage: {event.usage}")
             elif event.is_error:
@@ -43,8 +141,10 @@ class Event:
     """
 
     type: EventType
-    text: str | None = None  # Token content (renamed from 'value')
+    text: str | None = None  # Token content
     data: dict[str, Any] | None = None  # Tool call / misc data
+    payload: DataPayload | None = None  # Multimodal data payload
+    progress: Progress | None = None  # Progress update
     error: Exception | None = None  # Error (for error events)
     usage: dict[str, int] | None = None  # Token usage
     timestamp: float | None = None  # Event timestamp
@@ -140,6 +240,9 @@ class State:
     duration: float | None = None
     resumed: bool = False
     network_errors: list[Any] = field(default_factory=list)
+    # Multimodal state
+    data_outputs: list[DataPayload] = field(default_factory=list)
+    last_progress: Progress | None = None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
