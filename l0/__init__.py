@@ -73,7 +73,13 @@ from .logging import enable_debug
 from .parallel import batched, parallel, race
 from .runtime import TimeoutError, _internal_run
 from .stream import consume_stream, get_text
-from .structured import structured
+from .structured import (
+    AutoCorrectInfo,
+    StructuredResult,
+    StructuredStreamResult,
+    structured,
+    structured_stream,
+)
 from .types import (
     BackoffStrategy,
     ErrorCategory,
@@ -318,6 +324,10 @@ __all__ = [
     "BadPatterns",
     # Structured
     "structured",
+    "structured_stream",
+    "StructuredResult",
+    "StructuredStreamResult",
+    "AutoCorrectInfo",
     # Parallel
     "parallel",
     "race",

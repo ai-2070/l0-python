@@ -1,31 +1,151 @@
+"""Utility functions for L0."""
+
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass, field
 
 
-def auto_correct_json(text: str) -> str:
-    """Auto-correct common JSON errors."""
+@dataclass
+class AutoCorrectResult:
+    """Result of JSON auto-correction."""
+
+    text: str
+    corrected: bool
+    corrections: list[str] = field(default_factory=list)
+
+
+def auto_correct_json(text: str, track_corrections: bool = False) -> AutoCorrectResult:
+    """Auto-correct common JSON errors from LLM output.
+
+    Fixes:
+    - Markdown fences (```json ... ```)
+    - Text prefixes ("Sure! {...}" → "{...}")
+    - Trailing commas
+    - Missing closing braces/brackets
+    - Single quotes → double quotes (in keys/values)
+
+    Args:
+        text: Raw text that should contain JSON
+        track_corrections: Whether to track what corrections were applied
+
+    Returns:
+        AutoCorrectResult with corrected text and metadata
+    """
+    original = text
+    corrections: list[str] = []
+
+    # Remove text prefix (e.g., "Sure! Here's the JSON:" or "Here is the response:")
+    prefix_match = re.match(
+        r"^[\s\S]*?(?:here(?:'s| is)[\s\S]*?[:.]?\s*)?(?=[\[{])",
+        text,
+        re.IGNORECASE,
+    )
+    if prefix_match and prefix_match.group():
+        prefix = prefix_match.group()
+        if prefix.strip():
+            text = text[len(prefix) :]
+            if track_corrections:
+                corrections.append(f"Removed text prefix: {prefix.strip()[:50]}...")
+
     # Remove markdown fences
-    text = re.sub(r"```json\s*", "", text)
-    text = re.sub(r"```\s*$", "", text)
+    if "```" in text:
+        text = re.sub(r"```json\s*", "", text)
+        text = re.sub(r"```\s*", "", text)
+        if track_corrections and "```" in original:
+            corrections.append("Removed markdown fences")
 
-    # Remove trailing commas
-    text = re.sub(r",(\s*[}\]])", r"\1", text)
+    # Remove text suffix after JSON closes
+    # Find where JSON ends and remove trailing text
+    brace_count = 0
+    bracket_count = 0
+    in_string = False
+    escape_next = False
+    json_end = -1
+
+    for i, char in enumerate(text):
+        if escape_next:
+            escape_next = False
+            continue
+        if char == "\\":
+            escape_next = True
+            continue
+        if char == '"' and not escape_next:
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+
+        if char == "{":
+            brace_count += 1
+        elif char == "}":
+            brace_count -= 1
+            if brace_count == 0 and bracket_count == 0:
+                json_end = i + 1
+        elif char == "[":
+            bracket_count += 1
+        elif char == "]":
+            bracket_count -= 1
+            if brace_count == 0 and bracket_count == 0:
+                json_end = i + 1
+
+    if json_end > 0 and json_end < len(text):
+        suffix = text[json_end:].strip()
+        if suffix:
+            text = text[:json_end]
+            if track_corrections:
+                corrections.append(f"Removed text suffix: {suffix[:50]}...")
+
+    # Fix single quotes to double quotes (careful with apostrophes in text)
+    # Only replace single quotes that look like JSON delimiters
+    single_quote_json = re.search(r"'\s*:", text) or re.search(r":\s*'", text)
+    if single_quote_json:
+        # Replace single-quoted keys: {'key': -> {"key":
+        text = re.sub(r"'(\w+)'\s*:", r'"\1":', text)
+        # Replace single-quoted string values: : 'value' -> : "value"
+        text = re.sub(r":\s*'([^']*)'", r': "\1"', text)
+        if track_corrections:
+            corrections.append("Converted single quotes to double quotes")
+
+    # Remove trailing commas before } or ]
+    if re.search(r",\s*[}\]]", text):
+        text = re.sub(r",(\s*[}\]])", r"\1", text)
+        if track_corrections:
+            corrections.append("Removed trailing commas")
 
     # Balance braces
     opens = text.count("{") - text.count("}")
     if opens > 0:
         text += "}" * opens
+        if track_corrections:
+            corrections.append(f"Added {opens} missing closing brace(s)")
 
+    # Balance brackets
     brackets = text.count("[") - text.count("]")
     if brackets > 0:
         text += "]" * brackets
+        if track_corrections:
+            corrections.append(f"Added {brackets} missing closing bracket(s)")
 
-    return text.strip()
+    text = text.strip()
+    corrected = text != original.strip()
+
+    return AutoCorrectResult(
+        text=text,
+        corrected=corrected,
+        corrections=corrections if track_corrections else [],
+    )
 
 
 def extract_json_from_markdown(text: str) -> str:
-    """Extract JSON from markdown code fences."""
+    """Extract JSON from markdown code fences.
+
+    Args:
+        text: Text that may contain markdown-fenced JSON
+
+    Returns:
+        Extracted JSON string, or original text if no fences found
+    """
     # Try to find ```json ... ``` block
     match = re.search(r"```json\s*(.*?)\s*```", text, re.DOTALL)
     if match:
