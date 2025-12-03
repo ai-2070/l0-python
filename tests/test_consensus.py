@@ -537,6 +537,28 @@ class TestHelperFunctions:
         outputs = [dict1, dict2, dict3]
         assert Consensus.quick(outputs, 1.0)  # All should be considered equal
 
+    def test_quick_with_nested_dicts_different_order(self):
+        """Test that nested dicts with same content but different key order are equal."""
+        dict1 = {"outer": {"a": 1, "b": 2}, "other": 3}
+        dict2 = {"other": 3, "outer": {"b": 2, "a": 1}}
+        dict3 = {"outer": {"a": 1, "b": 2}, "other": 3}
+        outputs = [dict1, dict2, dict3]
+        assert Consensus.quick(outputs, 1.0)  # All should be considered equal
+
+    def test_quick_with_deeply_nested_dicts(self):
+        """Test that deeply nested dicts normalize correctly."""
+        dict1 = {"l1": {"l2": {"l3": {"a": 1, "b": 2}}}}
+        dict2 = {"l1": {"l2": {"l3": {"b": 2, "a": 1}}}}
+        outputs = [dict1, dict2]
+        assert Consensus.quick(outputs, 1.0)
+
+    def test_quick_with_nested_dicts_in_lists(self):
+        """Test that dicts nested in lists normalize correctly."""
+        dict1 = {"items": [{"a": 1, "b": 2}, {"c": 3, "d": 4}]}
+        dict2 = {"items": [{"b": 2, "a": 1}, {"d": 4, "c": 3}]}
+        outputs = [dict1, dict2]
+        assert Consensus.quick(outputs, 1.0)
+
     def test_get_value(self):
         outputs = ["a", "a", "b"]
         assert Consensus.get_value(outputs) == "a"

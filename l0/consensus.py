@@ -177,11 +177,11 @@ def _stable_repr(value: Any) -> str:
     have inconsistent string representations.
     """
     if isinstance(value, dict):
-        # Sort keys for consistent ordering
-        return str(dict(sorted(value.items())))
+        # Recursively normalize nested dicts for consistent ordering
+        return str({k: _stable_repr(v) for k, v in sorted(value.items())})
     elif isinstance(value, BaseModel):
-        # Use model_dump with sorted keys
-        return str(dict(sorted(value.model_dump().items())))
+        # Convert to dict and recursively normalize
+        return _stable_repr(value.model_dump())
     elif isinstance(value, (list, tuple)):
         return str([_stable_repr(v) for v in value])
     else:
