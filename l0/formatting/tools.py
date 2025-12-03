@@ -401,8 +401,9 @@ def format_tools(
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Pattern for function call: function_name({"arg": "value"}) or function_name(arg=value)
+# Use non-greedy quantifiers to avoid matching across multiple JSON blocks
 _FUNCTION_CALL_PATTERN = re.compile(
-    r"([a-zA-Z_][a-zA-Z0-9_]*)\s*\(\s*(\{.*\}|\[.*\]|.*?)\s*\)",
+    r"([a-zA-Z_][a-zA-Z0-9_]*)\s*\(\s*(\{.*?\}|\[.*?\]|.*?)\s*\)",
     re.DOTALL,
 )
 
