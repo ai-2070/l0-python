@@ -383,15 +383,29 @@ class TestStrictJsonRule:
         violations = rule.check(state)
         assert len(violations) == 0
 
-    def test_non_object_root_fails(self):
-        # A bare string doesn't look like JSON (doesn't start with { or [)
-        # so strict_json_rule skips it. Test with a number instead which parses as JSON.
-        state = State(content="123", completed=True)
+    def test_non_json_content_fails(self):
+        """Test that non-JSON content is flagged as a violation."""
+        state = State(content="This is plain text", completed=True)
         rule = strict_json_rule()
         violations = rule.check(state)
-        # This is skipped because it doesn't look like JSON
-        # The rule is designed to validate JSON that looks like JSON
-        assert len(violations) == 0
+        assert len(violations) == 1
+        assert "does not appear to be JSON" in violations[0].message
+
+    def test_empty_content_fails(self):
+        """Test that empty content is flagged as a violation."""
+        state = State(content="", completed=True)
+        rule = strict_json_rule()
+        violations = rule.check(state)
+        assert len(violations) == 1
+        assert "Empty output" in violations[0].message
+
+    def test_whitespace_only_content_fails(self):
+        """Test that whitespace-only content is flagged as a violation."""
+        state = State(content="   \n\t  ", completed=True)
+        rule = strict_json_rule()
+        violations = rule.check(state)
+        assert len(violations) == 1
+        assert "Empty output" in violations[0].message
 
 
 # ─────────────────────────────────────────────────────────────────────────────

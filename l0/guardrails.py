@@ -779,11 +779,23 @@ def strict_json_rule() -> GuardrailRule:
 
         content = state.content.strip()
         if not content:
-            return []
+            return [
+                GuardrailViolation(
+                    rule="strict_json",
+                    message="Empty output, expected JSON",
+                    severity="error",
+                )
+            ]
 
-        # Only check if it looks like JSON
+        # Check if it looks like JSON
         if not looks_like_json(content):
-            return []
+            return [
+                GuardrailViolation(
+                    rule="strict_json",
+                    message="Output does not appear to be JSON",
+                    severity="error",
+                )
+            ]
 
         try:
             parsed = json.loads(content)
