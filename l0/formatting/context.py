@@ -168,7 +168,8 @@ def format_context(
     escaped_content = escape_delimiters(content, delimiter)
 
     if delimiter == "xml":
-        return f"<{label_lower}>\n{escaped_content}\n</{label_lower}>"
+        safe_label = _sanitize_xml_tag(label_lower)
+        return f"<{safe_label}>\n{escaped_content}\n</{safe_label}>"
     elif delimiter == "markdown":
         return f"# {label}\n\n{escaped_content}"
     elif delimiter == "brackets":

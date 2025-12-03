@@ -63,6 +63,27 @@ class TestFormatContext:
         # Should escape the brackets
         assert "\\[SYSTEM\\]" in result
 
+    def test_xml_sanitizes_label_with_special_chars(self):
+        """Test that XML tag names are sanitized from labels with special chars."""
+        result = format_context("Content", label="my<tag>", delimiter="xml")
+        # Should not contain raw < or > in tag name
+        assert "<my<tag>" not in result
+        assert "<mytag>" in result
+
+    def test_xml_sanitizes_label_with_spaces(self):
+        """Test that XML tag names are sanitized from labels with spaces."""
+        result = format_context("Content", label="my label", delimiter="xml")
+        # Spaces should be removed
+        assert "<mylabel>" in result
+        assert "</mylabel>" in result
+
+    def test_xml_sanitizes_empty_label(self):
+        """Test that empty label after sanitization falls back to 'extra'."""
+        result = format_context("Content", label="<>!@#", delimiter="xml")
+        # Should fall back to 'extra' when all chars are invalid
+        assert "<extra>" in result
+        assert "</extra>" in result
+
 
 class TestFormatMultipleContexts:
     """Tests for format_multiple_contexts function."""
