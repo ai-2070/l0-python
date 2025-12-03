@@ -27,16 +27,15 @@ def has_openai() -> bool:
 
 
 def has_litellm() -> bool:
-    """Check if LiteLLM is available (module installed and API key set)."""
+    """Check if LiteLLM is available (module installed and OpenAI API key set).
+
+    Note: Tests use gpt-4o-mini which requires OpenAI API key specifically.
+    """
     try:
         import litellm  # noqa: F401  # type: ignore[import-not-found]
 
-        # LiteLLM can use various API keys - check for common ones
-        return bool(
-            os.environ.get("OPENAI_API_KEY")
-            or os.environ.get("ANTHROPIC_API_KEY")
-            or os.environ.get("COHERE_API_KEY")
-        )
+        # Tests use OpenAI models (gpt-4o-mini), so require OpenAI API key
+        return bool(os.environ.get("OPENAI_API_KEY"))
     except ImportError:
         return False
 
