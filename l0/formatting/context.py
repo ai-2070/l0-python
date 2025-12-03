@@ -6,8 +6,26 @@ instructions with proper delimiters for LLM consumption.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
+from html import escape as html_escape
 from typing import Any, Literal
+
+
+def _escape_xml(value: str) -> str:
+    """Escape a string for safe XML output."""
+    return html_escape(value, quote=True)
+
+
+def _sanitize_xml_tag(key: str) -> str:
+    """Sanitize a string to be a valid XML tag name.
+
+    Only allows alphanumeric characters, underscores, and hyphens.
+    Returns 'extra' if the result would be empty.
+    """
+    sanitized = re.sub(r"[^a-zA-Z0-9_-]", "", key)
+    return sanitized or "extra"
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Types
@@ -146,13 +164,16 @@ def format_context(
     label_lower = label.lower()
     label_upper = label.upper()
 
+    # Escape content to prevent delimiter injection
+    escaped_content = escape_delimiters(content, delimiter)
+
     if delimiter == "xml":
-        return f"<{label_lower}>\n{content}\n</{label_lower}>"
+        return f"<{label_lower}>\n{escaped_content}\n</{label_lower}>"
     elif delimiter == "markdown":
-        return f"# {label}\n\n{content}"
+        return f"# {label}\n\n{escaped_content}"
     elif delimiter == "brackets":
         separator = "=" * 30
-        return f"[{label_upper}]\n{separator}\n{content}\n{separator}"
+        return f"[{label_upper}]\n{separator}\n{escaped_content}\n{separator}"
     return content
 
 
@@ -231,15 +252,17 @@ def format_document(
     if delimiter == "xml":
         meta_parts = []
         if meta.title:
-            meta_parts.append(f"<title>{meta.title}</title>")
+            meta_parts.append(f"<title>{_escape_xml(meta.title)}</title>")
         if meta.author:
-            meta_parts.append(f"<author>{meta.author}</author>")
+            meta_parts.append(f"<author>{_escape_xml(meta.author)}</author>")
         if meta.date:
-            meta_parts.append(f"<date>{meta.date}</date>")
+            meta_parts.append(f"<date>{_escape_xml(meta.date)}</date>")
         if meta.source:
-            meta_parts.append(f"<source>{meta.source}</source>")
+            meta_parts.append(f"<source>{_escape_xml(meta.source)}</source>")
         for key, value in meta.extra.items():
-            meta_parts.append(f"<{key}>{value}</{key}>")
+            safe_key = _sanitize_xml_tag(key)
+            safe_value = _escape_xml(str(value))
+            meta_parts.append(f"<{safe_key}>{safe_value}</{safe_key}>")
 
         if meta_parts:
             meta_section = "<metadata>\n" + "\n".join(meta_parts) + "\n</metadata>"
