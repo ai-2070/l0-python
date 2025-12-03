@@ -157,70 +157,74 @@ async def main():
 ### Expanded Configuration
 
 ```python
+import asyncio
 import l0
 from openai import AsyncOpenAI
 
 client = AsyncOpenAI()
 prompt = "Write a haiku about coding"
 
-result = await l0.run(
-    # Primary model stream
-    stream=lambda: client.chat.completions.create(
-        model="gpt-4o",
-        messages=[{"role": "user", "content": prompt}],
-        stream=True,
-    ),
-
-    # Optional: Fallback models
-    fallbacks=[
-        lambda: client.chat.completions.create(
-            model="gpt-4o-mini",
+async def main():
+    result = await l0.run(
+        # Primary model stream
+        stream=lambda: client.chat.completions.create(
+            model="gpt-4o",
             messages=[{"role": "user", "content": prompt}],
             stream=True,
         ),
-    ],
 
-    # Optional: Guardrails
-    guardrails=l0.Guardrails.recommended(),
-    # Or strict:
-    # guardrails=l0.Guardrails.strict(),
-    # Or custom:
-    # guardrails=[l0.json_rule(), l0.pattern_rule()],
+        # Optional: Fallback models
+        fallbacks=[
+            lambda: client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": prompt}],
+                stream=True,
+            ),
+        ],
 
-    # Optional: Retry configuration (defaults shown)
-    retry=l0.Retry(
-        attempts=3,                              # LLM errors only
-        max_retries=6,                           # Total (LLM + network)
-        base_delay=1.0,                          # Seconds
-        max_delay=10.0,                          # Seconds
-        strategy=l0.BackoffStrategy.FIXED_JITTER,
-    ),
+        # Optional: Guardrails
+        guardrails=l0.Guardrails.recommended(),
+        # Or strict:
+        # guardrails=l0.Guardrails.strict(),
+        # Or custom:
+        # guardrails=[l0.json_rule(), l0.pattern_rule()],
 
-    # Optional: Timeout configuration (defaults shown)
-    timeout=l0.Timeout(
-        initial_token=5.0,   # Seconds to first token
-        inter_token=10.0,    # Seconds between tokens
-    ),
+        # Optional: Retry configuration (defaults shown)
+        retry=l0.Retry(
+            attempts=3,                              # LLM errors only
+            max_retries=6,                           # Total (LLM + network)
+            base_delay=1.0,                          # Seconds
+            max_delay=10.0,                          # Seconds
+            strategy=l0.BackoffStrategy.FIXED_JITTER,
+        ),
 
-    # Optional: Event callback for observability
-    on_event=lambda event: print(f"[{event.type}]"),
+        # Optional: Timeout configuration (defaults shown)
+        timeout=l0.Timeout(
+            initial_token=5.0,   # Seconds to first token
+            inter_token=10.0,    # Seconds between tokens
+        ),
 
-    # Optional: Metadata attached to all events
-    meta={"user_id": "123", "session": "abc"},
-)
+        # Optional: Event callback for observability
+        on_event=lambda event: print(f"[{event.type}]"),
 
-# Stream events with Pythonic properties
-async for event in result:
-    if event.is_token:
-        print(event.text, end="")
-    elif event.is_tool_call:
-        print(f"Tool: {event.data}")
-    elif event.is_complete:
-        print(f"\nUsage: {event.usage}")
+        # Optional: Metadata attached to all events
+        meta={"user_id": "123", "session": "abc"},
+    )
 
-# Access state anytime
-print(f"\nTokens: {result.state.token_count}")
-print(f"Duration: {result.state.duration}s")
+    # Stream events with Pythonic properties
+    async for event in result:
+        if event.is_token:
+            print(event.text, end="")
+        elif event.is_tool_call:
+            print(f"Tool: {event.data}")
+        elif event.is_complete:
+            print(f"\nUsage: {event.usage}")
+
+    # Access state anytime
+    print(f"\nTokens: {result.state.token_count}")
+    print(f"Duration: {result.state.duration}s")
+
+asyncio.run(main())
 ```
 
 **See Also: [API.md](./API.md) - Complete API reference**
