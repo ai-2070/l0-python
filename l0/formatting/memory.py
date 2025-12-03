@@ -344,7 +344,11 @@ def get_last_n_entries(
         else:
             entries.append(item)
 
-    return entries[-n:] if n < len(entries) else entries
+    if n <= 0:
+        return []
+    if n >= len(entries):
+        return entries
+    return entries[-n:]
 
 
 def calculate_memory_size(memory: list[MemoryEntry] | list[dict[str, Any]]) -> int:

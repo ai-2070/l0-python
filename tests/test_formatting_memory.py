@@ -199,6 +199,16 @@ class TestGetLastNEntries:
         result = get_last_n_entries([], 5)
         assert len(result) == 0
 
+    def test_get_zero_returns_empty(self):
+        memory = [{"role": "user", "content": str(i)} for i in range(5)]
+        result = get_last_n_entries(memory, 0)
+        assert len(result) == 0
+
+    def test_get_negative_returns_empty(self):
+        memory = [{"role": "user", "content": str(i)} for i in range(5)]
+        result = get_last_n_entries(memory, -3)
+        assert len(result) == 0
+
 
 class TestCalculateMemorySize:
     """Tests for calculate_memory_size function."""
