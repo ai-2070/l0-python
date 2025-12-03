@@ -116,15 +116,8 @@ from .window import (
     ChunkResult,
     DocumentChunk,
     DocumentWindow,
+    Window,
     WindowConfig,
-    chunk_document,
-    create_window,
-    estimate_tokens,
-    large_window,
-    medium_window,
-    paragraph_window,
-    sentence_window,
-    small_window,
 )
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -373,20 +366,13 @@ __all__ = [
     "DisagreementValue",
     "FieldConsensus",
     "FieldConsensusInfo",
-    # Window (document chunking)
-    "create_window",
+    # Window (scoped API)
+    "Window",  # Class with .create(), .small(), .medium(), .large(), .paragraph(), .sentence(), .chunk(), .estimate_tokens()
     "DocumentWindow",
     "DocumentChunk",
     "WindowConfig",
     "ChunkProcessConfig",
     "ChunkResult",
-    "chunk_document",
-    "estimate_tokens",
-    "small_window",
-    "medium_window",
-    "large_window",
-    "paragraph_window",
-    "sentence_window",
     # Debug
     "enable_debug",
     # Formatting

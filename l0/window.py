@@ -70,27 +70,6 @@ class ChunkResult(Generic[T]):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Presets
-# ─────────────────────────────────────────────────────────────────────────────
-
-
-# Small window: 1000 tokens, 100 overlap
-small_window = WindowConfig(size=1000, overlap=100, strategy="token")
-
-# Medium window: 2000 tokens, 200 overlap (default)
-medium_window = WindowConfig(size=2000, overlap=200, strategy="token")
-
-# Large window: 4000 tokens, 400 overlap
-large_window = WindowConfig(size=4000, overlap=400, strategy="token")
-
-# Paragraph-based windowing
-paragraph_window = WindowConfig(size=2000, overlap=200, strategy="paragraph")
-
-# Sentence-based windowing
-sentence_window = WindowConfig(size=1500, overlap=150, strategy="sentence")
-
-
-# ─────────────────────────────────────────────────────────────────────────────
 # Token Estimation
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -491,47 +470,102 @@ class DocumentWindow:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Factory Function
+# Window Class - Scoped API
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def create_window(
-    document: str,
-    config: WindowConfig | None = None,
-    *,
-    size: int = 2000,
-    overlap: int = 200,
-    strategy: ChunkingStrategy = "token",
-) -> DocumentWindow:
-    """Create a document window for chunking and processing.
+class Window:
+    """Scoped API for document windowing operations.
 
-    Args:
-        document: The document text to chunk
-        config: Optional WindowConfig (overrides other args if provided)
-        size: Tokens per chunk (default 2000)
-        overlap: Overlap between chunks (default 200)
-        strategy: Chunking strategy (default "token")
+    Usage:
+        from l0 import Window
 
-    Returns:
-        DocumentWindow for navigating and processing chunks
+        # Create a window
+        window = Window.create(document, size=2000, overlap=200)
 
-    Example:
-        ```python
-        # Using kwargs
-        window = create_window(doc, size=2000, overlap=200, strategy="paragraph")
+        # Use presets
+        window = Window.small(document)    # 1000 tokens
+        window = Window.medium(document)   # 2000 tokens (default)
+        window = Window.large(document)    # 4000 tokens
+        window = Window.paragraph(document) # Paragraph-based
+        window = Window.sentence(document)  # Sentence-based
 
-        # Using preset
-        window = create_window(doc, config=large_window)
+        # Chunk a document
+        chunks = Window.chunk(document, config)
 
-        # Process chunks
-        results = await window.process_all(
-            lambda chunk: ChunkProcessConfig(
-                stream=lambda: my_llm_call(chunk.content)
-            )
-        )
-        ```
+        # Estimate tokens
+        count = Window.estimate_tokens(text)
     """
-    if config is None:
-        config = WindowConfig(size=size, overlap=overlap, strategy=strategy)
 
-    return DocumentWindow(document, config)
+    @staticmethod
+    def create(
+        document: str,
+        config: WindowConfig | None = None,
+        *,
+        size: int = 2000,
+        overlap: int = 200,
+        strategy: ChunkingStrategy = "token",
+    ) -> DocumentWindow:
+        """Create a document window for chunking and processing.
+
+        Args:
+            document: The document text to chunk
+            config: Optional WindowConfig (overrides other args if provided)
+            size: Tokens per chunk (default 2000)
+            overlap: Overlap between chunks (default 200)
+            strategy: Chunking strategy (default "token")
+
+        Returns:
+            DocumentWindow for navigating and processing chunks
+        """
+        if config is None:
+            config = WindowConfig(size=size, overlap=overlap, strategy=strategy)
+        return DocumentWindow(document, config)
+
+    @staticmethod
+    def small(document: str) -> DocumentWindow:
+        """Create a small window (1000 tokens, 100 overlap)."""
+        return DocumentWindow(
+            document, WindowConfig(size=1000, overlap=100, strategy="token")
+        )
+
+    @staticmethod
+    def medium(document: str) -> DocumentWindow:
+        """Create a medium window (2000 tokens, 200 overlap)."""
+        return DocumentWindow(
+            document, WindowConfig(size=2000, overlap=200, strategy="token")
+        )
+
+    @staticmethod
+    def large(document: str) -> DocumentWindow:
+        """Create a large window (4000 tokens, 400 overlap)."""
+        return DocumentWindow(
+            document, WindowConfig(size=4000, overlap=400, strategy="token")
+        )
+
+    @staticmethod
+    def paragraph(document: str) -> DocumentWindow:
+        """Create a paragraph-based window (2000 tokens, 200 overlap)."""
+        return DocumentWindow(
+            document, WindowConfig(size=2000, overlap=200, strategy="paragraph")
+        )
+
+    @staticmethod
+    def sentence(document: str) -> DocumentWindow:
+        """Create a sentence-based window (1500 tokens, 150 overlap)."""
+        return DocumentWindow(
+            document, WindowConfig(size=1500, overlap=150, strategy="sentence")
+        )
+
+    @staticmethod
+    def chunk(document: str, config: WindowConfig) -> list[DocumentChunk]:
+        """Chunk a document according to configuration."""
+        return chunk_document(document, config)
+
+    @staticmethod
+    def estimate_tokens(text: str) -> int:
+        """Estimate token count for text.
+
+        Uses a simple heuristic: ~4 characters per token for English text.
+        """
+        return estimate_tokens(text)

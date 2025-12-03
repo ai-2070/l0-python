@@ -5,42 +5,35 @@ import pytest
 from l0.window import (
     DocumentChunk,
     DocumentWindow,
+    Window,
     WindowConfig,
-    chunk_document,
-    create_window,
-    estimate_tokens,
-    large_window,
-    medium_window,
-    paragraph_window,
-    sentence_window,
-    small_window,
 )
 
 
 class TestEstimateTokens:
     def test_estimate_tokens_empty(self):
-        assert estimate_tokens("") == 0
+        assert Window.estimate_tokens("") == 0
 
     def test_estimate_tokens_short(self):
         # "hello" = 5 chars, ~1 token
-        tokens = estimate_tokens("hello")
+        tokens = Window.estimate_tokens("hello")
         assert tokens == 1
 
     def test_estimate_tokens_longer(self):
         # 100 chars should be ~25 tokens
         text = "a" * 100
-        tokens = estimate_tokens(text)
+        tokens = Window.estimate_tokens(text)
         assert tokens == 25
 
 
-class TestChunkDocument:
+class TestWindowChunk:
     def test_chunk_empty_document(self):
-        chunks = chunk_document("", WindowConfig(size=100))
+        chunks = Window.chunk("", WindowConfig(size=100))
         assert len(chunks) == 0
 
     def test_chunk_small_document(self):
         doc = "Hello world"
-        chunks = chunk_document(doc, WindowConfig(size=100))
+        chunks = Window.chunk(doc, WindowConfig(size=100))
         assert len(chunks) == 1
         assert chunks[0].content == doc
         assert chunks[0].is_first
@@ -49,9 +42,7 @@ class TestChunkDocument:
     def test_chunk_by_char(self):
         doc = "a" * 1000
         # 100 tokens = 400 chars, 20 overlap = 80 chars
-        chunks = chunk_document(
-            doc, WindowConfig(size=100, overlap=20, strategy="char")
-        )
+        chunks = Window.chunk(doc, WindowConfig(size=100, overlap=20, strategy="char"))
         assert len(chunks) > 1
         # Check overlap
         for i in range(1, len(chunks)):
@@ -61,14 +52,12 @@ class TestChunkDocument:
 
     def test_chunk_by_token(self):
         doc = "word " * 500  # ~500 words
-        chunks = chunk_document(
-            doc, WindowConfig(size=100, overlap=10, strategy="token")
-        )
+        chunks = Window.chunk(doc, WindowConfig(size=100, overlap=10, strategy="token"))
         assert len(chunks) > 1
 
     def test_chunk_by_paragraph(self):
         doc = "Paragraph one.\n\nParagraph two.\n\nParagraph three."
-        chunks = chunk_document(
+        chunks = Window.chunk(
             doc, WindowConfig(size=1000, overlap=100, strategy="paragraph")
         )
         # With large size, should be 1 chunk
@@ -77,14 +66,14 @@ class TestChunkDocument:
 
     def test_chunk_by_sentence(self):
         doc = "First sentence. Second sentence. Third sentence."
-        chunks = chunk_document(
+        chunks = Window.chunk(
             doc, WindowConfig(size=1000, overlap=100, strategy="sentence")
         )
         assert len(chunks) >= 1
 
     def test_chunk_metadata(self):
         doc = "Hello world. This is a test."
-        chunks = chunk_document(doc, WindowConfig(size=1000))
+        chunks = Window.chunk(doc, WindowConfig(size=1000))
         assert len(chunks) == 1
         chunk = chunks[0]
         assert chunk.index == 0
@@ -104,7 +93,7 @@ class TestDocumentWindow:
 
     @pytest.fixture
     def window(self, sample_doc):
-        return create_window(sample_doc, size=500, overlap=50)
+        return Window.create(sample_doc, size=500, overlap=50)
 
     def test_create_window(self, window):
         assert window.total_chunks > 1
@@ -178,10 +167,10 @@ class TestDocumentWindow:
         assert chunk.index == 0
 
 
-class TestCreateWindow:
+class TestWindowCreate:
     def test_create_with_kwargs(self):
         doc = "Test document"
-        window = create_window(doc, size=100, overlap=10, strategy="token")
+        window = Window.create(doc, size=100, overlap=10, strategy="token")
         assert window.config.size == 100
         assert window.config.overlap == 10
         assert window.config.strategy == "token"
@@ -189,39 +178,43 @@ class TestCreateWindow:
     def test_create_with_config(self):
         doc = "Test document"
         config = WindowConfig(size=500, overlap=50, strategy="paragraph")
-        window = create_window(doc, config=config)
+        window = Window.create(doc, config=config)
         assert window.config.size == 500
         assert window.config.overlap == 50
         assert window.config.strategy == "paragraph"
 
-    def test_create_with_preset(self):
+
+class TestWindowPresets:
+    def test_small(self):
         doc = "Test document"
-        window = create_window(doc, config=large_window)
+        window = Window.small(doc)
+        assert window.config.size == 1000
+        assert window.config.overlap == 100
+        assert window.config.strategy == "token"
+
+    def test_medium(self):
+        doc = "Test document"
+        window = Window.medium(doc)
+        assert window.config.size == 2000
+        assert window.config.overlap == 200
+        assert window.config.strategy == "token"
+
+    def test_large(self):
+        doc = "Test document"
+        window = Window.large(doc)
         assert window.config.size == 4000
         assert window.config.overlap == 400
+        assert window.config.strategy == "token"
 
+    def test_paragraph(self):
+        doc = "Test document"
+        window = Window.paragraph(doc)
+        assert window.config.strategy == "paragraph"
 
-class TestPresets:
-    def test_small_window_preset(self):
-        assert small_window.size == 1000
-        assert small_window.overlap == 100
-        assert small_window.strategy == "token"
-
-    def test_medium_window_preset(self):
-        assert medium_window.size == 2000
-        assert medium_window.overlap == 200
-        assert medium_window.strategy == "token"
-
-    def test_large_window_preset(self):
-        assert large_window.size == 4000
-        assert large_window.overlap == 400
-        assert large_window.strategy == "token"
-
-    def test_paragraph_window_preset(self):
-        assert paragraph_window.strategy == "paragraph"
-
-    def test_sentence_window_preset(self):
-        assert sentence_window.strategy == "sentence"
+    def test_sentence(self):
+        doc = "Test document"
+        window = Window.sentence(doc)
+        assert window.config.strategy == "sentence"
 
 
 class TestParagraphChunking:
@@ -232,7 +225,7 @@ Second paragraph with more content.
 
 Third paragraph with even more content."""
 
-        window = create_window(doc, size=1000, overlap=100, strategy="paragraph")
+        window = Window.create(doc, size=1000, overlap=100, strategy="paragraph")
         chunks = window.get_all_chunks()
 
         # With large size, should fit in one chunk
@@ -248,7 +241,7 @@ Third paragraph with even more content."""
         ]
         doc = "\n\n".join(paragraphs)
 
-        window = create_window(doc, size=100, overlap=10, strategy="paragraph")
+        window = Window.create(doc, size=100, overlap=10, strategy="paragraph")
         chunks = window.get_all_chunks()
 
         # Should create multiple chunks
@@ -258,7 +251,7 @@ Third paragraph with even more content."""
 class TestSentenceChunking:
     def test_respects_sentence_boundaries(self):
         doc = "First sentence. Second sentence. Third sentence."
-        window = create_window(doc, size=1000, overlap=100, strategy="sentence")
+        window = Window.create(doc, size=1000, overlap=100, strategy="sentence")
         chunks = window.get_all_chunks()
 
         # All should fit in one chunk
@@ -270,7 +263,7 @@ class TestSentenceChunking:
         sentences = [f"This is sentence number {i}." for i in range(50)]
         doc = " ".join(sentences)
 
-        window = create_window(doc, size=100, overlap=10, strategy="sentence")
+        window = Window.create(doc, size=100, overlap=10, strategy="sentence")
         chunks = window.get_all_chunks()
 
         # Should create multiple chunks
@@ -280,7 +273,7 @@ class TestSentenceChunking:
 class TestOverlap:
     def test_chunks_have_overlap(self):
         doc = "a" * 4000
-        window = create_window(doc, size=500, overlap=50)
+        window = Window.create(doc, size=500, overlap=50)
         chunks = window.get_all_chunks()
 
         if len(chunks) > 1:
