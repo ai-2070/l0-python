@@ -27,12 +27,6 @@ L0 adds deterministic execution, fallbacks, retries, network protection, guardra
 
 It works with **OpenAI** and **LiteLLM** (100+ providers including Anthropic, Cohere, Bedrock, Vertex, Gemini). Supports **tool calls** and provides full observability.
 
-```bash
-pip install l0
-# or with uv
-uv add l0
-```
-
 _Production-grade reliability. Just pass your stream. L0'll take it from here._
 
 ```
