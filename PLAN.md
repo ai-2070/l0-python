@@ -79,87 +79,125 @@ def enable_debug() -> None:
 
 ### 1.3 Types (`l0/types.py`)
 
-Core types using dataclasses and enums:
-
 ```python
+from __future__ import annotations
 from dataclasses import dataclass, field
+from typing import Callable, AsyncIterator, Any
 from enum import Enum
-from typing import Literal, Callable, AsyncIterator, Any
 import time
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Event Types (matches TS: token | message | data | progress | error | complete)
+# ─────────────────────────────────────────────────────────────────────────────
 
 class EventType(str, Enum):
     TOKEN = "token"
     MESSAGE = "message"
     DATA = "data"
+    PROGRESS = "progress"      # TS has this
     TOOL_CALL = "tool_call"
     ERROR = "error"
     COMPLETE = "complete"
 
+
+@dataclass
+class L0Event:
+    """Unified event from adapter-normalized LLM stream."""
+    type: EventType
+    value: str | None = None               # Matches TS field name
+    data: dict[str, Any] | None = None     # Tool call payload, progress, or misc
+    error: Exception | None = None
+    usage: dict[str, int] | None = None
+    timestamp: float | None = None         # Matches TS field name (optional in TS)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Error Categories (matches TS ErrorCategory enum)
+# ─────────────────────────────────────────────────────────────────────────────
+
 class ErrorCategory(str, Enum):
-    NETWORK = "network"      # Infinite retry
-    TRANSIENT = "transient"  # Infinite retry (429, 503)
-    MODEL = "model"          # Counts toward limit
-    CONTENT = "content"      # Counts toward limit
-    FATAL = "fatal"          # No retry
+    NETWORK = "network"        # Retry forever, doesn't count
+    TRANSIENT = "transient"    # Retry forever (429, 503), doesn't count
+    MODEL = "model"            # Counts toward limit
+    CONTENT = "content"        # Counts toward limit
+    PROVIDER = "provider"      # May retry depending on status
+    FATAL = "fatal"            # Don't retry
+    INTERNAL = "internal"      # Don't retry (bugs)
+
 
 class BackoffStrategy(str, Enum):
     EXPONENTIAL = "exponential"
     LINEAR = "linear"
     FIXED = "fixed"
-    FIXED_JITTER = "fixed_jitter"
-    FULL_JITTER = "full_jitter"
+    FULL_JITTER = "full-jitter"      # TS uses hyphen
+    FIXED_JITTER = "fixed-jitter"    # TS uses hyphen
 
-@dataclass
-class L0Event:
-    """Unified event from LLM stream."""
-    type: EventType
-    text: str | None = None                    # Token/message text content
-    data: dict[str, Any] | None = None         # Tool calls, metadata, structured data
-    error: Exception | None = None             # Error details
-    usage: dict[str, int] | None = None        # Token usage stats
-    ts: float = field(default_factory=time.time)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# State Object (matches TS L0State)
+# ─────────────────────────────────────────────────────────────────────────────
 
 @dataclass
 class L0State:
     content: str = ""
     checkpoint: str = ""
     token_count: int = 0
-    model_retries: int = 0
-    network_retries: int = 0
+    model_retry_count: int = 0
+    network_retry_count: int = 0
     fallback_index: int = 0
-    violations: list["GuardrailViolation"] = field(default_factory=list)
+    violations: list[Any] = field(default_factory=list)
+    drift_detected: bool = False           # TS has this
     completed: bool = False
     aborted: bool = False
     first_token_at: float | None = None
     last_token_at: float | None = None
+    duration: float | None = None          # TS has this
+    resumed: bool = False                  # TS has this
+    network_errors: list[Any] = field(default_factory=list)  # TS has this
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Retry + Timeout Configs (matches TS defaults)
+# ─────────────────────────────────────────────────────────────────────────────
 
 @dataclass
 class RetryConfig:
-    max_attempts: int = 3
-    base_delay: float = 1.0
-    max_delay: float = 30.0
+    attempts: int = 3                      # TS default: 3
+    max_retries: int = 6                   # TS default: 6 (absolute max)
+    base_delay_ms: int = 1000              # TS default: 1000ms
+    max_delay_ms: int = 10000              # TS default: 10000ms
     strategy: BackoffStrategy = BackoffStrategy.FIXED_JITTER
+
 
 @dataclass
 class TimeoutConfig:
-    initial_token: float = 30.0   # Max wait for first token
-    inter_token: float = 10.0     # Max wait between tokens
+    initial_token_ms: int = 5000           # TS default: 5000ms
+    inter_token_ms: int = 10000            # TS default: 10000ms
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Options + Results
+# ─────────────────────────────────────────────────────────────────────────────
 
 @dataclass
 class L0Options:
     stream: Callable[[], AsyncIterator[Any]]
     fallbacks: list[Callable[[], AsyncIterator[Any]]] = field(default_factory=list)
-    guardrails: list["GuardrailRule"] = field(default_factory=list)
+    guardrails: list[Any] = field(default_factory=list)
     retry: RetryConfig | None = None
     timeout: TimeoutConfig | None = None
-    adapter: "Adapter | str | None" = None
-    on_event: Callable[["ObservabilityEvent"], None] | None = None
+    adapter: Any | str | None = None
+    on_event: Callable[[Any], None] | None = None
+    meta: dict[str, Any] | None = None     # TS has this for observability
+
 
 @dataclass
 class L0Result:
     stream: AsyncIterator[L0Event]
     state: L0State
     abort: Callable[[], None]
+    errors: list[Exception] = field(default_factory=list)  # TS has this
 ```
 
 ### 1.4 Central Event Bus (`l0/events.py`)
