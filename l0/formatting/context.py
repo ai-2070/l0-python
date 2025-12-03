@@ -21,9 +21,13 @@ def _sanitize_xml_tag(key: str) -> str:
     """Sanitize a string to be a valid XML tag name.
 
     Only allows alphanumeric characters, underscores, and hyphens.
+    XML tag names must start with a letter or underscore.
     Returns 'extra' if the result would be empty.
     """
     sanitized = re.sub(r"[^a-zA-Z0-9_-]", "", key)
+    # XML tag names must start with a letter or underscore, not digit or hyphen
+    if sanitized and not re.match(r"[A-Za-z_]", sanitized[0]):
+        sanitized = f"extra{sanitized}"
     return sanitized or "extra"
 
 

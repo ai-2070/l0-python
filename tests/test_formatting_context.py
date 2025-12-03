@@ -189,6 +189,28 @@ class TestFormatDocument:
         # Should not contain the raw injection attempt
         assert "</meta><evil>" not in result
 
+    def test_document_sanitizes_keys_starting_with_digits(self):
+        """Test that keys starting with digits get 'extra' prefix for valid XML."""
+        result = format_document(
+            "Content",
+            {"title": "Test", "123abc": "value"},
+        )
+        # Key starting with digit should be prefixed with 'extra'
+        assert "<extra123abc>" in result
+        # Should not have raw digit-starting tag
+        assert "<123abc>" not in result
+
+    def test_document_sanitizes_keys_starting_with_hyphen(self):
+        """Test that keys starting with hyphen get 'extra' prefix for valid XML."""
+        result = format_document(
+            "Content",
+            {"title": "Test", "-hack": "value"},
+        )
+        # Key starting with hyphen should be prefixed with 'extra'
+        assert "<extra-hack>" in result
+        # Should not have raw hyphen-starting tag
+        assert "<-hack>" not in result
+
     def test_document_markdown_format(self):
         result = format_document(
             "Content",
