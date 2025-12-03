@@ -609,7 +609,11 @@ async def l0(options: L0Options) -> L0Result:
 
 ### 4.1 Adapters (`l0/adapters.py`)
 
-Adapters handle their own metadata extraction (usage, tool calls):
+Two adapters only:
+- **OpenAI** - Direct OpenAI SDK streams
+- **LiteLLM** - Unified interface for 100+ providers (Anthropic, Cohere, Bedrock, Vertex, etc.)
+
+LiteLLM uses OpenAI-compatible format, so the OpenAI adapter handles both.
 
 ```python
 from typing import AsyncIterator, Any, Protocol, runtime_checkable
@@ -622,12 +626,14 @@ class Adapter(Protocol):
     def detect(self, stream: Any) -> bool: ...
     async def wrap(self, stream: Any) -> AsyncIterator[L0Event]: ...
 
+
 class OpenAIAdapter:
+    """Adapter for OpenAI SDK streams. Also works with LiteLLM (OpenAI-compatible format)."""
     name = "openai"
     
     def detect(self, stream: Any) -> bool:
         type_name = type(stream).__module__
-        return "openai" in type_name
+        return "openai" in type_name or "litellm" in type_name
     
     async def wrap(self, stream: Any) -> AsyncIterator[L0Event]:
         usage = None
@@ -663,47 +669,12 @@ class OpenAIAdapter:
         yield L0Event(type=EventType.COMPLETE, usage=usage)
 
 
-class AnthropicAdapter:
-    name = "anthropic"
-    
-    def detect(self, stream: Any) -> bool:
-        type_name = type(stream).__module__
-        return "anthropic" in type_name
-    
-    async def wrap(self, stream: Any) -> AsyncIterator[L0Event]:
-        usage = None
-        async for event in stream:
-            event_type = getattr(event, "type", None)
-            
-            if event_type == "content_block_delta":
-                delta = getattr(event, "delta", None)
-                if delta and hasattr(delta, "text"):
-                    yield L0Event(type=EventType.TOKEN, value=delta.text)
-            
-            elif event_type == "content_block_start":
-                block = getattr(event, "content_block", None)
-                if block and getattr(block, "type", None) == "tool_use":
-                    yield L0Event(
-                        type=EventType.TOOL_CALL,
-                        data={
-                            "id": getattr(block, "id", None),
-                            "name": getattr(block, "name", None),
-                        }
-                    )
-            
-            elif event_type == "message_delta":
-                msg_usage = getattr(event, "usage", None)
-                if msg_usage:
-                    usage = {
-                        "input_tokens": getattr(msg_usage, "input_tokens", 0),
-                        "output_tokens": getattr(msg_usage, "output_tokens", 0),
-                    }
-            
-            elif event_type == "message_stop":
-                yield L0Event(type=EventType.COMPLETE, usage=usage)
+# Alias for clarity
+LiteLLMAdapter = OpenAIAdapter  # LiteLLM uses OpenAI-compatible format
+
 
 # Registry
-_adapters: list[Adapter] = [OpenAIAdapter(), AnthropicAdapter()]
+_adapters: list[Adapter] = [OpenAIAdapter()]
 
 def register_adapter(adapter: Adapter) -> None:
     """Register a custom adapter (takes priority)."""
@@ -715,6 +686,9 @@ def detect_adapter(stream: Any, hint: "Adapter | str | None" = None) -> Adapter:
         return hint
     
     if isinstance(hint, str):
+        # Handle litellm hint -> use OpenAI adapter
+        if hint == "litellm":
+            hint = "openai"
         for a in _adapters:
             if a.name == hint:
                 return a
@@ -1185,7 +1159,7 @@ dependencies = [
 
 [project.optional-dependencies]
 openai = ["openai>=1.30"]
-anthropic = ["anthropic>=0.25"]
+litellm = ["litellm>=1.40"]
 observability = [
     "opentelemetry-api>=1.20",
     "opentelemetry-sdk>=1.20",
