@@ -41,7 +41,7 @@ async def _internal_run(
         meta: Optional metadata attached to all events
 
     Returns:
-        Stream - async iterator with .state, .abort(), and .text()
+        Stream - async iterator with .state, .abort(), and .read()
     """
     fallbacks = fallbacks or []
     guardrails = guardrails or []

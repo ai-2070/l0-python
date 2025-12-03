@@ -125,24 +125,25 @@ class Stream:
     """Async iterator result with state and abort attached.
 
     Usage:
-        result = await l0(stream=my_stream)
+        result = await l0.run(stream=my_stream)
 
         # Iterate directly
         async for event in result:
-            print(event)
+            if event.type == "token":
+                print(event.value, end="")
+
+        # Or get full text (Pythonic - like file.read())
+        text = await result.read()
 
         # Access state
         print(result.state.content)
         print(result.state.token_count)
 
-        # Get full text
-        text = await result.text()
-
         # Abort if needed
         result.abort()
     """
 
-    __slots__ = ("_iterator", "_consumed", "_text", "state", "abort", "errors")
+    __slots__ = ("_iterator", "_consumed", "_content", "state", "abort", "errors")
 
     def __init__(
         self,
@@ -153,7 +154,7 @@ class Stream:
     ) -> None:
         self._iterator = iterator
         self._consumed = False
-        self._text: str | None = None
+        self._content: str | None = None
         self.state = state
         self.abort = abort
         self.errors = errors or []
@@ -168,22 +169,18 @@ class Stream:
             self._consumed = True
             raise
 
-    async def text(self) -> str:
+    async def read(self) -> str:
         """Consume the stream and return the full text content.
 
+        Pythonic interface matching file.read(), stream.read(), etc.
         If already consumed, returns the accumulated state.content.
         """
-        if self._consumed or self._text is not None:
-            return self._text or self.state.content
+        if self._consumed or self._content is not None:
+            return self._content or self.state.content
 
         # Consume the stream
         async for event in self:
             pass  # Events are processed, state is updated
 
-        self._text = self.state.content
-        return self._text
-
-    @property
-    def stream(self) -> "Stream":
-        """Backwards compatibility: result.stream returns self."""
-        return self
+        self._content = self.state.content
+        return self._content

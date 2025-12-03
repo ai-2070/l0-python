@@ -21,4 +21,4 @@ async def consume_stream(stream: AsyncIterator[Event]) -> str:
 
 async def get_text(result: Stream) -> str:
     """Helper to get text from Stream result."""
-    return await result.text()
+    return await result.read()

@@ -117,7 +117,7 @@ async def main():
     )
 
     # Or just get full text
-    text = await result.text()
+    text = await result.read()
     print(text)
 
 asyncio.run(main())

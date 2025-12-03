@@ -70,7 +70,7 @@ async def l0(
         meta: Optional metadata attached to all events
 
     Returns:
-        Stream - async iterator with .state, .abort(), and .text()
+        Stream - async iterator with .state, .abort(), and .read()
 
     Example:
         ```python
@@ -91,7 +91,7 @@ async def l0(
                 print(event.value, end="")
 
         # Or get full text
-        text = await result.text()
+        text = await result.read()
         print(result.state.token_count)
         ```
     """

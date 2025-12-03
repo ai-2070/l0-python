@@ -32,7 +32,7 @@ async def structured(
         ValueError: If schema validation fails
     """
     result = await _internal_run(stream=stream)
-    text = await result.text()
+    text = await result.read()
 
     # Extract JSON from markdown if present
     text = extract_json_from_markdown(text)

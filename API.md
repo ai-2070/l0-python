@@ -99,7 +99,7 @@ async for event in result:
             print(f"Error: {event.error}")
 
 # Or get full text directly
-text = await result.text()
+text = await result.read()
 
 # Access state anytime
 print(result.state.content)       # Full accumulated content
@@ -128,7 +128,7 @@ print(result.state.duration)      # Duration in seconds
 | `__aiter__` | - | Iterate directly over events |
 | `state` | `State` | Runtime state |
 | `abort()` | `Callable[[], None]` | Abort the stream |
-| `text()` | `async -> str` | Consume stream, return full text |
+| `read()` | `async -> str` | Consume stream, return full text |
 | `errors` | `list[Exception]` | Errors encountered |
 
 ---
@@ -807,7 +807,7 @@ async def get_answer(model: str) -> str:
             stream=True,
         ),
     )
-    return await result.text()
+    return await result.read()
 
 # Require agreement from multiple models
 try:
@@ -837,7 +837,7 @@ import l0
 
 async def process_document(doc: str) -> str:
     result = await l0.run(stream=lambda: summarize(doc))
-    return await result.text()
+    return await result.read()
 
 # Process 10 documents, max 3 concurrent
 results = await l0.parallel(
@@ -1392,7 +1392,7 @@ l0.enable_debug()
 ```python
 class Stream:
     """Async iterator result with state and abort attached."""
-    __slots__ = ("_iterator", "_consumed", "_text", "state", "abort", "errors")
+    __slots__ = ("_iterator", "_consumed", "_content", "state", "abort", "errors")
     
     state: State                              # Runtime state
     abort: Callable[[], None]                 # Abort the stream
@@ -1405,7 +1405,7 @@ class Stream:
         # Yields events from the stream
         ...
     
-    async def text(self) -> str:
+    async def read(self) -> str:
         """Consume the stream and return the full text content."""
         ...
 ```
@@ -1555,7 +1555,7 @@ result = await l0.run(
 async for event in result:  # Iterate directly
     print(event.value)
 
-text = await result.text()  # Or get full text
+text = await result.read()  # Or get full text
 print(result.state.token_count)  # Access state
 ```
 
