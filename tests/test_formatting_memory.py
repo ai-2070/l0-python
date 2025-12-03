@@ -81,6 +81,16 @@ class TestFormatMemory:
         assert "Message 9" in result
         assert "Message 0" not in result
 
+    def test_max_entries_zero_returns_empty(self):
+        memory = [{"role": "user", "content": f"Message {i}"} for i in range(5)]
+        result = format_memory(memory, {"max_entries": 0})
+        assert result == ""
+
+    def test_max_entries_negative_returns_empty(self):
+        memory = [{"role": "user", "content": f"Message {i}"} for i in range(5)]
+        result = format_memory(memory, {"max_entries": -1})
+        assert result == ""
+
     def test_with_timestamps(self):
         now = datetime.now()
         memory = [

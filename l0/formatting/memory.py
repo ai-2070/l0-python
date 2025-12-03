@@ -143,8 +143,11 @@ def format_memory(
             entries.append(item)
 
     # Limit entries if specified
-    if opts.max_entries is not None and len(entries) > opts.max_entries:
-        entries = entries[-opts.max_entries :]
+    if opts.max_entries is not None:
+        if opts.max_entries <= 0:
+            entries = []
+        elif len(entries) > opts.max_entries:
+            entries = entries[-opts.max_entries :]
 
     if opts.style == "structured":
         return _format_structured(entries, opts)
