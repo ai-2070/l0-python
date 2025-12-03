@@ -324,3 +324,100 @@ class TestStructuredStream:
         # Check that validation events were emitted
         assert ObservabilityEventType.PARSE_START in events_received
         assert ObservabilityEventType.PARSE_END in events_received
+
+
+class TestStructuredIteratorValidation:
+    """Test validation of async iterator vs factory usage."""
+
+    @pytest.mark.asyncio
+    async def test_direct_iterator_with_retry_auto_buffers(self):
+        """Test that direct async iterator is auto-buffered for retries."""
+        from l0 import Retry
+
+        attempt_count = 0
+
+        async def json_gen():
+            nonlocal attempt_count
+            attempt_count += 1
+            if attempt_count == 1:
+                # First attempt returns invalid JSON
+                yield Event(type=EventType.TOKEN, text='{"wrong": "field"}')
+            else:
+                # This won't be reached since we buffer - but validation will retry
+                yield Event(type=EventType.TOKEN, text='{"value": "test"}')
+            yield Event(type=EventType.COMPLETE)
+
+        # Create a direct async iterator (not a factory)
+        direct_iterator = json_gen()
+
+        # This should work - iterator is auto-buffered
+        # Note: retries will replay the same buffered content, so validation
+        # will fail on all attempts with the same invalid JSON
+        with pytest.raises(ValueError):
+            await structured(
+                schema=SimpleModel,
+                stream=direct_iterator,
+                retry=Retry(attempts=2),
+            )
+
+        # Iterator was consumed once (buffered), then replayed
+        assert attempt_count == 1
+
+    @pytest.mark.asyncio
+    async def test_direct_iterator_works_without_retry(self):
+        """Test that direct async iterator works fine without retry."""
+
+        async def json_gen():
+            yield Event(type=EventType.TOKEN, text='{"value": "test"}')
+            yield Event(type=EventType.COMPLETE)
+
+        direct_iterator = json_gen()
+
+        result = await structured(
+            schema=SimpleModel,
+            stream=direct_iterator,
+        )
+
+        assert result.data.value == "test"
+
+    @pytest.mark.asyncio
+    async def test_factory_with_retry_works(self):
+        """Test that using a factory function with retry works."""
+        from l0 import Retry
+
+        async def json_gen():
+            yield Event(type=EventType.TOKEN, text='{"value": "test"}')
+            yield Event(type=EventType.COMPLETE)
+
+        # Pass factory function (not direct iterator)
+        result = await structured(
+            schema=SimpleModel,
+            stream=json_gen,  # Factory, not json_gen()
+            retry=Retry(attempts=2),
+        )
+
+        assert result.data.value == "test"
+
+    @pytest.mark.asyncio
+    async def test_direct_iterator_with_fallback_auto_buffers(self):
+        """Test that direct async iterators in fallbacks are also buffered."""
+
+        async def failing_gen():
+            yield Event(type=EventType.TOKEN, text='{"wrong": "field"}')
+            yield Event(type=EventType.COMPLETE)
+
+        async def fallback_gen():
+            yield Event(type=EventType.TOKEN, text='{"value": "from_fallback"}')
+            yield Event(type=EventType.COMPLETE)
+
+        # Both are direct iterators
+        direct_main = failing_gen()
+        direct_fallback = fallback_gen()
+
+        result = await structured(
+            schema=SimpleModel,
+            stream=direct_main,
+            fallbacks=[direct_fallback],
+        )
+
+        assert result.data.value == "from_fallback"

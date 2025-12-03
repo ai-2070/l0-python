@@ -114,10 +114,47 @@ async def structured(
     retry_config = retry or Retry(attempts=1)
     max_attempts = retry_config.attempts
 
+    # Helper to check if something is a direct async iterator (not a factory)
+    def _is_async_iterator(obj: Any) -> bool:
+        return hasattr(obj, "__anext__") and not callable(obj)
+
+    # Helper to wrap a direct async iterator in a buffering factory
+    # This consumes the iterator once and replays from buffer on subsequent calls
+    def _make_buffering_factory(
+        iterator: AsyncIterator[Any],
+    ) -> Callable[[], AsyncIterator[Any]]:
+        buffer: list[Any] = []
+        consumed = False
+
+        async def buffering_iterator() -> AsyncIterator[Any]:
+            nonlocal consumed
+            if consumed:
+                # Replay from buffer
+                for item in buffer:
+                    yield item
+            else:
+                # First consumption - buffer and yield
+                async for item in iterator:
+                    buffer.append(item)
+                    yield item
+                consumed = True
+
+        return buffering_iterator
+
+    # Wrap direct async iterators in buffering factories for retry support
+    if _is_async_iterator(stream):
+        stream = _make_buffering_factory(stream)
+
     # Build list of streams to try
     all_streams: list[AsyncIterator[Any] | Callable[[], AsyncIterator[Any]]] = [stream]
     if fallbacks:
-        all_streams.extend(fallbacks)
+        wrapped_fallbacks = []
+        for fb in fallbacks:
+            if _is_async_iterator(fb):
+                wrapped_fallbacks.append(_make_buffering_factory(fb))
+            else:
+                wrapped_fallbacks.append(fb)
+        all_streams.extend(wrapped_fallbacks)
 
     last_error: Exception | None = None
     fallback_index = 0
