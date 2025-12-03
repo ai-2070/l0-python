@@ -293,3 +293,34 @@ class TestStructuredStream:
         result = await result_holder.validate()
         assert result.data.value == "test"
         assert result.corrected is True
+
+    @pytest.mark.asyncio
+    async def test_structured_stream_validate_emits_events(self):
+        """Test that validate() emits observability events via on_event callback."""
+        from l0.events import ObservabilityEventType
+
+        events_received = []
+
+        def on_event(event):
+            events_received.append(event.type)
+
+        async def json_stream():
+            yield Event(type=EventType.TOKEN, text='{"value": "test"}')
+            yield Event(type=EventType.COMPLETE)
+
+        stream, result_holder = await structured_stream(
+            schema=SimpleModel,
+            stream=json_stream,
+            on_event=on_event,
+        )
+
+        async for _ in stream:
+            pass
+
+        # Validate should emit parse/validation events
+        result = await result_holder.validate()
+        assert result.data.value == "test"
+
+        # Check that validation events were emitted
+        assert ObservabilityEventType.PARSE_START in events_received
+        assert ObservabilityEventType.PARSE_END in events_received

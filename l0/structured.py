@@ -309,6 +309,7 @@ class StructuredStreamResult(Generic[T]):
     _schema: type[T] | None = None
     _auto_correct: bool = True
     _on_auto_correct: Callable[[AutoCorrectInfo], None] | None = None
+    _on_event: Callable[[ObservabilityEvent], None] | None = None
     _validated: StructuredResult[T] | None = None
     state: State | None = None
 
@@ -329,7 +330,7 @@ class StructuredStreamResult(Generic[T]):
         if self._schema is None:
             raise ValueError("Schema not set")
 
-        event_bus = EventBus(None)
+        event_bus = EventBus(self._on_event)
         parsed = _parse_and_validate(
             text=self._text,
             schema=self._schema,
@@ -401,6 +402,7 @@ async def structured_stream(
     result_holder._schema = schema
     result_holder._auto_correct = auto_correct
     result_holder._on_auto_correct = on_auto_correct
+    result_holder._on_event = on_event
 
     # Run through L0 runtime
     l0_result = await _internal_run(
