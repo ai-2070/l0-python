@@ -133,8 +133,8 @@ class TestTimeout:
 
 class TestStream:
     @pytest.mark.asyncio
-    async def test_collect_is_alias_for_read(self):
-        """Test that collect() returns the same result as read()."""
+    async def test_read_returns_content(self):
+        """Test that read() returns accumulated content."""
         from l0.types import Stream
 
         # Create a simple async iterator
@@ -155,13 +155,12 @@ class TestStream:
             if event.is_token and event.text:
                 state.content += event.text
 
-        # Both read() and collect() should return the same thing
         result = await stream.read()
         assert result == "Hello world!"
 
     @pytest.mark.asyncio
-    async def test_collect_consumes_stream(self):
-        """Test that collect() consumes the stream and returns text."""
+    async def test_read_consumes_stream(self):
+        """Test that read() consumes the stream and returns text."""
         from l0.types import Stream
 
         async def token_iterator():
@@ -186,6 +185,5 @@ class TestStream:
             abort=lambda: None,
         )
 
-        # Use collect()
-        result = await stream.collect()
+        result = await stream.read()
         assert result == "Test content"
