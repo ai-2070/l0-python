@@ -1605,14 +1605,18 @@ from l0 import (
 | Category | Exports |
 | -------- | ------- |
 | Core | `wrap`, `run`, `l0` (alias), `Stream`, `LazyStream`, `State`, `Event`, `EventType` |
-| Retry | `Retry`, `Timeout`, `TimeoutError`, `BackoffStrategy` |
+| Config | `Retry`, `Timeout`, `TimeoutError`, `BackoffStrategy`, `ErrorCategory`, `ErrorTypeDelays` |
+| Errors | `Error`, `ErrorCode`, `ErrorContext`, `FailureType`, `RecoveryStrategy`, `RecoveryPolicy`, `NetworkError`, `NetworkErrorType`, `NetworkErrorAnalysis` |
 | Guardrails | `Guardrails`, `GuardrailRule`, `GuardrailViolation`, `JsonAnalysis`, `MarkdownAnalysis`, `LatexAnalysis` |
-| Structured | `structured` |
-| Parallel | `parallel`, `race`, `batched`, `consensus` |
-| Adapters | `Adapters`, `Adapter`, `OpenAIAdapter` |
+| Structured | `structured`, `structured_stream`, `StructuredResult`, `StructuredStreamResult`, `AutoCorrectInfo` |
+| Parallel | `parallel`, `race`, `sequential`, `batched`, `ParallelResult`, `ParallelOptions` |
+| Consensus | `Consensus`, `consensus`, `ConsensusResult`, `ConsensusOutput`, `ConsensusAnalysis`, `ConsensusPreset`, `Agreement`, `Disagreement`, `DisagreementValue`, `FieldConsensus`, `FieldConsensusInfo` |
+| Adapters | `Adapters`, `Adapter`, `OpenAIAdapter`, `LiteLLMAdapter` |
 | Observability | `EventBus`, `ObservabilityEvent`, `ObservabilityEventType` |
-| Errors | `ErrorCategory`, `categorize_error` |
+| Window | `Window`, `DocumentWindow`, `DocumentChunk`, `WindowConfig`, `ChunkProcessConfig`, `ChunkResult` |
 | Utilities | `consume_stream`, `get_text`, `enable_debug` |
+| Formatting | `Format` |
+| Multimodal | `Multimodal`, `ContentType`, `DataPayload`, `Progress` |
 | Version | `__version__` |
 
 ---
