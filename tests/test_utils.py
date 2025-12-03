@@ -36,7 +36,7 @@ class TestAutoCorrectJson:
         result = auto_correct_json(
             'Sure! Here is the JSON: {"a": 1}', track_corrections=True
         )
-        assert '{"a": 1}' in result.text
+        assert result.text == '{"a": 1}'
         assert result.corrected is True
         assert any("prefix" in c.lower() for c in result.corrections)
 
