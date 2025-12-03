@@ -122,7 +122,77 @@ class L0Options:
 
 @dataclass
 class L0Result:
+    """Legacy result type - use L0Stream instead."""
+
     stream: AsyncIterator[L0Event]
     state: L0State
     abort: Callable[[], None]
     errors: list[Exception] = field(default_factory=list)
+
+
+class L0Stream:
+    """Pythonic async iterator result with state and abort attached.
+
+    Usage:
+        result = await l0(stream=my_stream)
+
+        # Iterate directly (no .stream needed)
+        async for event in result:
+            print(event)
+
+        # Access state
+        print(result.state.content)
+        print(result.state.token_count)
+
+        # Get full text
+        text = await result.text()
+
+        # Abort if needed
+        result.abort()
+    """
+
+    __slots__ = ("_iterator", "_consumed", "_text", "state", "abort", "errors")
+
+    def __init__(
+        self,
+        iterator: AsyncIterator[L0Event],
+        state: L0State,
+        abort: Callable[[], None],
+        errors: list[Exception] | None = None,
+    ) -> None:
+        self._iterator = iterator
+        self._consumed = False
+        self._text: str | None = None
+        self.state = state
+        self.abort = abort
+        self.errors = errors or []
+
+    def __aiter__(self) -> "L0Stream":
+        return self
+
+    async def __anext__(self) -> L0Event:
+        try:
+            return await self._iterator.__anext__()
+        except StopAsyncIteration:
+            self._consumed = True
+            raise
+
+    async def text(self) -> str:
+        """Consume the stream and return the full text content.
+
+        If already consumed, returns the accumulated state.content.
+        """
+        if self._consumed or self._text is not None:
+            return self._text or self.state.content
+
+        # Consume the stream
+        async for event in self:
+            pass  # Events are processed, state is updated
+
+        self._text = self.state.content
+        return self._text
+
+    @property
+    def stream(self) -> "L0Stream":
+        """Backwards compatibility: result.stream returns self."""
+        return self

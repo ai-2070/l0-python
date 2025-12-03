@@ -3,22 +3,61 @@
 from __future__ import annotations
 
 import inspect
-from typing import AsyncIterator
+from typing import TYPE_CHECKING, Any, AsyncIterator, Callable
 
 from .adapters import detect_adapter
 from .events import EventBus, ObservabilityEventType
 from .logging import logger
 from .retry import RetryManager
 from .state import append_token, create_state, mark_completed, update_checkpoint
-from .types import EventType, L0Event, L0Options, L0Result
+from .types import (
+    EventType,
+    L0Event,
+    L0Options,
+    L0Result,
+    L0State,
+    L0Stream,
+    RetryConfig,
+    TimeoutConfig,
+)
+
+if TYPE_CHECKING:
+    from .events import ObservabilityEvent
+    from .guardrails import GuardrailRule
 
 
-async def _internal_run(options: L0Options) -> L0Result:
-    """Internal implementation of the L0 runtime."""
+async def _internal_run(
+    stream: Callable[[], AsyncIterator[Any]],
+    *,
+    fallbacks: list[Callable[[], AsyncIterator[Any]]] | None = None,
+    guardrails: list[GuardrailRule] | None = None,
+    retry: RetryConfig | None = None,
+    timeout: TimeoutConfig | None = None,
+    adapter: Any | str | None = None,
+    on_event: Callable[[ObservabilityEvent], None] | None = None,
+    meta: dict[str, Any] | None = None,
+) -> L0Stream:
+    """Internal implementation of the L0 runtime.
+
+    Args:
+        stream: Factory function that returns an async LLM stream
+        fallbacks: Optional list of fallback stream factories
+        guardrails: Optional list of guardrail rules to apply
+        retry: Optional retry configuration
+        timeout: Optional timeout configuration
+        adapter: Optional adapter hint ("openai", "litellm", or Adapter instance)
+        on_event: Optional callback for observability events
+        meta: Optional metadata attached to all events
+
+    Returns:
+        L0Stream - async iterator with .state, .abort(), and .text()
+    """
+    fallbacks = fallbacks or []
+    guardrails = guardrails or []
 
     state = create_state()
-    retry_mgr = RetryManager(options.retry)
-    event_bus = EventBus(options.on_event, meta=options.meta)
+    retry_mgr = RetryManager(retry)
+    event_bus = EventBus(on_event, meta=meta)
     errors: list[Exception] = []
     aborted = False
 
@@ -33,7 +72,7 @@ async def _internal_run(options: L0Options) -> L0Result:
     async def run_stream() -> AsyncIterator[L0Event]:
         nonlocal state
 
-        streams = [options.stream] + options.fallbacks
+        streams = [stream] + fallbacks
 
         for fallback_idx, stream_fn in enumerate(streams):
             state.fallback_index = fallback_idx
@@ -57,10 +96,10 @@ async def _internal_run(options: L0Options) -> L0Result:
                     if inspect.iscoroutine(raw_stream):
                         raw_stream = await raw_stream
 
-                    adapter = detect_adapter(raw_stream, options.adapter)
+                    detected_adapter = detect_adapter(raw_stream, adapter)
                     event_bus.emit(ObservabilityEventType.STREAM_READY)
 
-                    async for event in adapter.wrap(raw_stream):
+                    async for event in detected_adapter.wrap(raw_stream):
                         if aborted:
                             return
 
@@ -68,14 +107,14 @@ async def _internal_run(options: L0Options) -> L0Result:
                             append_token(state, event.value)
 
                             # Check guardrails periodically
-                            if state.token_count % 5 == 0 and options.guardrails:
+                            if state.token_count % 5 == 0 and guardrails:
                                 # Import here to avoid circular import
                                 from .guardrails import check_guardrails
 
                                 event_bus.emit(
                                     ObservabilityEventType.GUARDRAIL_PHASE_START
                                 )
-                                violations = check_guardrails(state, options.guardrails)
+                                violations = check_guardrails(state, guardrails)
                                 if violations:
                                     state.violations.extend(violations)
                                     event_bus.emit(
@@ -126,9 +165,31 @@ async def _internal_run(options: L0Options) -> L0Result:
             raise errors[-1]
         raise RuntimeError("All streams and fallbacks exhausted")
 
-    return L0Result(
-        stream=run_stream(),
+    return L0Stream(
+        iterator=run_stream(),
         state=state,
         abort=abort,
         errors=errors,
+    )
+
+
+# Legacy function that accepts L0Options for backwards compatibility
+async def _internal_run_with_options(options: L0Options) -> L0Result:
+    """Legacy wrapper that accepts L0Options."""
+    result = await _internal_run(
+        stream=options.stream,
+        fallbacks=options.fallbacks,
+        guardrails=options.guardrails,
+        retry=options.retry,
+        timeout=options.timeout,
+        adapter=options.adapter,
+        on_event=options.on_event,
+        meta=options.meta,
+    )
+    # Convert L0Stream to L0Result for backwards compatibility
+    return L0Result(
+        stream=result,
+        state=result.state,
+        abort=result.abort,
+        errors=result.errors,
     )

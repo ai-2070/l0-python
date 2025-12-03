@@ -81,16 +81,17 @@ import l0
 client = AsyncOpenAI()
 
 async def main():
-    result = await l0.run(l0.L0Options(
+    result = await l0.run(
         stream=lambda: client.chat.completions.create(
             model="gpt-4o",
             messages=[{"role": "user", "content": "Hello!"}],
             stream=True,
         ),
-        guardrails=l0.recommended_guardrails(),
-    ))
+        guardrails=[l0.json_rule()],
+    )
 
-    async for event in result.stream:
+    # Iterate directly - result IS the iterator
+    async for event in result:
         if event.type == l0.EventType.TOKEN:
             print(event.value, end="", flush=True)
 
@@ -105,19 +106,19 @@ import litellm
 import l0
 
 async def main():
-    result = await l0.run(l0.L0Options(
+    result = await l0.run(
         # LiteLLM supports 100+ providers with unified interface
         stream=lambda: litellm.acompletion(
             model="anthropic/claude-3-haiku-20240307",
             messages=[{"role": "user", "content": "Hello!"}],
             stream=True,
         ),
-        guardrails=l0.recommended_guardrails(),
-    ))
+        guardrails=[l0.json_rule()],
+    )
 
-    async for event in result.stream:
-        if event.type == l0.EventType.TOKEN:
-            print(event.value, end="", flush=True)
+    # Or just get full text
+    text = await result.text()
+    print(text)
 
 asyncio.run(main())
 ```
@@ -131,7 +132,7 @@ from openai import AsyncOpenAI
 client = AsyncOpenAI()
 prompt = "Write a haiku about coding"
 
-result = await l0.run(l0.L0Options(
+result = await l0.run(
     # Primary model stream
     stream=lambda: client.chat.completions.create(
         model="gpt-4o",
@@ -149,9 +150,10 @@ result = await l0.run(l0.L0Options(
     ],
 
     # Optional: Guardrails (default: none)
-    guardrails=l0.recommended_guardrails(),
-    # Other presets:
-    # l0.strict_guardrails()  # All rules including drift detection
+    guardrails=[l0.json_rule(), l0.pattern_rule()],
+    # Or use presets:
+    # guardrails=l0.recommended_guardrails()
+    # guardrails=l0.strict_guardrails()
 
     # Optional: Retry configuration (defaults shown)
     retry=l0.RetryConfig(
@@ -173,14 +175,14 @@ result = await l0.run(l0.L0Options(
 
     # Optional: Metadata attached to all events
     meta={"user_id": "123", "session": "abc"},
-))
+)
 
-# Read the stream
-async for event in result.stream:
+# Iterate directly (Pythonic!)
+async for event in result:
     if event.type == l0.EventType.TOKEN:
         print(event.value, end="")
 
-# Access final state
+# Access state anytime
 print(f"\nTokens: {result.state.token_count}")
 print(f"Duration: {result.state.duration}s")
 ```
@@ -210,22 +212,21 @@ print(f"Duration: {result.state.duration}s")
 L0 wraps LLM streams with deterministic behavior:
 
 ```python
-result = await l0.run(l0.L0Options(
+result = await l0.run(
     stream=lambda: client.chat.completions.create(
         model="gpt-4o",
         messages=[{"role": "user", "content": prompt}],
         stream=True,
     ),
-
     # Optional: Timeouts (ms)
     timeout=l0.TimeoutConfig(
         initial_token_ms=5000,   # 5s to first token
         inter_token_ms=10000,    # 10s between tokens
     ),
-))
+)
 
-# Unified event format
-async for event in result.stream:
+# Unified event format - iterate directly
+async for event in result:
     match event.type:
         case l0.EventType.TOKEN:
             print(event.value, end="")
@@ -236,7 +237,7 @@ async for event in result.stream:
         case l0.EventType.ERROR:
             print(f"Error: {event.error}")
 
-# Access final state
+# Access state anytime
 print(result.state.content)       # Full accumulated content
 print(result.state.token_count)   # Total tokens received
 print(result.state.checkpoint)    # Last stable checkpoint
@@ -251,7 +252,7 @@ print(result.state.checkpoint)    # Last stable checkpoint
 Smart retry system that distinguishes network errors from model errors:
 
 ```python
-result = await l0.run(l0.L0Options(
+result = await l0.run(
     stream=lambda: client.chat.completions.create(..., stream=True),
     retry=l0.RetryConfig(
         attempts=3,                              # Model errors only (default: 3)
@@ -260,7 +261,7 @@ result = await l0.run(l0.L0Options(
         max_delay_ms=10000,
         strategy=l0.BackoffStrategy.FIXED_JITTER,  # or EXPONENTIAL, LINEAR, FIXED, FULL_JITTER
     ),
-))
+)
 ```
 
 ### Backoff Strategies
@@ -297,7 +298,7 @@ from l0.errors import categorize_error
 from l0.types import ErrorCategory
 
 try:
-    result = await l0.run(l0.L0Options(stream=my_stream))
+    result = await l0.run(stream=my_stream)
 except Exception as error:
     category = categorize_error(error)
     
@@ -388,7 +389,7 @@ Here's the JSON:
 Sequential fallback when primary model fails:
 
 ```python
-result = await l0.run(l0.L0Options(
+result = await l0.run(
     stream=lambda: client.chat.completions.create(
         model="gpt-4o",
         messages=[{"role": "user", "content": prompt}],
@@ -406,7 +407,7 @@ result = await l0.run(l0.L0Options(
             stream=True,
         ),
     ],
-))
+)
 
 # Check which model succeeded
 print(result.state.fallback_index)  # 0 = primary, 1+ = fallback
@@ -421,13 +422,13 @@ print(result.state.fallback_index)  # 0 = primary, 1+ = fallback
 
 ```python
 # Fall-through: Try models sequentially
-result = await l0.run(l0.L0Options(
+result = await l0.run(
     stream=lambda: openai_stream(),
     fallbacks=[
         lambda: anthropic_stream(),
         lambda: local_model_stream(),
     ],
-))
+)
 
 # Race: All models simultaneously, first wins
 result = await l0.race([
@@ -452,14 +453,14 @@ from l0 import (
     repetition_rule,     # Detects model looping
 )
 
-result = await l0.run(l0.L0Options(
+result = await l0.run(
     stream=my_stream,
     guardrails=[
         json_rule(),
         pattern_rule(),
         zero_output_rule(),
     ],
-))
+)
 ```
 
 ### Presets
@@ -499,10 +500,10 @@ def max_length_rule(limit: int = 1000) -> GuardrailRule:
     )
 
 # Use custom rule
-result = await l0.run(l0.L0Options(
+result = await l0.run(
     stream=my_stream,
     guardrails=[max_length_rule(500)],
-))
+)
 ```
 
 ### Guardrail Violations
@@ -689,11 +690,11 @@ def on_event(event: ObservabilityEvent):
     print(f"[{event.type}] stream={event.stream_id}")
     print(f"  ts={event.ts}, meta={event.meta}")
 
-result = await l0.run(l0.L0Options(
+result = await l0.run(
     stream=my_stream,
     on_event=on_event,
     meta={"user_id": "123", "session": "abc"},
-))
+)
 ```
 
 ### Event Types
