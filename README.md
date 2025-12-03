@@ -508,12 +508,12 @@ guardrails = l0.Guardrails.none()
 
 | Rule | Description |
 | ---- | ----------- |
-| `json_rule()` | Validates JSON structure (balanced braces) |
-| `strict_json_rule()` | Validates complete, parseable JSON |
-| `pattern_rule()` | Detects "As an AI..." and similar patterns |
-| `zero_output_rule()` | Detects empty output |
-| `stall_rule()` | Detects token stalls |
-| `repetition_rule()` | Detects model looping |
+| `Guardrails.json()` | Validates JSON structure (balanced braces) |
+| `Guardrails.strict_json()` | Validates complete, parseable JSON |
+| `Guardrails.pattern()` | Detects "As an AI..." and similar patterns |
+| `Guardrails.zero_output()` | Detects empty output |
+| `Guardrails.stall()` | Detects token stalls |
+| `Guardrails.repetition()` | Detects model looping |
 
 ### Custom Guardrails
 

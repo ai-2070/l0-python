@@ -710,13 +710,13 @@ else:
 ```python
 import l0
 
-# Individual rules
-l0.json_rule()           # Validates JSON structure (balanced braces)
-l0.strict_json_rule()    # Validates complete JSON (on completion only)
-l0.pattern_rule()        # Detects "As an AI..." patterns
-l0.zero_output_rule()    # Detects empty output
-l0.stall_rule()          # Detects token stalls
-l0.repetition_rule()     # Detects model looping
+# Individual rules (via Guardrails scoped API)
+l0.Guardrails.json()           # Validates JSON structure (balanced braces)
+l0.Guardrails.strict_json()    # Validates complete JSON (on completion only)
+l0.Guardrails.pattern()        # Detects "As an AI..." patterns
+l0.Guardrails.zero_output()    # Detects empty output
+l0.Guardrails.stall()          # Detects token stalls
+l0.Guardrails.repetition()     # Detects model looping
 ```
 
 ### Presets (Recommended)
@@ -741,12 +741,12 @@ guardrails = l0.Guardrails.none()
 
 | Rule | Streaming | Default Severity | Description |
 | ---- | --------- | ---------------- | ----------- |
-| `json_rule()` | Yes | error | Checks balanced `{}[]` brackets |
-| `strict_json_rule()` | No | error | Validates JSON via `json.loads()` on complete |
-| `pattern_rule(patterns)` | Yes | warning | Regex patterns (default: AI slop) |
-| `zero_output_rule()` | No | error | Empty output on complete |
-| `stall_rule(max_gap)` | Yes | warning | No tokens for `max_gap` seconds |
-| `repetition_rule(window, threshold)` | Yes | error | Repeated content detection |
+| `Guardrails.json()` | Yes | error | Checks balanced `{}[]` brackets |
+| `Guardrails.strict_json()` | No | error | Validates JSON via `json.loads()` on complete |
+| `Guardrails.pattern(patterns)` | Yes | warning | Regex patterns (default: AI slop) |
+| `Guardrails.zero_output()` | No | error | Empty output on complete |
+| `Guardrails.stall(max_gap)` | Yes | warning | No tokens for `max_gap` seconds |
+| `Guardrails.repetition(window, threshold)` | Yes | error | Repeated content detection |
 
 ### Custom Guardrails
 
@@ -1559,30 +1559,47 @@ from l0 import (
     TimeoutError,
     BackoffStrategy,
     
-    # Guardrails
-    Guardrails,  # Class with .recommended(), .strict(), etc.
+    # Guardrails (scoped API - use Guardrails.json(), Guardrails.pattern(), etc.)
+    Guardrails,  # Class with .recommended(), .strict(), .json(), .pattern(), etc.
     GuardrailRule,
     GuardrailViolation,
-    json_rule,
-    strict_json_rule,
-    pattern_rule,
-    zero_output_rule,
-    stall_rule,
-    repetition_rule,
+    JsonAnalysis,
+    MarkdownAnalysis,
+    LatexAnalysis,
     
     # Structured output
     structured,
+    structured_stream,
+    StructuredResult,
+    StructuredStreamResult,
+    AutoCorrectInfo,
     
     # Parallel operations
     parallel,
     race,
+    sequential,
     batched,
+    ParallelResult,
+    ParallelOptions,
+    
+    # Consensus
+    Consensus,
     consensus,
+    ConsensusResult,
+    ConsensusOutput,
+    ConsensusAnalysis,
+    ConsensusPreset,
+    Agreement,
+    Disagreement,
+    DisagreementValue,
+    FieldConsensus,
+    FieldConsensusInfo,
     
     # Adapters
     Adapters,
     Adapter,
     OpenAIAdapter,
+    LiteLLMAdapter,
     
     # Observability
     EventBus,
@@ -1590,8 +1607,34 @@ from l0 import (
     ObservabilityEventType,
     
     # Errors
+    Error,
+    ErrorCode,
+    ErrorContext,
     ErrorCategory,
-    categorize_error,
+    ErrorTypeDelays,
+    FailureType,
+    RecoveryStrategy,
+    RecoveryPolicy,
+    NetworkError,
+    NetworkErrorType,
+    NetworkErrorAnalysis,
+    
+    # Window
+    Window,
+    DocumentWindow,
+    DocumentChunk,
+    WindowConfig,
+    ChunkProcessConfig,
+    ChunkResult,
+    
+    # Formatting
+    Format,
+    
+    # Multimodal
+    Multimodal,
+    ContentType,
+    DataPayload,
+    Progress,
     
     # Utilities
     consume_stream,
