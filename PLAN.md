@@ -202,8 +202,6 @@ class L0Result:
 
 ### 1.4 Central Event Bus (`l0/events.py`)
 
-Single event system for all observability:
-
 ```python
 from __future__ import annotations
 from dataclasses import dataclass, field
@@ -213,64 +211,86 @@ from uuid_extensions import uuid7str
 import time
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Event Types (matches TS EventType - UPPER_CASE values)
+# ─────────────────────────────────────────────────────────────────────────────
+
 class ObservabilityEventType(str, Enum):
     # Session
-    SESSION_START = "session_start"
-    SESSION_END = "session_end"
+    SESSION_START = "SESSION_START"
+    SESSION_END = "SESSION_END"
     
     # Stream
-    STREAM_START = "stream_start"
-    STREAM_TOKEN = "stream_token"
-    STREAM_COMPLETE = "stream_complete"
+    STREAM_INIT = "STREAM_INIT"
+    STREAM_READY = "STREAM_READY"
     
     # Retry
-    RETRY_ATTEMPT = "retry_attempt"
-    RETRY_EXHAUSTED = "retry_exhausted"
+    RETRY_START = "RETRY_START"
+    RETRY_ATTEMPT = "RETRY_ATTEMPT"
+    RETRY_END = "RETRY_END"
+    RETRY_GIVE_UP = "RETRY_GIVE_UP"
     
     # Fallback
-    FALLBACK_START = "fallback_start"
-    FALLBACK_SUCCESS = "fallback_success"
+    FALLBACK_START = "FALLBACK_START"
+    FALLBACK_END = "FALLBACK_END"
     
-    # Guardrails
-    GUARDRAIL_CHECK = "guardrail_check"
-    GUARDRAIL_VIOLATION = "guardrail_violation"
+    # Guardrail
+    GUARDRAIL_PHASE_START = "GUARDRAIL_PHASE_START"
+    GUARDRAIL_RULE_RESULT = "GUARDRAIL_RULE_RESULT"
+    GUARDRAIL_PHASE_END = "GUARDRAIL_PHASE_END"
     
     # Drift
-    DRIFT_DETECTED = "drift_detected"
+    DRIFT_CHECK_RESULT = "DRIFT_CHECK_RESULT"
     
-    # Errors
-    ERROR_NETWORK = "error_network"
-    ERROR_MODEL = "error_model"
-    ERROR_FATAL = "error_fatal"
+    # Network
+    NETWORK_ERROR = "NETWORK_ERROR"
+    NETWORK_RECOVERY = "NETWORK_RECOVERY"
+    
+    # Checkpoint
+    CHECKPOINT_SAVED = "CHECKPOINT_SAVED"
+    
+    # Completion
+    COMPLETE = "COMPLETE"
+    ERROR = "ERROR"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Observability Event (matches TS L0ObservabilityEvent)
+# ─────────────────────────────────────────────────────────────────────────────
 
 @dataclass
 class ObservabilityEvent:
     type: ObservabilityEventType
-    ts: float
-    session_id: str
+    ts: float                                    # Unix epoch milliseconds
+    stream_id: str                               # UUID v7 (matches TS streamId)
     meta: dict[str, Any] = field(default_factory=dict)
 
 
 class EventBus:
     """Central event bus for all L0 observability."""
-    
-    def __init__(self, handler: Callable[[ObservabilityEvent], None] | None = None):
+
+    def __init__(
+        self,
+        handler: Callable[[ObservabilityEvent], None] | None = None,
+        meta: dict[str, Any] | None = None,
+    ):
         self._handler = handler
-        self._session_id = uuid7str()
+        self._stream_id = uuid7str()
+        self._meta = meta or {}
 
     @property
-    def session_id(self) -> str:
-        return self._session_id
+    def stream_id(self) -> str:
+        return self._stream_id
 
-    def emit(self, event_type: ObservabilityEventType, **meta: Any) -> None:
+    def emit(self, event_type: ObservabilityEventType, **event_meta: Any) -> None:
         if not self._handler:
             return
 
         event = ObservabilityEvent(
             type=event_type,
-            ts=time.time(),
-            session_id=self._session_id,
-            meta=meta,
+            ts=time.time() * 1000,               # TS uses milliseconds
+            stream_id=self._stream_id,
+            meta={**self._meta, **event_meta},
         )
         self._handler(event)
 ```
@@ -691,17 +711,29 @@ if TYPE_CHECKING:
 
 Severity = Literal["warning", "error", "fatal"]
 
+
 @dataclass
 class GuardrailViolation:
-    rule: str
-    message: str
-    severity: Severity
+    """Matches TS GuardrailViolation interface."""
+    rule: str                              # Name of the rule that was violated
+    message: str                           # Human-readable message
+    severity: Severity                     # Severity of the violation
+    recoverable: bool = True               # Whether this violation is recoverable via retry
+    position: int | None = None            # Position in content where violation occurred
+    timestamp: float | None = None         # Timestamp when violation was detected
+    context: dict[str, Any] | None = None  # Additional context about the violation
+    suggestion: str | None = None          # Suggested fix or action
+
 
 @dataclass
 class GuardrailRule:
-    name: str
-    check: Callable[["L0State"], list[GuardrailViolation]]
-    severity: Severity = "error"
+    """Matches TS GuardrailRule interface."""
+    name: str                              # Unique name of the rule
+    check: Callable[["L0State"], list[GuardrailViolation]]  # Check function
+    description: str | None = None         # Description of what the rule checks
+    streaming: bool = True                 # Whether to run on every token or only at completion
+    severity: Severity = "error"           # Default severity for violations from this rule
+    recoverable: bool = True               # Whether violations are recoverable via retry
 
 def check_guardrails(state: "L0State", rules: list[GuardrailRule]) -> list[GuardrailViolation]:
     """Run all guardrail rules against current state."""
