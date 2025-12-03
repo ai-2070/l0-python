@@ -344,56 +344,70 @@ def extract_json_from_output(output: str) -> str:
             continue
 
     # Try to find JSON object or array
-    # Look for { ... } or [ ... ]
+    # Look for { ... } or [ ... ], validating each candidate
     stripped = output.strip()
 
-    # Find the start of JSON
-    json_start = -1
-    for i, char in enumerate(stripped):
-        if char in "{[":
-            json_start = i
-            break
-
-    if json_start == -1:
-        return stripped
-
-    # Find the matching end
-    start_char = stripped[json_start]
-    end_char = "}" if start_char == "{" else "]"
-
-    depth = 0
-    in_string = False
-    escape_next = False
-    json_end = -1
-
-    for i in range(json_start, len(stripped)):
-        char = stripped[i]
-
-        if escape_next:
-            escape_next = False
-            continue
-
-        if char == "\\":
-            escape_next = True
-            continue
-
-        if char == '"' and not escape_next:
-            in_string = not in_string
-            continue
-
-        if in_string:
-            continue
-
-        if char == start_char:
-            depth += 1
-        elif char == end_char:
-            depth -= 1
-            if depth == 0:
-                json_end = i + 1
+    # Find all potential JSON start positions
+    search_start = 0
+    while search_start < len(stripped):
+        # Find the next start of JSON
+        json_start = -1
+        for i in range(search_start, len(stripped)):
+            if stripped[i] in "{[":
+                json_start = i
                 break
 
-    if json_end != -1:
-        return stripped[json_start:json_end]
+        if json_start == -1:
+            break
+
+        # Find the matching end
+        start_char = stripped[json_start]
+        end_char = "}" if start_char == "{" else "]"
+
+        depth = 0
+        in_string = False
+        escape_next = False
+        json_end = -1
+
+        for i in range(json_start, len(stripped)):
+            char = stripped[i]
+
+            if escape_next:
+                escape_next = False
+                continue
+
+            if char == "\\":
+                escape_next = True
+                continue
+
+            if char == '"' and not escape_next:
+                in_string = not in_string
+                continue
+
+            if in_string:
+                continue
+
+            if char == start_char:
+                depth += 1
+            elif char == end_char:
+                depth -= 1
+                if depth == 0:
+                    json_end = i + 1
+                    break
+
+        if json_end != -1:
+            candidate = stripped[json_start:json_end]
+            # Validate that it's actually valid JSON
+            try:
+                json.loads(candidate)
+                return candidate
+            except json.JSONDecodeError:
+                # Not valid JSON, try the next brace pair
+                search_start = json_start + 1
+                continue
+        else:
+            # No matching end found, stop searching
+            break
 
     return stripped
 

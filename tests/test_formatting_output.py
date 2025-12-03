@@ -242,6 +242,19 @@ not valid json
         result = extract_json_from_output(output)
         assert result == '{"first": true}'
 
+    def test_extract_skips_invalid_brace_pairs(self):
+        """Test that invalid brace pairs are skipped to find valid JSON."""
+        # Earlier {placeholder} should be skipped in favor of valid JSON
+        output = 'Use {placeholder} format. Result: {"name": "John", "age": 30}'
+        result = extract_json_from_output(output)
+        assert result == '{"name": "John", "age": 30}'
+
+    def test_extract_skips_multiple_invalid_pairs(self):
+        """Test skipping multiple invalid brace pairs."""
+        output = 'Values {x} and {y} are set. JSON: {"valid": true}'
+        result = extract_json_from_output(output)
+        assert result == '{"valid": true}'
+
 
 class TestCleanOutput:
     """Tests for clean_output function."""
