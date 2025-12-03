@@ -21,3 +21,29 @@ class TestEnableDebug:
     def test_logger_name(self):
         """Test that logger has correct name."""
         assert logger.name == "l0"
+
+    def test_enable_debug_does_not_duplicate_handlers(self):
+        """Test that repeated enable_debug calls don't add duplicate handlers."""
+        # Remove any existing StreamHandlers
+        original_handlers = logger.handlers[:]
+        for h in logger.handlers[:]:
+            if isinstance(h, logging.StreamHandler):
+                logger.removeHandler(h)
+
+        try:
+            enable_debug()
+            enable_debug()
+            enable_debug()
+
+            stream_handlers = [
+                h for h in logger.handlers if isinstance(h, logging.StreamHandler)
+            ]
+            assert len(stream_handlers) == 1
+        finally:
+            # Restore original handlers
+            for h in logger.handlers[:]:
+                if isinstance(h, logging.StreamHandler):
+                    logger.removeHandler(h)
+            for h in original_handlers:
+                if h not in logger.handlers:
+                    logger.addHandler(h)
