@@ -64,6 +64,14 @@ class TestAutoCorrectJson:
         assert result.corrected is True
         assert any("markdown" in c.lower() for c in result.corrections)
 
+    def test_preserves_backticks_inside_json_strings(self):
+        """Test that triple backticks inside JSON strings are not corrupted."""
+        # JSON with backticks in a string value should be preserved
+        json_with_backticks = '{"code": "Use ```python\\nprint()\\n``` for code"}'
+        result = auto_correct_json(json_with_backticks)
+        assert result.text == json_with_backticks
+        assert result.corrected is False
+
     def test_complex_correction(self):
         """Test multiple corrections at once."""
         text = """Sure! Here's the data:

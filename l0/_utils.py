@@ -35,6 +35,23 @@ def auto_correct_json(text: str, track_corrections: bool = False) -> AutoCorrect
     original = text
     corrections: list[str] = []
 
+    # Extract content from markdown fences FIRST (before prefix removal)
+    # Only match fences at start of line to avoid corrupting JSON with ``` in strings
+    if "```" in text:
+        # Try to find ```json ... ``` block first (fence at start of string or after newline)
+        match = re.search(r"(?:^|\n)\s*```json\s*(.*?)\s*```", text, re.DOTALL)
+        if match:
+            text = match.group(1)
+            if track_corrections:
+                corrections.append("Removed markdown fences")
+        else:
+            # Try to find ``` ... ``` block
+            match = re.search(r"(?:^|\n)\s*```\s*(.*?)\s*```", text, re.DOTALL)
+            if match:
+                text = match.group(1)
+                if track_corrections:
+                    corrections.append("Removed markdown fences")
+
     # Remove text prefix (e.g., "Sure! Here's the JSON:" or "Here is the response:")
     prefix_match = re.match(
         r"^[\s\S]*?(?:here(?:'s| is)[\s\S]*?[:.]?\s*)?(?=[\[{])",
@@ -47,13 +64,6 @@ def auto_correct_json(text: str, track_corrections: bool = False) -> AutoCorrect
             text = text[len(prefix) :]
             if track_corrections:
                 corrections.append(f"Removed text prefix: {prefix.strip()[:50]}...")
-
-    # Remove markdown fences
-    if "```" in text:
-        text = re.sub(r"```json\s*", "", text)
-        text = re.sub(r"```\s*", "", text)
-        if track_corrections and "```" in original:
-            corrections.append("Removed markdown fences")
 
     # Remove text suffix after JSON closes
     # Find where JSON ends and remove trailing text
