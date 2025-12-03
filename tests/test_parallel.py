@@ -167,6 +167,26 @@ class TestParallel:
         assert not result.all_succeeded
         assert result.successful_results() == [1, 3]
 
+    @pytest.mark.asyncio
+    async def test_successful_results_includes_none_returns(self):
+        """Test that successful_results includes tasks that return None."""
+
+        async def task_returning_none():
+            return None
+
+        async def task_returning_value():
+            return "value"
+
+        result = await parallel([task_returning_none, task_returning_value])
+
+        assert result.success_count == 2
+        assert result.failure_count == 0
+        # Both should be in successful_results, including the None
+        successful = result.successful_results()
+        assert len(successful) == 2
+        assert None in successful
+        assert "value" in successful
+
 
 class TestRace:
     @pytest.mark.asyncio
