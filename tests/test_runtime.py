@@ -8,8 +8,9 @@ import pytest
 
 from l0 import Retry, Timeout, TimeoutError
 from l0.adapters import Adapters
+from l0.guardrails import GuardrailRule, GuardrailViolation
 from l0.runtime import _internal_run
-from l0.types import Event, EventType
+from l0.types import Event, EventType, State
 
 
 class PassthroughAdapter:
@@ -98,6 +99,122 @@ class TestLazyWrap:
                     tokens.append(event.text)
 
         assert tokens == ["test"]
+
+
+class TestCompletionGuardrails:
+    """Test that completion-only guardrails are executed after stream completes."""
+
+    @pytest.mark.asyncio
+    async def test_completion_only_guardrail_runs_after_complete(self):
+        """Test that guardrails with streaming=False run after completion."""
+        check_calls = []
+
+        def completion_check(state: State) -> list[GuardrailViolation]:
+            check_calls.append({"completed": state.completed, "content": state.content})
+            if state.completed and len(state.content) < 10:
+                return [
+                    GuardrailViolation(
+                        rule="min_length",
+                        message="Output too short",
+                        severity="error",
+                        recoverable=False,
+                    )
+                ]
+            return []
+
+        completion_rule = GuardrailRule(
+            name="min_length",
+            check=completion_check,
+            streaming=False,
+            description="Check minimum length on completion",
+        )
+
+        async def short_stream():
+            yield Event(type=EventType.TOKEN, text="Hi")
+            yield Event(type=EventType.COMPLETE)
+
+        result = await _internal_run(
+            stream=short_stream,
+            guardrails=[completion_rule],
+        )
+
+        async for _ in result:
+            pass
+
+        # Should have been called with completed=True at least once
+        completed_calls = [c for c in check_calls if c["completed"]]
+        assert len(completed_calls) > 0, "Guardrail should run after completion"
+        assert result.state.violations, "Should have violation for short output"
+
+    @pytest.mark.asyncio
+    async def test_zero_output_rule_detects_empty(self):
+        """Test that zero_output_rule works on completion."""
+        from l0.guardrails import zero_output_rule
+
+        async def empty_stream():
+            yield Event(type=EventType.COMPLETE)
+
+        result = await _internal_run(
+            stream=empty_stream,
+            guardrails=[zero_output_rule()],
+        )
+
+        async for _ in result:
+            pass
+
+        # Should detect zero output
+        zero_violations = [
+            v for v in result.state.violations if v.rule == "zero_output"
+        ]
+        assert len(zero_violations) > 0, "Should detect zero output"
+
+    @pytest.mark.asyncio
+    async def test_strict_json_rule_validates_on_completion(self):
+        """Test that strict_json_rule validates complete JSON."""
+        from l0.guardrails import strict_json_rule
+
+        async def invalid_json_stream():
+            yield Event(
+                type=EventType.TOKEN, text='{"key": "value"'
+            )  # Missing closing brace
+            yield Event(type=EventType.COMPLETE)
+
+        result = await _internal_run(
+            stream=invalid_json_stream,
+            guardrails=[strict_json_rule()],
+        )
+
+        async for _ in result:
+            pass
+
+        # Should detect invalid JSON
+        json_violations = [
+            v for v in result.state.violations if v.rule == "strict_json"
+        ]
+        assert len(json_violations) > 0, "Should detect invalid JSON on completion"
+
+    @pytest.mark.asyncio
+    async def test_valid_json_passes_strict_rule(self):
+        """Test that valid JSON passes strict_json_rule."""
+        from l0.guardrails import strict_json_rule
+
+        async def valid_json_stream():
+            yield Event(type=EventType.TOKEN, text='{"key": "value"}')
+            yield Event(type=EventType.COMPLETE)
+
+        result = await _internal_run(
+            stream=valid_json_stream,
+            guardrails=[strict_json_rule()],
+        )
+
+        async for _ in result:
+            pass
+
+        # Should have no violations
+        json_violations = [
+            v for v in result.state.violations if v.rule == "strict_json"
+        ]
+        assert len(json_violations) == 0, "Valid JSON should pass"
 
 
 class TestFallback:

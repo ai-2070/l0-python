@@ -226,6 +226,46 @@ async def _internal_run(
 
                     # Success
                     mark_completed(state)
+
+                    # Run final guardrail check (for completion-only rules)
+                    if guardrails:
+                        event_bus.emit(
+                            ObservabilityEventType.GUARDRAIL_PHASE_START,
+                            context_size=len(state.content),
+                            rule_count=len(guardrails),
+                        )
+
+                        all_violations = []
+                        for idx, rule in enumerate(guardrails):
+                            event_bus.emit(
+                                ObservabilityEventType.GUARDRAIL_RULE_START,
+                                index=idx,
+                                rule_id=rule.name,
+                            )
+                            rule_violations = rule.check(state)
+                            if rule_violations:
+                                all_violations.extend(rule_violations)
+                                event_bus.emit(
+                                    ObservabilityEventType.GUARDRAIL_RULE_RESULT,
+                                    index=idx,
+                                    rule_id=rule.name,
+                                    violations=[v.__dict__ for v in rule_violations],
+                                )
+                            event_bus.emit(
+                                ObservabilityEventType.GUARDRAIL_RULE_END,
+                                index=idx,
+                                rule_id=rule.name,
+                            )
+
+                        if all_violations:
+                            state.violations.extend(all_violations)
+
+                        event_bus.emit(
+                            ObservabilityEventType.GUARDRAIL_PHASE_END,
+                            rule_count=len(guardrails),
+                            violation_count=len(all_violations),
+                        )
+
                     if fallback_idx > 0:
                         event_bus.emit(
                             ObservabilityEventType.FALLBACK_END, index=fallback_idx
