@@ -102,7 +102,7 @@ class RetryManager:
             NetworkErrorType.RUNTIME_KILLED: delays.runtime_killed,
             NetworkErrorType.BACKGROUND_THROTTLE: delays.background_throttle,
             NetworkErrorType.DNS_ERROR: delays.dns_error,
-            NetworkErrorType.SSL_ERROR: 0.0,
+            NetworkErrorType.SSL_ERROR: delays.ssl_error,
             NetworkErrorType.TIMEOUT: delays.timeout,
             NetworkErrorType.UNKNOWN: delays.unknown,
         }
