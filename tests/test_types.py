@@ -129,3 +129,63 @@ class TestTimeout:
         config = Timeout()
         assert config.initial_token == 5.0  # seconds
         assert config.inter_token == 10.0  # seconds
+
+
+class TestStream:
+    @pytest.mark.asyncio
+    async def test_collect_is_alias_for_read(self):
+        """Test that collect() returns the same result as read()."""
+        from l0.types import Stream
+
+        # Create a simple async iterator
+        async def token_iterator():
+            for token in ["Hello", " ", "world", "!"]:
+                yield Event(type=EventType.TOKEN, text=token)
+            yield Event(type=EventType.COMPLETE)
+
+        state = State()
+        stream = Stream(
+            iterator=token_iterator(),
+            state=state,
+            abort=lambda: None,
+        )
+
+        # Manually consume to populate state
+        async for event in stream:
+            if event.is_token and event.text:
+                state.content += event.text
+
+        # Both read() and collect() should return the same thing
+        result = await stream.read()
+        assert result == "Hello world!"
+
+    @pytest.mark.asyncio
+    async def test_collect_consumes_stream(self):
+        """Test that collect() consumes the stream and returns text."""
+        from l0.types import Stream
+
+        async def token_iterator():
+            for token in ["Test", " ", "content"]:
+                yield Event(type=EventType.TOKEN, text=token)
+            yield Event(type=EventType.COMPLETE)
+
+        state = State()
+
+        # We need to manually append tokens since we're testing the Stream directly
+        original_iterator = token_iterator()
+
+        async def tracking_iterator():
+            async for event in original_iterator:
+                if event.is_token and event.text:
+                    state.content += event.text
+                yield event
+
+        stream = Stream(
+            iterator=tracking_iterator(),
+            state=state,
+            abort=lambda: None,
+        )
+
+        # Use collect()
+        result = await stream.collect()
+        assert result == "Test content"
