@@ -284,7 +284,10 @@ def _resolve_conflict(
     elif resolution == "best":
         # Take highest weighted
         best_idx = max(range(len(values)), key=lambda i: values[i][2])
-        return values[best_idx][1], values[best_idx][2] / sum(w for _, _, w in values)
+        total_weight = sum(w for _, _, w in values)
+        if total_weight == 0:
+            return values[best_idx][1], 0.0
+        return values[best_idx][1], values[best_idx][2] / total_weight
 
     else:  # "fail"
         raise ValueError("Consensus conflict with resolve_conflicts='fail'")
@@ -579,7 +582,7 @@ class Consensus:
             largest_group = max(groups, key=lambda g: sum(w for _, _, w in g))
             group_weight = sum(w for _, _, w in largest_group)
             total_weight = sum(w for _, _, w in successful_values)
-            ratio = group_weight / total_weight
+            ratio = group_weight / total_weight if total_weight > 0 else 0.0
 
             if ratio >= minimum_agreement:
                 consensus_value = largest_group[0][1]
@@ -635,7 +638,7 @@ class Consensus:
             group_weight = sum(w for _, _, w in best_group)
 
             consensus_value = best_group[0][1]
-            confidence = group_weight / total_weight
+            confidence = group_weight / total_weight if total_weight > 0 else 0.0
             agreements.append(
                 Agreement(
                     content=consensus_value,

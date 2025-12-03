@@ -187,6 +187,28 @@ class TestConflictResolution:
         )
         assert result.consensus == "b"
 
+    @pytest.mark.asyncio
+    async def test_resolve_best_zero_weights_no_crash(self):
+        """Test that best resolution doesn't crash with zero weights."""
+
+        async def task_a():
+            return "a"
+
+        async def task_b():
+            return "b"
+
+        # All zero weights should not cause division by zero
+        result = await Consensus.run(
+            [task_a, task_b],
+            strategy="majority",
+            resolve_conflicts="best",
+            weights=[0.0, 0.0],
+            minimum_agreement=0.0,
+        )
+        # Should return a result without crashing
+        assert result.consensus in ("a", "b")
+        assert result.confidence == 0.0
+
 
 class TestConsensusResult:
     @pytest.mark.asyncio
