@@ -584,7 +584,7 @@ L0 automatically detects these patterns in error messages:
 
 ## Structured Output
 
-### structured(schema, stream, auto_correct)
+### structured(schema, stream, *, fallbacks, auto_correct, retry, on_validation_error, on_auto_correct, on_event, adapter)
 
 Guaranteed valid JSON matching a Pydantic schema.
 
@@ -609,10 +609,10 @@ result = await l0.structured(
 )
 
 # Type-safe access
-print(result.name)    # str
-print(result.age)     # int
-print(result.email)   # str
-print(result.tags)    # list[str]
+print(result.data.name)    # str
+print(result.data.age)     # int
+print(result.data.email)   # str
+print(result.data.tags)    # list[str]
 ```
 
 **Parameters:**
@@ -620,8 +620,14 @@ print(result.tags)    # list[str]
 | Parameter | Type | Default | Description |
 | --------- | ---- | ------- | ----------- |
 | `schema` | `type[BaseModel]` | required | Pydantic model class |
-| `stream` | `Callable[[], AsyncIterator]` | required | Factory returning async LLM stream |
+| `stream` | `AsyncIterator \| Callable[[], AsyncIterator]` | required | Async LLM stream or factory returning one |
+| `fallbacks` | `list[AsyncIterator \| Callable]` | `None` | Fallback streams to try if primary fails |
 | `auto_correct` | `bool` | `True` | Auto-fix common JSON errors |
+| `retry` | `Retry` | `None` | Retry configuration for validation failures |
+| `on_validation_error` | `Callable[[ValidationError, int], None]` | `None` | Callback when validation fails (error, attempt) |
+| `on_auto_correct` | `Callable[[AutoCorrectInfo], None]` | `None` | Callback when auto-correction is applied |
+| `on_event` | `Callable[[ObservabilityEvent], None]` | `None` | Callback for observability events |
+| `adapter` | `Any \| str` | `None` | Adapter hint ("openai", "litellm", or instance) |
 
 ### JSON Auto-Correction
 
