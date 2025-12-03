@@ -285,3 +285,32 @@ class TestOverlap:
                 assert curr_start < prev_end, (
                     f"Chunk {i} should overlap with chunk {i - 1}"
                 )
+
+
+class TestOverlapGreaterThanSize:
+    """Test that overlap >= size doesn't cause infinite loop."""
+
+    def test_overlap_equal_to_size_no_hang(self):
+        """Test that overlap == size doesn't cause infinite loop."""
+        doc = "This is a test document with some content."
+        # overlap == size would cause infinite loop without fix
+        window = Window.create(doc, size=100, overlap=100, strategy="char")
+        chunks = window.get_all_chunks()
+        # Should complete without hanging and produce at least one chunk
+        assert len(chunks) >= 1
+
+    def test_overlap_greater_than_size_no_hang(self):
+        """Test that overlap > size doesn't cause infinite loop."""
+        doc = "This is a test document with some content."
+        # overlap > size would cause infinite loop without fix
+        window = Window.create(doc, size=50, overlap=100, strategy="char")
+        chunks = window.get_all_chunks()
+        # Should complete without hanging and produce at least one chunk
+        assert len(chunks) >= 1
+
+    def test_sentence_overlap_greater_than_size_no_hang(self):
+        """Test sentence chunking with overlap >= size."""
+        doc = "First sentence. Second sentence. Third sentence."
+        window = Window.create(doc, size=10, overlap=20, strategy="sentence")
+        chunks = window.get_all_chunks()
+        assert len(chunks) >= 1

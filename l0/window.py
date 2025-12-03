@@ -105,10 +105,18 @@ def _chunk_by_char(
     char_size = estimate_chars_for_tokens(size)
     char_overlap = estimate_chars_for_tokens(overlap)
 
+    # Ensure overlap is less than size to guarantee forward progress
+    if char_overlap >= char_size:
+        char_overlap = max(0, char_size - 1)
+
     while pos < len(document):
         end = min(pos + char_size, len(document))
         chunks.append((pos, end))
-        pos = end - char_overlap
+        new_pos = end - char_overlap
+        # Ensure we always advance by at least 1 character to prevent infinite loop
+        if new_pos <= pos:
+            new_pos = pos + 1
+        pos = new_pos
         if pos >= len(document):
             break
         # Avoid tiny final chunks
@@ -158,6 +166,10 @@ def _chunk_by_boundaries(
     char_size = estimate_chars_for_tokens(size)
     char_overlap = estimate_chars_for_tokens(overlap)
 
+    # Ensure overlap is less than size to guarantee forward progress
+    if char_overlap >= char_size:
+        char_overlap = max(0, char_size - 1)
+
     i = 0
     while i < len(boundaries) - 1:
         start_pos = boundaries[i]
@@ -174,6 +186,10 @@ def _chunk_by_boundaries(
 
         if end_pos > start_pos:
             chunks.append((start_pos, end_pos))
+
+        # If we've reached the end of the document, stop
+        if end_pos >= len(document):
+            break
 
         # Find overlap start position
         overlap_start = max(start_pos, end_pos - char_overlap)
