@@ -57,6 +57,24 @@ class TestAutoCorrectJson:
         assert result.corrected is True
         assert any("quote" in c.lower() for c in result.corrections)
 
+    def test_converts_single_quotes_with_apostrophe(self):
+        """Test that apostrophes inside single-quoted strings are preserved."""
+        result = auto_correct_json(
+            "{'message': 'Don\\'t panic'}", track_corrections=True
+        )
+        assert '"message"' in result.text
+        assert "Don't panic" in result.text or "Don\\'t panic" in result.text
+        assert result.corrected is True
+
+    def test_converts_single_quotes_multiple_values(self):
+        """Test single quote conversion with multiple values containing apostrophes."""
+        result = auto_correct_json(
+            "{'a': 'it\\'s fine', 'b': 'that\\'s ok'}", track_corrections=True
+        )
+        assert '"a"' in result.text
+        assert '"b"' in result.text
+        assert result.corrected is True
+
     def test_removes_markdown_fences(self):
         """Test markdown fence removal."""
         result = auto_correct_json('```json\n{"a": 1}\n```', track_corrections=True)

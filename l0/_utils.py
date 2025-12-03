@@ -113,7 +113,9 @@ def auto_correct_json(text: str, track_corrections: bool = False) -> AutoCorrect
         # Replace single-quoted keys: {'key': -> {"key":
         text = re.sub(r"'(\w+)'\s*:", r'"\1":', text)
         # Replace single-quoted string values: : 'value' -> : "value"
-        text = re.sub(r":\s*'([^']*)'", r': "\1"', text)
+        # Use a greedy match up to a quote followed by , or } or ] or end
+        # This handles apostrophes like "Don't" correctly
+        text = re.sub(r":\s*'(.*?)'(?=\s*[,}\]]|$)", r': "\1"', text)
         if track_corrections:
             corrections.append("Converted single quotes to double quotes")
 
