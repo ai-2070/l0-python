@@ -6,11 +6,37 @@ Provides in-memory and extensible storage for atomic, replayable events.
 from __future__ import annotations
 
 import json
+import os
 import re
+import sys
+import tempfile
 import time
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
+
+# Cross-platform file locking
+if sys.platform == "win32":
+    import msvcrt
+
+    def _lock_file(f):
+        """Acquire exclusive lock on file (Windows)."""
+        msvcrt.locking(f.fileno(), msvcrt.LK_LOCK, 1)
+
+    def _unlock_file(f):
+        """Release lock on file (Windows)."""
+        msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
+else:
+    import fcntl
+
+    def _lock_file(f):
+        """Acquire exclusive lock on file (Unix)."""
+        fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+
+    def _unlock_file(f):
+        """Release lock on file (Unix)."""
+        fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+
 
 from .types import (
     EventEnvelope,
@@ -485,21 +511,51 @@ class FileEventStore(BaseEventStoreWithSnapshots):
         return self.base_path / f"{safe_id}.snapshot.json"
 
     async def append(self, stream_id: str, event: RecordedEvent) -> None:
-        """Append an event to a stream."""
+        """Append an event to a stream.
+
+        Uses file locking and atomic writes to prevent data loss
+        from concurrent appends.
+        """
         file_path = self._get_file_path(stream_id)
+        lock_path = file_path.with_suffix(".lock")
 
-        events: list[dict] = []
-        if file_path.exists():
-            content = file_path.read_text(encoding="utf-8")
-            events = json.loads(content)
+        # Ensure lock file exists
+        lock_path.touch(exist_ok=True)
 
-        envelope = EventEnvelope(
-            stream_id=stream_id,
-            seq=len(events),
-            event=event,
-        )
-        events.append(_envelope_to_dict(envelope))
-        file_path.write_text(json.dumps(events, indent=2), encoding="utf-8")
+        with open(lock_path, "r+b") as lock_file:
+            # Acquire exclusive lock
+            _lock_file(lock_file)
+            try:
+                # Read existing events
+                events: list[dict] = []
+                if file_path.exists():
+                    content = file_path.read_text(encoding="utf-8")
+                    events = json.loads(content)
+
+                envelope = EventEnvelope(
+                    stream_id=stream_id,
+                    seq=len(events),
+                    event=event,
+                )
+                events.append(_envelope_to_dict(envelope))
+
+                # Atomic write: write to temp file, then rename
+                fd, tmp_path = tempfile.mkstemp(
+                    dir=self.base_path, suffix=".tmp", prefix=stream_id
+                )
+                try:
+                    with os.fdopen(fd, "w", encoding="utf-8") as tmp_file:
+                        json.dump(events, tmp_file, indent=2)
+                    # Atomic rename
+                    os.replace(tmp_path, file_path)
+                except Exception:
+                    # Clean up temp file on error
+                    if os.path.exists(tmp_path):
+                        os.unlink(tmp_path)
+                    raise
+            finally:
+                # Release lock
+                _unlock_file(lock_file)
 
     async def get_events(self, stream_id: str) -> list[EventEnvelope]:
         """Get all events for a stream in order."""
