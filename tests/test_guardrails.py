@@ -346,6 +346,22 @@ class TestJsonRule:
         assert len(violations) >= 1
         assert any("brace" in v.message.lower() for v in violations)
 
+    def test_missing_closing_brace_on_completion(self):
+        """Test that missing closing braces are detected on completion."""
+        state = State(content='{"key": "value"', completed=True)
+        rule = json_rule()
+        violations = rule.check(state)
+        assert len(violations) >= 1
+        assert any("missing" in v.message.lower() for v in violations)
+
+    def test_missing_closing_bracket_on_completion(self):
+        """Test that missing closing brackets are detected on completion."""
+        state = State(content="[1, 2, 3", completed=True)
+        rule = json_rule()
+        violations = rule.check(state)
+        assert len(violations) >= 1
+        assert any("missing" in v.message.lower() for v in violations)
+
 
 class TestStrictJsonRule:
     def test_valid_json_passes(self):

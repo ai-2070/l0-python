@@ -712,9 +712,42 @@ def json_rule() -> GuardrailRule:
                         )
                     )
         else:
-            # On completion, report all issues
-            if not analysis.is_balanced:
-                for issue in analysis.issues:
+            # On completion, check for both extra closes AND missing closes
+            if analysis.close_braces > analysis.open_braces:
+                violations.append(
+                    GuardrailViolation(
+                        rule="json",
+                        message=f"Too many closing braces: {analysis.close_braces} close vs {analysis.open_braces} open",
+                        severity="error",
+                    )
+                )
+            elif analysis.open_braces > analysis.close_braces:
+                violations.append(
+                    GuardrailViolation(
+                        rule="json",
+                        message=f"Missing closing braces: {analysis.open_braces} open vs {analysis.close_braces} close",
+                        severity="error",
+                    )
+                )
+            if analysis.close_brackets > analysis.open_brackets:
+                violations.append(
+                    GuardrailViolation(
+                        rule="json",
+                        message=f"Too many closing brackets: {analysis.close_brackets} close vs {analysis.open_brackets} open",
+                        severity="error",
+                    )
+                )
+            elif analysis.open_brackets > analysis.close_brackets:
+                violations.append(
+                    GuardrailViolation(
+                        rule="json",
+                        message=f"Missing closing brackets: {analysis.open_brackets} open vs {analysis.close_brackets} close",
+                        severity="error",
+                    )
+                )
+            # Report other issues (unclosed strings, etc.)
+            for issue in analysis.issues:
+                if "Unbalanced" not in issue and "closing" not in issue.lower():
                     violations.append(
                         GuardrailViolation(
                             rule="json",
