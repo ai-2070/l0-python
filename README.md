@@ -845,7 +845,7 @@ uv add l0 --extra litellm
 | ----- | -------- |
 | `openai` | `openai>=1.30` |
 | `litellm` | `litellm>=1.40` |
-| `observability` | `opentelemetry-api`, `opentelemetry-sdk`, `sentry-sdk` |
+| `observability` | `opentelemetry-api`, `opentelemetry-sdk`, `opentelemetry-instrumentation-httpx`, `sentry-sdk` |
 | `speed` | `uvloop` (Unix only) |
 | `dev` | `pytest`, `pytest-asyncio`, `pytest-cov`, `mypy`, `ruff` |
 
