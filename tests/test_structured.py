@@ -325,6 +325,26 @@ class TestStructuredStream:
         assert ObservabilityEventType.PARSE_START in events_received
         assert ObservabilityEventType.PARSE_END in events_received
 
+    @pytest.mark.asyncio
+    async def test_structured_stream_validate_raises_valueerror(self):
+        """Test that validate() raises ValueError, not ValidationError."""
+
+        async def invalid_stream():
+            yield Event(type=EventType.TOKEN, text='{"wrong": "field"}')
+            yield Event(type=EventType.COMPLETE)
+
+        stream, result_holder = await structured_stream(
+            schema=UserProfile,
+            stream=invalid_stream,
+        )
+
+        async for _ in stream:
+            pass
+
+        # Should raise ValueError, not pydantic.ValidationError
+        with pytest.raises(ValueError, match="Schema validation failed"):
+            await result_holder.validate()
+
 
 class TestStructuredIteratorValidation:
     """Test validation of async iterator vs factory usage."""

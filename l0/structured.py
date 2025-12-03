@@ -368,13 +368,16 @@ class StructuredStreamResult(Generic[T]):
             raise ValueError("Schema not set")
 
         event_bus = EventBus(self._on_event)
-        parsed = _parse_and_validate(
-            text=self._text,
-            schema=self._schema,
-            auto_correct=self._auto_correct,
-            on_auto_correct=self._on_auto_correct,
-            event_bus=event_bus,
-        )
+        try:
+            parsed = _parse_and_validate(
+                text=self._text,
+                schema=self._schema,
+                auto_correct=self._auto_correct,
+                on_auto_correct=self._on_auto_correct,
+                event_bus=event_bus,
+            )
+        except ValidationError as e:
+            raise ValueError(f"Schema validation failed: {e}") from e
 
         self._validated = StructuredResult(
             data=parsed.data,
