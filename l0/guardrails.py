@@ -5,8 +5,9 @@ from __future__ import annotations
 import json
 import re
 import time
-from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Callable, Literal
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, Literal
 
 from .logging import logger
 
@@ -183,7 +184,7 @@ def repetition_rule(window: int = 100, threshold: float = 0.5) -> GuardrailRule:
         previous = content[-window * 2 : -window]
 
         # Simple similarity: count matching characters
-        matches = sum(1 for a, b in zip(recent, previous) if a == b)
+        matches = sum(1 for a, b in zip(recent, previous, strict=False) if a == b)
         similarity = matches / window
 
         if similarity > threshold:

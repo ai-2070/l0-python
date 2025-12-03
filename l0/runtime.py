@@ -4,14 +4,15 @@ from __future__ import annotations
 
 import asyncio
 import inspect
-from typing import TYPE_CHECKING, Any, AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable
+from typing import TYPE_CHECKING, Any
 
 from .adapters import detect_adapter
 from .events import EventBus, ObservabilityEventType
 from .logging import logger
 from .retry import RetryManager
 from .state import append_token, create_state, mark_completed, update_checkpoint
-from .types import Event, EventType, Retry, State, Stream, Timeout
+from .types import Event, EventType, Retry, Stream, Timeout
 
 
 class TimeoutError(Exception):
@@ -106,9 +107,6 @@ async def _internal_run(
                     initial_timeout = timeout.initial_token if timeout else None
                     inter_timeout = timeout.inter_token if timeout else None
 
-                    async def get_next_event() -> Event:
-                        return await detected_adapter.wrap(raw_stream).__anext__()
-
                     adapted_stream = detected_adapter.wrap(raw_stream)
 
                     while True:
@@ -129,18 +127,22 @@ async def _internal_run(
                                 event = await adapted_stream.__anext__()
                         except StopAsyncIteration:
                             break
-                        except asyncio.TimeoutError:
+                        except asyncio.TimeoutError as e:
                             timeout_type = (
                                 "inter_token"
                                 if first_token_received
                                 else "initial_token"
                             )
+                            # current_timeout is guaranteed to be float here
+                            # (asyncio.TimeoutError only raised if wait_for was called)
+                            assert current_timeout is not None
+                            token_desc = "next" if first_token_received else "first"
                             raise TimeoutError(
-                                f"Timeout waiting for {'next' if first_token_received else 'first'} token "
+                                f"Timeout waiting for {token_desc} token "
                                 f"(timeout={current_timeout}s)",
                                 timeout_type=timeout_type,
                                 timeout_seconds=current_timeout,
-                            )
+                            ) from e
 
                         if event.type == EventType.TOKEN and event.text:
                             first_token_received = True

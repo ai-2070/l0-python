@@ -73,13 +73,13 @@ class RetryManager:
                 delay = base
 
         logger.debug(f"Retry delay: {delay:.2f}s (strategy: {self.config.strategy})")
-        return delay
+        return float(delay)
 
     async def wait(self, error: Exception) -> None:
         delay = self.get_delay(error)
         await asyncio.sleep(delay)
 
-    def get_state(self) -> dict:
+    def get_state(self) -> dict[str, int]:
         return {
             "model_retry_count": self.model_retry_count,
             "network_retry_count": self.network_retry_count,

@@ -1,6 +1,7 @@
 """L0 - Reliability layer for AI/LLM streaming."""
 
-from typing import Any, AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable
+from typing import Any
 
 from .adapters import (
     Adapter,

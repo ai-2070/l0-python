@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any, AsyncIterator, Callable, Type, TypeVar
+from collections.abc import AsyncIterator, Callable
+from typing import Any, TypeVar
 
 from pydantic import BaseModel, ValidationError
 
@@ -13,7 +14,7 @@ T = TypeVar("T", bound=BaseModel)
 
 
 async def structured(
-    schema: Type[T],
+    schema: type[T],
     stream: Callable[[], AsyncIterator[Any]],
     *,
     auto_correct: bool = True,

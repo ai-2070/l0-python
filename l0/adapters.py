@@ -2,14 +2,15 @@
 
 Two adapters only:
 - OpenAI - Direct OpenAI SDK streams
-- LiteLLM - Unified interface for 100+ providers (Anthropic, Cohere, Bedrock, Vertex, etc.)
+- LiteLLM - Unified interface for 100+ providers (Anthropic, Cohere, etc.)
 
 LiteLLM uses OpenAI-compatible format, so the OpenAI adapter handles both.
 """
 
 from __future__ import annotations
 
-from typing import Any, AsyncIterator, Protocol, runtime_checkable
+from collections.abc import AsyncIterator
+from typing import Any, Protocol, runtime_checkable
 
 from .logging import logger
 from .types import Event, EventType
@@ -31,7 +32,7 @@ class Adapter(Protocol):
 
 
 class OpenAIAdapter:
-    """Adapter for OpenAI SDK streams. Also works with LiteLLM (OpenAI-compatible format)."""
+    """Adapter for OpenAI SDK streams. Also works with LiteLLM."""
 
     name = "openai"
 

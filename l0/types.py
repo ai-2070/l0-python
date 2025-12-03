@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import TYPE_CHECKING, Any, AsyncIterator, Callable
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from .events import ObservabilityEvent
@@ -223,7 +224,7 @@ class Stream:
     # Async iterator protocol
     # ─────────────────────────────────────────────────────────────────────────
 
-    def __aiter__(self) -> "Stream":
+    def __aiter__(self) -> Stream:
         return self
 
     async def __anext__(self) -> Event:
@@ -237,7 +238,7 @@ class Stream:
     # Context manager protocol
     # ─────────────────────────────────────────────────────────────────────────
 
-    async def __aenter__(self) -> "Stream":
+    async def __aenter__(self) -> Stream:
         return self
 
     async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> bool:
@@ -258,7 +259,7 @@ class Stream:
             return self._content or self.state.content
 
         # Consume the stream
-        async for event in self:
+        async for _ in self:
             pass  # Events are processed, state is updated
 
         self._content = self.state.content
@@ -314,7 +315,7 @@ class LazyStream:
         retry: Retry | None = None,
         timeout: Timeout | None = None,
         adapter: Any | str | None = None,
-        on_event: Callable[["ObservabilityEvent"], None] | None = None,
+        on_event: Callable[[ObservabilityEvent], None] | None = None,
         meta: dict[str, Any] | None = None,
     ) -> None:
         self._stream = stream
@@ -336,9 +337,7 @@ class LazyStream:
             # Wrap stream in factory
             stream = self._stream
 
-            async def stream_factory() -> AsyncIterator[Any]:
-                if hasattr(stream, "__await__"):
-                    return await stream  # type: ignore
+            def stream_factory() -> AsyncIterator[Any]:
                 return stream
 
             self._runner = await _internal_run(
@@ -382,7 +381,7 @@ class LazyStream:
     # Async iterator protocol
     # ─────────────────────────────────────────────────────────────────────────
 
-    def __aiter__(self) -> "LazyStream":
+    def __aiter__(self) -> LazyStream:
         return self
 
     async def __anext__(self) -> Event:
@@ -393,7 +392,7 @@ class LazyStream:
     # Context manager protocol
     # ─────────────────────────────────────────────────────────────────────────
 
-    async def __aenter__(self) -> "LazyStream":
+    async def __aenter__(self) -> LazyStream:
         await self._ensure_started()
         return self
 
