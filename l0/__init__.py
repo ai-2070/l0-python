@@ -61,6 +61,21 @@ from .types import (
     Timeout,
 )
 from .version import __version__
+from .window import (
+    ChunkProcessConfig,
+    ChunkResult,
+    DocumentChunk,
+    DocumentWindow,
+    WindowConfig,
+    chunk_document,
+    create_window,
+    estimate_tokens,
+    large_window,
+    medium_window,
+    paragraph_window,
+    sentence_window,
+    small_window,
+)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Public API
@@ -275,6 +290,20 @@ __all__ = [
     "standard_consensus",
     "lenient_consensus",
     "best_consensus",
+    # Window (document chunking)
+    "create_window",
+    "DocumentWindow",
+    "DocumentChunk",
+    "WindowConfig",
+    "ChunkProcessConfig",
+    "ChunkResult",
+    "chunk_document",
+    "estimate_tokens",
+    "small_window",
+    "medium_window",
+    "large_window",
+    "paragraph_window",
+    "sentence_window",
     # Debug
     "enable_debug",
 ]
