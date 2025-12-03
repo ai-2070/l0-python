@@ -599,12 +599,27 @@ class FileEventStore(BaseEventStoreWithSnapshots):
         return streams
 
     async def save_snapshot(self, snapshot: Snapshot) -> None:
-        """Save a snapshot."""
+        """Save a snapshot with atomic write and locking."""
         file_path = self._get_snapshot_file_path(snapshot.stream_id)
-        file_path.write_text(
-            json.dumps(_snapshot_to_dict(snapshot), indent=2),
-            encoding="utf-8",
-        )
+        lock_path = file_path.with_suffix(".snapshot.lock")
+
+        # Ensure lock file exists with at least 1 byte (required for Windows msvcrt.locking)
+        if not lock_path.exists() or lock_path.stat().st_size == 0:
+            lock_path.write_bytes(b"\x00")
+
+        with open(lock_path, "r+b") as lock_file:
+            _lock_file(lock_file)
+            try:
+                # Write to temp file first
+                temp_path = file_path.with_suffix(".snapshot.tmp")
+                temp_path.write_text(
+                    json.dumps(_snapshot_to_dict(snapshot), indent=2),
+                    encoding="utf-8",
+                )
+                # Atomic replace
+                os.replace(temp_path, file_path)
+            finally:
+                _unlock_file(lock_file)
 
     async def get_snapshot(self, stream_id: str) -> Snapshot | None:
         """Get the latest snapshot for a stream."""
