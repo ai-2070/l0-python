@@ -1606,7 +1606,7 @@ from l0 import (
 | -------- | ------- |
 | Core | `wrap`, `run`, `l0` (alias), `Stream`, `LazyStream`, `State`, `Event`, `EventType` |
 | Retry | `Retry`, `Timeout`, `TimeoutError`, `BackoffStrategy` |
-| Guardrails | `Guardrails`, `GuardrailRule`, `GuardrailViolation`, `json_rule`, `strict_json_rule`, `pattern_rule`, `zero_output_rule`, `stall_rule`, `repetition_rule` |
+| Guardrails | `Guardrails`, `GuardrailRule`, `GuardrailViolation`, `JsonAnalysis`, `MarkdownAnalysis`, `LatexAnalysis` |
 | Structured | `structured` |
 | Parallel | `parallel`, `race`, `batched`, `consensus` |
 | Adapters | `Adapters`, `Adapter`, `OpenAIAdapter` |
