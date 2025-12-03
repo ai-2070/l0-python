@@ -398,7 +398,12 @@ class DocumentWindow:
 
         Returns:
             List of ChunkResult for each chunk
+
+        Raises:
+            ValueError: If concurrency is less than 1
         """
+        if concurrency < 1:
+            raise ValueError("concurrency must be >= 1")
         semaphore = asyncio.Semaphore(concurrency)
 
         async def process_chunk(chunk: DocumentChunk) -> ChunkResult[Any]:

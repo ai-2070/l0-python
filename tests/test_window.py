@@ -287,6 +287,34 @@ class TestOverlap:
                 )
 
 
+class TestProcessAll:
+    """Tests for process_all method."""
+
+    @pytest.mark.asyncio
+    async def test_process_all_zero_concurrency_raises(self):
+        """Test that concurrency=0 raises ValueError."""
+        doc = "Test document"
+        window = Window.create(doc, size=100)
+
+        async def processor(chunk: DocumentChunk) -> str:
+            return chunk.content
+
+        with pytest.raises(ValueError, match="concurrency must be >= 1"):
+            await window.process_all(processor, concurrency=0)
+
+    @pytest.mark.asyncio
+    async def test_process_all_negative_concurrency_raises(self):
+        """Test that negative concurrency raises ValueError."""
+        doc = "Test document"
+        window = Window.create(doc, size=100)
+
+        async def processor(chunk: DocumentChunk) -> str:
+            return chunk.content
+
+        with pytest.raises(ValueError, match="concurrency must be >= 1"):
+            await window.process_all(processor, concurrency=-1)
+
+
 class TestOverlapGreaterThanSize:
     """Test that overlap >= size doesn't cause infinite loop."""
 
