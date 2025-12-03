@@ -395,6 +395,11 @@ def compare_replays(state1: ReplayedState, state2: ReplayedState) -> ReplayCompa
     if state1.token_count != state2.token_count:
         differences.append(f"token_count: {state1.token_count} vs {state2.token_count}")
 
+    if state1.checkpoint != state2.checkpoint:
+        differences.append(
+            f"checkpoint: '{state1.checkpoint}' vs '{state2.checkpoint}'"
+        )
+
     if state1.completed != state2.completed:
         differences.append(f"completed: {state1.completed} vs {state2.completed}")
 
@@ -408,6 +413,11 @@ def compare_replays(state1: ReplayedState, state2: ReplayedState) -> ReplayCompa
             f"retry_attempts: {state1.retry_attempts} vs {state2.retry_attempts}"
         )
 
+    if state1.network_retry_count != state2.network_retry_count:
+        differences.append(
+            f"network_retry_count: {state1.network_retry_count} vs {state2.network_retry_count}"
+        )
+
     if state1.fallback_index != state2.fallback_index:
         differences.append(
             f"fallback_index: {state1.fallback_index} vs {state2.fallback_index}"
@@ -417,6 +427,23 @@ def compare_replays(state1: ReplayedState, state2: ReplayedState) -> ReplayCompa
         differences.append(
             f"violations: {state1.violations!r} vs {state2.violations!r}"
         )
+
+    # Compare errors (check both presence and content)
+    error1 = state1.error
+    error2 = state2.error
+    if (error1 is None) != (error2 is None):
+        differences.append(f"error: {error1!r} vs {error2!r}")
+    elif error1 is not None and error2 is not None:
+        if error1.name != error2.name or error1.message != error2.message:
+            differences.append(
+                f"error: {error1.name}('{error1.message}') vs {error2.name}('{error2.message}')"
+            )
+
+    if state1.start_ts != state2.start_ts:
+        differences.append(f"start_ts: {state1.start_ts} vs {state2.start_ts}")
+
+    if state1.end_ts != state2.end_ts:
+        differences.append(f"end_ts: {state1.end_ts} vs {state2.end_ts}")
 
     return ReplayComparison(
         identical=len(differences) == 0,

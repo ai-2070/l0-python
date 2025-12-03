@@ -541,6 +541,83 @@ class TestEventSourcing:
         assert comparison.identical is False
         assert any("violations" in diff for diff in comparison.differences)
 
+    def test_compare_different_errors(self):
+        """Test that different errors are detected."""
+        from l0.eventsourcing import ReplayedState
+        from l0.eventsourcing.types import SerializedError
+
+        state1 = ReplayedState(
+            content="Hello",
+            token_count=1,
+            completed=False,
+            error=SerializedError(name="ValueError", message="error 1"),
+        )
+        state2 = ReplayedState(
+            content="Hello",
+            token_count=1,
+            completed=False,
+            error=SerializedError(name="TypeError", message="error 2"),
+        )
+
+        comparison = EventSourcing.compare(state1, state2)
+        assert comparison.identical is False
+        assert any("error" in diff for diff in comparison.differences)
+
+    def test_compare_error_vs_no_error(self):
+        """Test that presence/absence of error is detected."""
+        from l0.eventsourcing import ReplayedState
+        from l0.eventsourcing.types import SerializedError
+
+        state1 = ReplayedState(
+            content="Hello",
+            token_count=1,
+            completed=False,
+            error=SerializedError(name="ValueError", message="error"),
+        )
+        state2 = ReplayedState(
+            content="Hello",
+            token_count=1,
+            completed=True,
+            error=None,
+        )
+
+        comparison = EventSourcing.compare(state1, state2)
+        assert comparison.identical is False
+        assert any("error" in diff for diff in comparison.differences)
+
+    def test_compare_different_network_retry_count(self):
+        """Test that different network_retry_count is detected."""
+        from l0.eventsourcing import ReplayedState
+
+        state1 = ReplayedState(content="Hello", network_retry_count=0)
+        state2 = ReplayedState(content="Hello", network_retry_count=3)
+
+        comparison = EventSourcing.compare(state1, state2)
+        assert comparison.identical is False
+        assert any("network_retry_count" in diff for diff in comparison.differences)
+
+    def test_compare_different_timestamps(self):
+        """Test that different timestamps are detected."""
+        from l0.eventsourcing import ReplayedState
+
+        state1 = ReplayedState(content="Hello", start_ts=1000.0, end_ts=2000.0)
+        state2 = ReplayedState(content="Hello", start_ts=1000.0, end_ts=3000.0)
+
+        comparison = EventSourcing.compare(state1, state2)
+        assert comparison.identical is False
+        assert any("end_ts" in diff for diff in comparison.differences)
+
+    def test_compare_different_checkpoint(self):
+        """Test that different checkpoints are detected."""
+        from l0.eventsourcing import ReplayedState
+
+        state1 = ReplayedState(content="Hello", checkpoint="check1")
+        state2 = ReplayedState(content="Hello", checkpoint="check2")
+
+        comparison = EventSourcing.compare(state1, state2)
+        assert comparison.identical is False
+        assert any("checkpoint" in diff for diff in comparison.differences)
+
     def test_list_adapters(self):
         adapters = EventSourcing.list_adapters()
         assert "memory" in adapters
