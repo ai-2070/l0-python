@@ -626,14 +626,12 @@ class OpenAIAdapter:
     name = "openai"
     
     def detect(self, stream: Any) -> bool:
-        # Check for OpenAI stream types
         type_name = type(stream).__module__
         return "openai" in type_name
     
     async def wrap(self, stream: Any) -> AsyncIterator[L0Event]:
         usage = None
         async for chunk in stream:
-            # Handle content
             if hasattr(chunk, "choices") and chunk.choices:
                 choice = chunk.choices[0]
                 delta = getattr(choice, "delta", None)
@@ -641,7 +639,7 @@ class OpenAIAdapter:
                 if delta:
                     # Text content
                     if hasattr(delta, "content") and delta.content:
-                        yield L0Event(type=EventType.TOKEN, text=delta.content)
+                        yield L0Event(type=EventType.TOKEN, value=delta.content)
                     
                     # Tool calls
                     if hasattr(delta, "tool_calls") and delta.tool_calls:
@@ -655,14 +653,15 @@ class OpenAIAdapter:
                                 }
                             )
             
-            # Extract usage if present
+            # Extract usage if present (typically on last chunk)
             if hasattr(chunk, "usage") and chunk.usage:
                 usage = {
-                    "prompt_tokens": getattr(chunk.usage, "prompt_tokens", 0),
-                    "completion_tokens": getattr(chunk.usage, "completion_tokens", 0),
+                    "input_tokens": getattr(chunk.usage, "prompt_tokens", 0),
+                    "output_tokens": getattr(chunk.usage, "completion_tokens", 0),
                 }
         
         yield L0Event(type=EventType.COMPLETE, usage=usage)
+
 
 class AnthropicAdapter:
     name = "anthropic"
@@ -679,7 +678,7 @@ class AnthropicAdapter:
             if event_type == "content_block_delta":
                 delta = getattr(event, "delta", None)
                 if delta and hasattr(delta, "text"):
-                    yield L0Event(type=EventType.TOKEN, text=delta.text)
+                    yield L0Event(type=EventType.TOKEN, value=delta.text)
             
             elif event_type == "content_block_start":
                 block = getattr(event, "content_block", None)
@@ -696,8 +695,8 @@ class AnthropicAdapter:
                 msg_usage = getattr(event, "usage", None)
                 if msg_usage:
                     usage = {
-                        "prompt_tokens": getattr(msg_usage, "input_tokens", 0),
-                        "completion_tokens": getattr(msg_usage, "output_tokens", 0),
+                        "input_tokens": getattr(msg_usage, "input_tokens", 0),
+                        "output_tokens": getattr(msg_usage, "output_tokens", 0),
                     }
             
             elif event_type == "message_stop":
@@ -1154,6 +1153,7 @@ dependencies = [
     "pydantic>=2.0.0",
     "orjson>=3.9.0",
     "typing-extensions>=4.9.0",
+    "uuid-extensions>=1.0.0",    # UUIDv7 support
 ]
 
 [project.optional-dependencies]
