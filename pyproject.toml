@@ -49,6 +49,7 @@ dev = [
     "pytest-mock>=3.12",
     "ruff>=0.1",
     "mypy>=1.8",
+    "python-dotenv>=1.0",
 ]
 
 [project.urls]
