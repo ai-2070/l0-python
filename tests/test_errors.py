@@ -48,6 +48,7 @@ class TestError:
         assert error.code == ErrorCode.GUARDRAIL_VIOLATION
         assert error.context.checkpoint == "Some partial content"
         assert error.context.token_count == 50
+        assert error.context.metadata is not None
         assert error.context.metadata["rule"] == "json_rule"
 
     def test_has_checkpoint(self):
