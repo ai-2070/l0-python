@@ -754,6 +754,9 @@ def _categorize_error(error: Exception) -> ErrorCategory:
 
     # Check network patterns first
     if NetworkError.check(error):
+        # SSL/TLS errors are not retryable (configuration issue)
+        if NetworkError.is_ssl(error):
+            return ErrorCategory.FATAL
         return ErrorCategory.NETWORK
 
     # Check HTTP status if available

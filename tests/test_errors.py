@@ -265,7 +265,6 @@ class TestErrorCategorize:
             Exception("DNS failed to resolve"),
             Exception("Name resolution failed"),
             Exception("Socket error occurred"),
-            Exception("SSL error during handshake"),
             Exception("EOF occurred unexpectedly"),
             Exception("Broken pipe"),
             Exception("Network unreachable"),
@@ -274,6 +273,20 @@ class TestErrorCategorize:
         for error in network_errors:
             assert Error.categorize(error) == ErrorCategory.NETWORK, (
                 f"Failed for: {error}"
+            )
+
+    def test_ssl_errors_are_fatal(self):
+        """Test SSL/TLS errors are fatal (not retryable)."""
+        ssl_errors = [
+            Exception("SSL error during handshake"),
+            Exception("SSL certificate verify failed"),
+            Exception("certificate verify failed"),
+            Exception("SSL: CERTIFICATE_VERIFY_FAILED"),
+            Exception("[SSL: WRONG_VERSION_NUMBER]"),
+        ]
+        for error in ssl_errors:
+            assert Error.categorize(error) == ErrorCategory.FATAL, (
+                f"SSL error should be FATAL: {error}"
             )
 
     def test_rate_limit_transient(self):
