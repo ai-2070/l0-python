@@ -1,7 +1,5 @@
 """Tests for multimodal support."""
 
-import pytest
-
 from l0 import (
     ContentType,
     DataPayload,
@@ -226,31 +224,31 @@ class TestStateMultimodal:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-class TestMultimodalScopedAPI:
+class TestMultimodal:
     """Tests for Multimodal scoped API."""
 
-    def test_multimodal_data(self):
+    def test_data(self):
         """Test Multimodal.data()."""
         payload = DataPayload(content_type=ContentType.IMAGE, base64="abc")
         event = Multimodal.data(payload)
         assert event.type == EventType.DATA
         assert event.payload is payload
 
-    def test_multimodal_progress(self):
+    def test_progress(self):
         """Test Multimodal.progress()."""
         event = Multimodal.progress(percent=50.0, message="Working...")
         assert event.type == EventType.PROGRESS
         assert event.progress.percent == 50.0
         assert event.progress.message == "Working..."
 
-    def test_multimodal_progress_with_steps(self):
+    def test_progress_with_steps(self):
         """Test Multimodal.progress() with steps."""
         event = Multimodal.progress(step=3, total_steps=10, eta=5.0)
         assert event.progress.step == 3
         assert event.progress.total_steps == 10
         assert event.progress.eta == 5.0
 
-    def test_multimodal_image(self):
+    def test_image(self):
         """Test Multimodal.image()."""
         event = Multimodal.image(
             base64="abc123",
@@ -268,23 +266,23 @@ class TestMultimodalScopedAPI:
         assert event.payload.seed == 42
         assert event.payload.model == "dall-e-3"
 
-    def test_multimodal_image_with_url(self):
+    def test_image_with_url(self):
         """Test Multimodal.image() with URL."""
         event = Multimodal.image(url="https://example.com/image.png")
         assert event.payload.url == "https://example.com/image.png"
 
-    def test_multimodal_image_custom_mime_type(self):
+    def test_image_custom_mime_type(self):
         """Test Multimodal.image() with custom MIME type."""
         event = Multimodal.image(base64="abc", mime_type="image/jpeg")
         assert event.payload.mime_type == "image/jpeg"
 
-    def test_multimodal_image_extra_metadata(self):
+    def test_image_extra_metadata(self):
         """Test Multimodal.image() with extra metadata."""
         event = Multimodal.image(base64="abc", prompt="a cat", steps=50)
         assert event.payload.metadata["prompt"] == "a cat"
         assert event.payload.metadata["steps"] == 50
 
-    def test_multimodal_audio(self):
+    def test_audio(self):
         """Test Multimodal.audio()."""
         event = Multimodal.audio(
             base64="audio_data",
@@ -298,7 +296,7 @@ class TestMultimodalScopedAPI:
         assert event.payload.duration == 10.5
         assert event.payload.model == "tts-1"
 
-    def test_multimodal_video(self):
+    def test_video(self):
         """Test Multimodal.video()."""
         event = Multimodal.video(
             url="https://example.com/video.mp4",
@@ -316,7 +314,7 @@ class TestMultimodalScopedAPI:
         assert event.payload.duration == 30.0
         assert event.payload.model == "sora"
 
-    def test_multimodal_file(self):
+    def test_file(self):
         """Test Multimodal.file()."""
         event = Multimodal.file(
             base64="file_data",
@@ -331,7 +329,7 @@ class TestMultimodalScopedAPI:
         assert event.payload.size == 1024
         assert event.payload.mime_type == "application/pdf"
 
-    def test_multimodal_json(self):
+    def test_json(self):
         """Test Multimodal.json()."""
         data = {"result": "success", "count": 42}
         event = Multimodal.json(data, model="gpt-4o")
@@ -341,204 +339,24 @@ class TestMultimodalScopedAPI:
         assert event.payload.mime_type == "application/json"
         assert event.payload.model == "gpt-4o"
 
-    def test_multimodal_complete(self):
+    def test_complete(self):
         """Test Multimodal.complete()."""
         event = Multimodal.complete()
         assert event.type == EventType.COMPLETE
         assert event.usage is None
 
-    def test_multimodal_complete_with_usage(self):
+    def test_complete_with_usage(self):
         """Test Multimodal.complete() with usage."""
+        event = Multimodal.complete(usage={"prompt_tokens": 10, "completion_tokens": 20})
         event = Multimodal.complete(
             usage={"prompt_tokens": 10, "completion_tokens": 20}
         )
-        assert event.type == EventType.COMPLETE
         assert event.usage["prompt_tokens"] == 10
         assert event.usage["completion_tokens"] == 20
 
-    def test_multimodal_error(self):
+    def test_error(self):
         """Test Multimodal.error()."""
         error = ValueError("Something went wrong")
         event = Multimodal.error(error)
         assert event.type == EventType.ERROR
         assert event.error is error
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Payload Creator Tests
-# ─────────────────────────────────────────────────────────────────────────────
-
-
-class TestPayloadCreators:
-    """Tests for payload creation helpers."""
-
-    def test_image_payload(self):
-        """Test Multimodal.image_payload()."""
-        payload = Multimodal.image_payload(
-            base64="abc",
-            width=512,
-            height=512,
-            seed=42,
-        )
-        assert payload.content_type == ContentType.IMAGE
-        assert payload.base64 == "abc"
-        assert payload.width == 512
-        assert payload.height == 512
-        assert payload.seed == 42
-
-    def test_audio_payload(self):
-        """Test Multimodal.audio_payload()."""
-        payload = Multimodal.audio_payload(
-            base64="audio",
-            duration=5.0,
-            model="whisper",
-        )
-        assert payload.content_type == ContentType.AUDIO
-        assert payload.base64 == "audio"
-        assert payload.duration == 5.0
-        assert payload.model == "whisper"
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Stream Converter Tests
-# ─────────────────────────────────────────────────────────────────────────────
-
-
-class TestFromStream:
-    """Tests for Multimodal.from_stream() helper."""
-
-    @pytest.mark.asyncio
-    async def test_basic_stream_conversion(self):
-        """Test basic stream conversion."""
-
-        async def mock_stream():
-            yield {"type": "progress", "percent": 50}
-            yield {"type": "image", "data": "abc123"}
-
-        events = []
-        async for event in Multimodal.from_stream(
-            mock_stream(),
-            extract_progress=lambda c: Progress(percent=c["percent"])
-            if c.get("type") == "progress"
-            else None,
-            extract_data=lambda c: Multimodal.image_payload(base64=c["data"])
-            if c.get("type") == "image"
-            else None,
-        ):
-            events.append(event)
-
-        assert len(events) == 3  # progress, data, complete
-        assert events[0].is_progress
-        assert events[0].progress.percent == 50
-        assert events[1].is_data
-        assert events[1].payload.base64 == "abc123"
-        assert events[2].is_complete
-
-    @pytest.mark.asyncio
-    async def test_text_extraction(self):
-        """Test text extraction."""
-
-        async def mock_stream():
-            yield {"text": "Hello"}
-            yield {"text": " World"}
-
-        events = []
-        async for event in Multimodal.from_stream(
-            mock_stream(),
-            extract_text=lambda c: c.get("text"),
-        ):
-            events.append(event)
-
-        assert len(events) == 3  # 2 tokens + complete
-        assert events[0].is_token
-        assert events[0].text == "Hello"
-        assert events[1].is_token
-        assert events[1].text == " World"
-
-    @pytest.mark.asyncio
-    async def test_error_extraction(self):
-        """Test error extraction."""
-
-        async def mock_stream():
-            yield {"error": ValueError("test error")}
-
-        events = []
-        async for event in Multimodal.from_stream(
-            mock_stream(),
-            extract_error=lambda c: c.get("error"),
-        ):
-            events.append(event)
-
-        assert len(events) == 2  # error + complete
-        assert events[0].is_error
-        assert isinstance(events[0].error, ValueError)
-
-    @pytest.mark.asyncio
-    async def test_stream_exception_handling(self):
-        """Test exception handling in stream."""
-
-        async def failing_stream():
-            yield {"text": "ok"}
-            raise ConnectionError("Stream failed")
-
-        events = []
-        async for event in Multimodal.from_stream(
-            failing_stream(),
-            extract_text=lambda c: c.get("text"),
-        ):
-            events.append(event)
-
-        assert len(events) == 2  # token + error
-        assert events[0].is_token
-        assert events[1].is_error
-        assert isinstance(events[1].error, ConnectionError)
-
-    @pytest.mark.asyncio
-    async def test_empty_stream(self):
-        """Test empty stream."""
-
-        async def empty_stream():
-            return
-            yield  # Make it a generator
-
-        events = []
-        async for event in Multimodal.from_stream(empty_stream()):
-            events.append(event)
-
-        assert len(events) == 1
-        assert events[0].is_complete
-
-    @pytest.mark.asyncio
-    async def test_mixed_content(self):
-        """Test mixed content extraction."""
-
-        async def mock_stream():
-            yield {"progress": 25}
-            yield {"text": "Processing..."}
-            yield {"progress": 75}
-            yield {"image": "result"}
-
-        events = []
-        async for event in Multimodal.from_stream(
-            mock_stream(),
-            extract_progress=lambda c: Progress(percent=c["progress"])
-            if "progress" in c
-            else None,
-            extract_text=lambda c: c.get("text"),
-            extract_data=lambda c: Multimodal.image_payload(base64=c["image"])
-            if "image" in c
-            else None,
-        ):
-            events.append(event)
-
-        # Should have: progress, token, progress, data, complete
-        assert len(events) == 5
-        assert events[0].is_progress
-        assert events[0].progress.percent == 25
-        assert events[1].is_token
-        assert events[1].text == "Processing..."
-        assert events[2].is_progress
-        assert events[2].progress.percent == 75
-        assert events[3].is_data
-        assert events[3].payload.base64 == "result"
-        assert events[4].is_complete

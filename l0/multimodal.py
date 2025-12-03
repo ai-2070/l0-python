@@ -5,31 +5,18 @@ non-text AI outputs.
 
 Example:
     ```python
-    from l0 import Multimodal, Progress
+    from l0 import Multimodal
 
-    # Using the high-level helper
-    async def wrap(stream):
-        async for event in Multimodal.from_stream(
-            stream,
-            extract_progress=lambda chunk: Progress(percent=chunk.progress),
-            extract_data=lambda chunk: Multimodal.image_payload(
-                base64=chunk.image,
-                width=chunk.width,
-                height=chunk.height,
-            ) if chunk.image else None,
-        ):
-            yield event
-
-    # Or using individual helpers
-    async def wrap(stream):
-        for chunk in stream:
+    async def wrap_dalle(stream):
+        async for chunk in stream:
             if chunk.type == "progress":
                 yield Multimodal.progress(percent=chunk.percent)
-            elif chunk.type == "image":
+            elif chunk.type == "result":
                 yield Multimodal.image(
-                    base64=chunk.image,
+                    base64=chunk.b64_json,
                     width=chunk.width,
                     height=chunk.height,
+                    model="dall-e-3",
                 )
         yield Multimodal.complete()
     ```
@@ -37,12 +24,9 @@ Example:
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Callable
-from typing import Any, TypeVar
+from typing import Any
 
 from .types import ContentType, DataPayload, Event, EventType, Progress
-
-T = TypeVar("T")
 
 
 class Multimodal:
@@ -52,19 +36,13 @@ class Multimodal:
     and a stream converter for building custom adapters.
 
     Usage:
-        from l0 import Multimodal, Progress
+        from l0 import Multimodal
 
         # Create events
         event = Multimodal.image(base64="...", width=1024, height=768)
         event = Multimodal.audio(url="https://...")
         event = Multimodal.progress(percent=50, message="Processing...")
-
-        # Create payloads (for use with from_stream)
-        payload = Multimodal.image_payload(base64="...")
-
-        # Convert streams
-        async for event in Multimodal.from_stream(stream, ...):
-            yield event
+        event = Multimodal.complete()
     """
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -129,18 +107,27 @@ class Multimodal:
             mime_type: MIME type (default: image/png)
             **extra_metadata: Additional metadata
         """
+        metadata = {
+            k: v
+            for k, v in {
+                "width": width,
+                "height": height,
+                "seed": seed,
+                "model": model,
+                **extra_metadata,
+            }.items()
+            if v is not None
+        }
+
         return Event(
             type=EventType.DATA,
-            payload=Multimodal.image_payload(
+            payload=DataPayload(
+                content_type=ContentType.IMAGE,
+                mime_type=mime_type,
                 base64=base64,
                 url=url,
                 data=data,
-                width=width,
-                height=height,
-                seed=seed,
-                model=model,
-                mime_type=mime_type,
-                **extra_metadata,
+                metadata=metadata or None,
             ),
         )
 
@@ -165,16 +152,25 @@ class Multimodal:
             mime_type: MIME type (default: audio/mp3)
             **extra_metadata: Additional metadata
         """
+        metadata = {
+            k: v
+            for k, v in {
+                "duration": duration,
+                "model": model,
+                **extra_metadata,
+            }.items()
+            if v is not None
+        }
+
         return Event(
             type=EventType.DATA,
-            payload=Multimodal.audio_payload(
+            payload=DataPayload(
+                content_type=ContentType.AUDIO,
+                mime_type=mime_type,
                 base64=base64,
                 url=url,
                 data=data,
-                duration=duration,
-                model=model,
-                mime_type=mime_type,
-                **extra_metadata,
+                metadata=metadata or None,
             ),
         )
 
@@ -311,142 +307,3 @@ class Multimodal:
     def error(error: Exception) -> Event:
         """Create an error event."""
         return Event(type=EventType.ERROR, error=error)
-
-    # ─────────────────────────────────────────────────────────────────────────
-    # Payload Creation (for use with from_stream extract_data)
-    # ─────────────────────────────────────────────────────────────────────────
-
-    @staticmethod
-    def image_payload(
-        base64: str | None = None,
-        url: str | None = None,
-        data: bytes | None = None,
-        width: int | None = None,
-        height: int | None = None,
-        seed: int | None = None,
-        model: str | None = None,
-        mime_type: str = "image/png",
-        **extra_metadata: Any,
-    ) -> DataPayload:
-        """Create an image payload (for use with extract_data)."""
-        metadata = {
-            k: v
-            for k, v in {
-                "width": width,
-                "height": height,
-                "seed": seed,
-                "model": model,
-                **extra_metadata,
-            }.items()
-            if v is not None
-        }
-
-        return DataPayload(
-            content_type=ContentType.IMAGE,
-            mime_type=mime_type,
-            base64=base64,
-            url=url,
-            data=data,
-            metadata=metadata or None,
-        )
-
-    @staticmethod
-    def audio_payload(
-        base64: str | None = None,
-        url: str | None = None,
-        data: bytes | None = None,
-        duration: float | None = None,
-        model: str | None = None,
-        mime_type: str = "audio/mp3",
-        **extra_metadata: Any,
-    ) -> DataPayload:
-        """Create an audio payload (for use with extract_data)."""
-        metadata = {
-            k: v
-            for k, v in {
-                "duration": duration,
-                "model": model,
-                **extra_metadata,
-            }.items()
-            if v is not None
-        }
-
-        return DataPayload(
-            content_type=ContentType.AUDIO,
-            mime_type=mime_type,
-            base64=base64,
-            url=url,
-            data=data,
-            metadata=metadata or None,
-        )
-
-    # ─────────────────────────────────────────────────────────────────────────
-    # Stream Converter
-    # ─────────────────────────────────────────────────────────────────────────
-
-    @staticmethod
-    async def from_stream(
-        stream: AsyncIterator[T],
-        *,
-        extract_progress: Callable[[T], Progress | None] | None = None,
-        extract_data: Callable[[T], DataPayload | None] | None = None,
-        extract_text: Callable[[T], str | None] | None = None,
-        extract_error: Callable[[T], Exception | None] | None = None,
-    ) -> AsyncIterator[Event]:
-        """Convert a multimodal stream to L0 events.
-
-        High-level helper that extracts progress, data, text, and errors
-        from arbitrary stream chunks.
-
-        Args:
-            stream: The source async stream
-            extract_progress: Function to extract Progress from a chunk
-            extract_data: Function to extract DataPayload from a chunk
-            extract_text: Function to extract text content from a chunk
-            extract_error: Function to extract errors from a chunk
-
-        Yields:
-            L0 Event objects
-
-        Example:
-            ```python
-            async def wrap(stream):
-                async for event in Multimodal.from_stream(
-                    stream,
-                    extract_progress=lambda c: Progress(percent=c.progress) if c.progress else None,
-                    extract_data=lambda c: Multimodal.image_payload(base64=c.image) if c.image else None,
-                ):
-                    yield event
-            ```
-        """
-        try:
-            async for chunk in stream:
-                # Check for errors first
-                if extract_error:
-                    error = extract_error(chunk)
-                    if error:
-                        yield Multimodal.error(error)
-                        continue
-
-                # Check for progress
-                if extract_progress:
-                    progress = extract_progress(chunk)
-                    if progress:
-                        yield Event(type=EventType.PROGRESS, progress=progress)
-
-                # Check for data
-                if extract_data:
-                    payload = extract_data(chunk)
-                    if payload:
-                        yield Event(type=EventType.DATA, payload=payload)
-
-                # Check for text
-                if extract_text:
-                    text = extract_text(chunk)
-                    if text:
-                        yield Event(type=EventType.TOKEN, text=text)
-
-            yield Multimodal.complete()
-
-        except Exception as e:
-            yield Multimodal.error(e)
