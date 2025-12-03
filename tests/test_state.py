@@ -47,10 +47,12 @@ class TestAppendToken:
         state = State()
         append_token(state, "a")
         first_time = state.last_token_at
+        assert first_time is not None
 
         time.sleep(0.01)
         append_token(state, "b")
 
+        assert state.last_token_at is not None
         assert state.last_token_at > first_time
 
 

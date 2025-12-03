@@ -58,6 +58,7 @@ class TestEvent:
             data={"id": "call_123", "name": "get_weather"},
         )
         assert event.type == EventType.TOOL_CALL
+        assert event.data is not None
         assert event.data["id"] == "call_123"
 
     def test_create_complete_event_with_usage(self):
@@ -66,6 +67,7 @@ class TestEvent:
             usage={"input_tokens": 100, "output_tokens": 50},
         )
         assert event.type == EventType.COMPLETE
+        assert event.usage is not None
         assert event.usage["input_tokens"] == 100
 
     def test_is_token_property(self):

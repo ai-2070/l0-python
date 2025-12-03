@@ -28,7 +28,8 @@ async def parallel(
         async with semaphore:
             return await task()
 
-    return await asyncio.gather(*[limited(t) for t in tasks])
+    results = await asyncio.gather(*[limited(t) for t in tasks])
+    return list(results)
 
 
 async def race(tasks: list[Callable[[], Awaitable[T]]]) -> T:
@@ -90,5 +91,5 @@ async def batched(
     for i in range(0, len(items), batch_size):
         batch = items[i : i + batch_size]
         batch_results = await asyncio.gather(*[handler(item) for item in batch])
-        results.extend(batch_results)
+        results.extend(list(batch_results))
     return results

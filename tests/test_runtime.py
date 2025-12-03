@@ -115,6 +115,7 @@ class TestTimeout:
             async for _ in result:
                 pass
 
+        assert isinstance(exc_info.value, TimeoutError)
         assert exc_info.value.timeout_type == "initial_token"
         assert exc_info.value.timeout_seconds == 0.1
 
@@ -138,6 +139,7 @@ class TestTimeout:
             async for _ in result:
                 pass
 
+        assert isinstance(exc_info.value, TimeoutError)
         assert exc_info.value.timeout_type == "inter_token"
         assert exc_info.value.timeout_seconds == 0.1
 
