@@ -10,7 +10,25 @@ from .adapters import (
     detect_adapter,
     register_adapter,
 )
-from .consensus import consensus
+from .consensus import (
+    Agreement,
+    ConsensusAnalysis,
+    ConsensusOutput,
+    ConsensusPreset,
+    ConsensusResult,
+    Disagreement,
+    DisagreementValue,
+    FieldConsensus,
+    FieldConsensusInfo,
+    best_consensus,
+    consensus,
+    get_consensus_value,
+    lenient_consensus,
+    quick_consensus,
+    standard_consensus,
+    strict_consensus,
+    validate_consensus,
+)
 from .events import EventBus, ObservabilityEvent, ObservabilityEventType
 from .guardrails import (
     GuardrailRule,
@@ -241,6 +259,22 @@ __all__ = [
     "batched",
     # Consensus
     "consensus",
+    "ConsensusResult",
+    "ConsensusOutput",
+    "ConsensusAnalysis",
+    "ConsensusPreset",
+    "Agreement",
+    "Disagreement",
+    "DisagreementValue",
+    "FieldConsensus",
+    "FieldConsensusInfo",
+    "quick_consensus",
+    "get_consensus_value",
+    "validate_consensus",
+    "strict_consensus",
+    "standard_consensus",
+    "lenient_consensus",
+    "best_consensus",
     # Debug
     "enable_debug",
 ]

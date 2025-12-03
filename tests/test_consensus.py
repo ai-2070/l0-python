@@ -1,8 +1,18 @@
 """Tests for l0.consensus module."""
 
 import pytest
+from pydantic import BaseModel
 
-from l0.consensus import consensus
+from l0.consensus import (
+    Agreement,
+    ConsensusResult,
+    consensus,
+    get_consensus_value,
+    quick_consensus,
+    standard_consensus,
+    strict_consensus,
+    validate_consensus,
+)
 
 
 class TestConsensus:
@@ -12,7 +22,10 @@ class TestConsensus:
             return "same"
 
         result = await consensus([task, task, task], strategy="unanimous")
-        assert result == "same"
+        assert result.consensus == "same"
+        assert result.confidence >= 0.99
+        assert result.status == "success"
+        assert len(result.agreements) >= 1
 
     @pytest.mark.asyncio
     async def test_unanimous_failure(self):
@@ -23,7 +36,9 @@ class TestConsensus:
             return "b"
 
         with pytest.raises(ValueError, match="No unanimous consensus"):
-            await consensus([task1, task2], strategy="unanimous")
+            await consensus(
+                [task1, task2], strategy="unanimous", resolve_conflicts="fail"
+            )
 
     @pytest.mark.asyncio
     async def test_majority_success(self):
@@ -34,7 +49,9 @@ class TestConsensus:
             return "b"
 
         result = await consensus([task_a, task_a, task_b], strategy="majority")
-        assert result == "a"
+        assert result.consensus == "a"
+        assert result.confidence >= 0.6
+        assert result.status == "success"
 
     @pytest.mark.asyncio
     async def test_majority_failure_no_majority(self):
@@ -44,9 +61,13 @@ class TestConsensus:
         async def task_b():
             return "b"
 
-        # 1 vs 1 - no majority
+        # 1 vs 1 - no majority at default threshold
         with pytest.raises(ValueError, match="No majority consensus"):
-            await consensus([task_a, task_b], strategy="majority")
+            await consensus(
+                [task_a, task_b],
+                strategy="majority",
+                resolve_conflicts="fail",
+            )
 
     @pytest.mark.asyncio
     async def test_best_returns_first(self):
@@ -61,7 +82,8 @@ class TestConsensus:
             return "second"
 
         result = await consensus([task1, task2], strategy="best")
-        assert result == "first"
+        assert result.consensus == "first"
+        assert result.status == "success"
 
     @pytest.mark.asyncio
     async def test_empty_tasks_raises(self):
@@ -69,9 +91,227 @@ class TestConsensus:
             await consensus([])
 
     @pytest.mark.asyncio
+    async def test_single_task_raises(self):
+        async def task():
+            return "a"
+
+        with pytest.raises(RuntimeError, match="At least 2 tasks"):
+            await consensus([task])
+
+    @pytest.mark.asyncio
     async def test_unknown_strategy_raises(self):
         async def task():
             return "a"
 
         with pytest.raises(ValueError, match="Unknown strategy"):
-            await consensus([task], strategy="invalid")  # type: ignore
+            await consensus([task, task], strategy="invalid")  # type: ignore
+
+
+class TestWeightedConsensus:
+    @pytest.mark.asyncio
+    async def test_weighted_higher_weight_wins(self):
+        async def task_a():
+            return "a"
+
+        async def task_b():
+            return "b"
+
+        # task_a has higher weight
+        result = await consensus(
+            [task_a, task_b],
+            strategy="weighted",
+            weights=[2.0, 1.0],
+        )
+        assert result.consensus == "a"
+
+    @pytest.mark.asyncio
+    async def test_weighted_lower_count_higher_weight(self):
+        async def task_a():
+            return "a"
+
+        async def task_b():
+            return "b"
+
+        # One "a" with weight 3 vs two "b" with weight 1 each
+        result = await consensus(
+            [task_a, task_b, task_b],
+            strategy="weighted",
+            weights=[3.0, 1.0, 1.0],
+        )
+        assert result.consensus == "a"
+
+
+class TestConflictResolution:
+    @pytest.mark.asyncio
+    async def test_resolve_vote(self):
+        async def task_a():
+            return "a"
+
+        async def task_b():
+            return "b"
+
+        result = await consensus(
+            [task_a, task_a, task_b],
+            strategy="majority",
+            resolve_conflicts="vote",
+        )
+        assert result.consensus == "a"
+
+    @pytest.mark.asyncio
+    async def test_resolve_best_uses_weight(self):
+        async def task_a():
+            return "a"
+
+        async def task_b():
+            return "b"
+
+        # Low weight "a" vs high weight "b"
+        result = await consensus(
+            [task_a, task_b],
+            strategy="majority",
+            resolve_conflicts="best",
+            weights=[1.0, 2.0],
+            minimum_agreement=0.0,  # Allow any agreement
+        )
+        assert result.consensus == "b"
+
+
+class TestConsensusResult:
+    @pytest.mark.asyncio
+    async def test_result_has_analysis(self):
+        async def task():
+            return "value"
+
+        result = await consensus([task, task, task], strategy="unanimous")
+        assert result.analysis is not None
+        assert result.analysis.total_outputs == 3
+        assert result.analysis.successful_outputs == 3
+        assert result.analysis.failed_outputs == 0
+        assert result.analysis.strategy == "unanimous"
+
+    @pytest.mark.asyncio
+    async def test_result_has_outputs(self):
+        async def task():
+            return "value"
+
+        result = await consensus([task, task], strategy="best")
+        assert len(result.outputs) == 2
+        assert all(o.success for o in result.outputs)
+        assert all(o.value == "value" for o in result.outputs)
+
+    @pytest.mark.asyncio
+    async def test_similarity_matrix_computed(self):
+        async def task_a():
+            return "hello world"
+
+        async def task_b():
+            return "hello there"
+
+        result = await consensus([task_a, task_b], strategy="best")
+        matrix = result.analysis.similarity_matrix
+        assert len(matrix) == 2
+        assert matrix[0][0] == 1.0  # Same to itself
+        assert matrix[1][1] == 1.0
+        assert 0 < matrix[0][1] < 1.0  # Partially similar
+
+
+class TestStructuredConsensus:
+    @pytest.mark.asyncio
+    async def test_structured_consensus_with_schema(self):
+        class Person(BaseModel):
+            name: str
+            age: int
+
+        async def task():
+            return Person(name="Alice", age=30)
+
+        result = await consensus([task, task], strategy="unanimous", schema=Person)
+        assert result.type == "structured"
+        assert result.field_consensus is not None
+        assert "name" in result.field_consensus.fields
+        assert "age" in result.field_consensus.fields
+        assert result.field_consensus.fields["name"].agreement == 1.0
+
+
+class TestHelperFunctions:
+    def test_quick_consensus_true(self):
+        outputs = ["a", "a", "a", "b"]
+        assert quick_consensus(outputs, 0.7)  # 75% >= 70%
+
+    def test_quick_consensus_false(self):
+        outputs = ["a", "a", "b", "b"]
+        assert not quick_consensus(outputs, 0.8)  # 50% < 80%
+
+    def test_quick_consensus_empty(self):
+        assert not quick_consensus([])
+
+    def test_get_consensus_value(self):
+        outputs = ["a", "a", "b"]
+        assert get_consensus_value(outputs) == "a"
+
+    def test_get_consensus_value_empty(self):
+        assert get_consensus_value([]) is None
+
+    def test_get_consensus_value_integers(self):
+        outputs = [1, 2, 1, 1]
+        assert get_consensus_value(outputs) == 1
+
+    @pytest.mark.asyncio
+    async def test_validate_consensus_passes(self):
+        async def task():
+            return "value"
+
+        result = await consensus([task, task, task], strategy="unanimous")
+        assert validate_consensus(result, min_confidence=0.8)
+
+    @pytest.mark.asyncio
+    async def test_validate_consensus_fails_low_confidence(self):
+        async def task_a():
+            return "a"
+
+        async def task_b():
+            return "b"
+
+        result = await consensus(
+            [task_a, task_a, task_b],
+            strategy="majority",
+            resolve_conflicts="vote",
+        )
+        # Confidence is ~0.67, so this should fail at 0.9 threshold
+        assert not validate_consensus(result, min_confidence=0.9)
+
+
+class TestPresets:
+    def test_strict_preset_values(self):
+        assert strict_consensus.strategy == "unanimous"
+        assert strict_consensus.threshold == 1.0
+        assert strict_consensus.resolve_conflicts == "fail"
+        assert strict_consensus.minimum_agreement == 1.0
+
+    def test_standard_preset_values(self):
+        assert standard_consensus.strategy == "majority"
+        assert standard_consensus.threshold == 0.8
+        assert standard_consensus.resolve_conflicts == "vote"
+        assert standard_consensus.minimum_agreement == 0.6
+
+
+class TestObservabilityEvents:
+    @pytest.mark.asyncio
+    async def test_emits_events(self):
+        events_received = []
+
+        def on_event(event):
+            events_received.append(event.type.value)
+
+        async def task():
+            return "value"
+
+        await consensus([task, task], strategy="unanimous", on_event=on_event)
+
+        assert "CONSENSUS_START" in events_received
+        assert "CONSENSUS_STREAM_START" in events_received
+        assert "CONSENSUS_STREAM_END" in events_received
+        assert "CONSENSUS_OUTPUT_COLLECTED" in events_received
+        assert "CONSENSUS_ANALYSIS" in events_received
+        assert "CONSENSUS_RESOLUTION" in events_received
+        assert "CONSENSUS_END" in events_received
