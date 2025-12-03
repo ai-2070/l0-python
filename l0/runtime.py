@@ -94,8 +94,8 @@ async def _internal_run(
                         if aborted:
                             return
 
-                        if event.type == EventType.TOKEN and event.value:
-                            append_token(state, event.value)
+                        if event.type == EventType.TOKEN and event.text:
+                            append_token(state, event.text)
 
                             # Check guardrails periodically
                             if state.token_count % 5 == 0 and guardrails:

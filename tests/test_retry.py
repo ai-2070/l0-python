@@ -9,7 +9,7 @@ from l0.types import BackoffStrategy, ErrorCategory, Retry
 class TestRetryManager:
     def test_default_config(self):
         mgr = RetryManager()
-        assert mgr.config.attempts == 3
+        assert mgr.config.max_attempts == 3
         assert mgr.model_retry_count == 0
         assert mgr.network_retry_count == 0
 
@@ -27,7 +27,7 @@ class TestRetryManager:
 
     def test_should_retry_model_error_limited(self):
         """Model errors should respect attempt limit."""
-        mgr = RetryManager(Retry(attempts=2))
+        mgr = RetryManager(Retry(max_attempts=2))
         error = Exception("Model error")
 
         assert mgr.should_retry(error) is True
@@ -71,60 +71,60 @@ class TestRetryManager:
     def test_get_delay_exponential(self):
         mgr = RetryManager(
             Retry(
-                base_delay_ms=1000,
-                max_delay_ms=10000,
+                base_delay=1.0,  # seconds
+                max_delay=10.0,
                 strategy=BackoffStrategy.EXPONENTIAL,
             )
         )
         error = Exception("Error")
 
-        # First attempt: 1000ms
-        delay1 = mgr.get_delay_ms(error)
-        assert delay1 == 1000
+        # First attempt: 1.0s
+        delay1 = mgr.get_delay(error)
+        assert delay1 == 1.0
 
         mgr.record_attempt(error)
-        # Second attempt: 2000ms
-        delay2 = mgr.get_delay_ms(error)
-        assert delay2 == 2000
+        # Second attempt: 2.0s
+        delay2 = mgr.get_delay(error)
+        assert delay2 == 2.0
 
     def test_get_delay_linear(self):
         mgr = RetryManager(
             Retry(
-                base_delay_ms=1000,
-                max_delay_ms=10000,
+                base_delay=1.0,
+                max_delay=10.0,
                 strategy=BackoffStrategy.LINEAR,
             )
         )
         error = Exception("Error")
 
-        delay1 = mgr.get_delay_ms(error)
-        assert delay1 == 1000
+        delay1 = mgr.get_delay(error)
+        assert delay1 == 1.0
 
         mgr.record_attempt(error)
-        delay2 = mgr.get_delay_ms(error)
-        assert delay2 == 2000
+        delay2 = mgr.get_delay(error)
+        assert delay2 == 2.0
 
     def test_get_delay_fixed(self):
         mgr = RetryManager(
             Retry(
-                base_delay_ms=1000,
+                base_delay=1.0,
                 strategy=BackoffStrategy.FIXED,
             )
         )
         error = Exception("Error")
 
-        delay1 = mgr.get_delay_ms(error)
+        delay1 = mgr.get_delay(error)
         mgr.record_attempt(error)
-        delay2 = mgr.get_delay_ms(error)
+        delay2 = mgr.get_delay(error)
 
-        assert delay1 == 1000
-        assert delay2 == 1000
+        assert delay1 == 1.0
+        assert delay2 == 1.0
 
     def test_get_delay_capped_at_max(self):
         mgr = RetryManager(
             Retry(
-                base_delay_ms=5000,
-                max_delay_ms=8000,
+                base_delay=5.0,
+                max_delay=8.0,
                 strategy=BackoffStrategy.EXPONENTIAL,
             )
         )
@@ -134,8 +134,8 @@ class TestRetryManager:
         for _ in range(10):
             mgr.record_attempt(error)
 
-        delay = mgr.get_delay_ms(error)
-        assert delay <= 8000
+        delay = mgr.get_delay(error)
+        assert delay <= 8.0
 
     def test_reset(self):
         mgr = RetryManager()

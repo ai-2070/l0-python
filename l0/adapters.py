@@ -51,7 +51,7 @@ class OpenAIAdapter:
                 if delta:
                     # Text content
                     if hasattr(delta, "content") and delta.content:
-                        yield Event(type=EventType.TOKEN, value=delta.content)
+                        yield Event(type=EventType.TOKEN, text=delta.content)
 
                     # Tool calls
                     if hasattr(delta, "tool_calls") and delta.tool_calls:

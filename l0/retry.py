@@ -1,3 +1,5 @@
+"""Retry manager with error-aware backoff."""
+
 from __future__ import annotations
 
 import asyncio
@@ -33,7 +35,7 @@ class RetryManager:
             return True  # Always retry, doesn't count toward model limit
 
         # MODEL or CONTENT - counts toward limit
-        return self.model_retry_count < self.config.attempts
+        return self.model_retry_count < self.config.max_attempts
 
     def record_attempt(self, error: Exception) -> None:
         category = categorize_error(error)
@@ -43,8 +45,8 @@ class RetryManager:
         else:
             self.model_retry_count += 1
 
-    def get_delay_ms(self, error: Exception) -> int:
-        """Get delay in milliseconds (matches TS)."""
+    def get_delay(self, error: Exception) -> float:
+        """Get delay in seconds (Pythonic)."""
         category = categorize_error(error)
         attempt = (
             self.network_retry_count
@@ -52,8 +54,8 @@ class RetryManager:
             else self.model_retry_count
         )
 
-        base = self.config.base_delay_ms
-        cap = self.config.max_delay_ms
+        base = self.config.base_delay
+        cap = self.config.max_delay
 
         match self.config.strategy:
             case BackoffStrategy.EXPONENTIAL:
@@ -64,18 +66,18 @@ class RetryManager:
                 delay = base
             case BackoffStrategy.FIXED_JITTER:
                 temp = min(base * (2**attempt), cap)
-                delay = temp // 2 + int(random.random() * (temp // 2))
+                delay = temp / 2 + random.random() * (temp / 2)
             case BackoffStrategy.FULL_JITTER:
-                delay = int(random.random() * min(base * (2**attempt), cap))
+                delay = random.random() * min(base * (2**attempt), cap)
             case _:
                 delay = base
 
-        logger.debug(f"Retry delay: {delay}ms (strategy: {self.config.strategy})")
+        logger.debug(f"Retry delay: {delay:.2f}s (strategy: {self.config.strategy})")
         return delay
 
     async def wait(self, error: Exception) -> None:
-        delay_ms = self.get_delay_ms(error)
-        await asyncio.sleep(delay_ms / 1000)
+        delay = self.get_delay(error)
+        await asyncio.sleep(delay)
 
     def get_state(self) -> dict:
         return {

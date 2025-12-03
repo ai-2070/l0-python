@@ -201,7 +201,7 @@ def repetition_rule(window: int = 100, threshold: float = 0.5) -> GuardrailRule:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Presets
+# Presets (legacy functions - use Guardrails class instead)
 # ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -220,3 +220,61 @@ def strict_guardrails() -> list[GuardrailRule]:
         stall_rule(),
         repetition_rule(),
     ]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Guardrails class - Clean API
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class Guardrails:
+    """Guardrail presets for common use cases.
+
+    Usage:
+        result = await l0.run(
+            stream=my_stream,
+            guardrails=l0.Guardrails.recommended(),
+        )
+
+        # Or strict mode
+        guardrails=l0.Guardrails.strict()
+    """
+
+    @staticmethod
+    def recommended() -> list[GuardrailRule]:
+        """Recommended guardrails for most use cases.
+
+        Includes:
+        - json_rule: Check balanced JSON brackets
+        - pattern_rule: Detect AI slop patterns
+        - zero_output_rule: Detect empty output
+        """
+        return [json_rule(), pattern_rule(), zero_output_rule()]
+
+    @staticmethod
+    def strict() -> list[GuardrailRule]:
+        """Strict guardrails including drift detection.
+
+        Includes everything in recommended(), plus:
+        - strict_json_rule: Validate complete JSON
+        - stall_rule: Detect token stalls
+        - repetition_rule: Detect model looping
+        """
+        return [
+            json_rule(),
+            strict_json_rule(),
+            pattern_rule(),
+            zero_output_rule(),
+            stall_rule(),
+            repetition_rule(),
+        ]
+
+    @staticmethod
+    def json_only() -> list[GuardrailRule]:
+        """JSON validation only."""
+        return [json_rule(), strict_json_rule()]
+
+    @staticmethod
+    def none() -> list[GuardrailRule]:
+        """No guardrails (explicit opt-out)."""
+        return []

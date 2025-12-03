@@ -14,8 +14,8 @@ async def consume_stream(stream: AsyncIterator[Event]) -> str:
     """Consume stream and return full text."""
     content = ""
     async for event in stream:
-        if event.type == EventType.TOKEN and event.value:
-            content += event.value
+        if event.type == EventType.TOKEN and event.text:
+            content += event.text
     return content
 
 

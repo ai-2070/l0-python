@@ -13,6 +13,7 @@ from .consensus import consensus
 from .events import EventBus, ObservabilityEvent, ObservabilityEventType
 from .guardrails import (
     GuardrailRule,
+    Guardrails,
     GuardrailViolation,
     check_guardrails,
     json_rule,
@@ -46,7 +47,73 @@ from .version import __version__
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-async def l0(
+async def wrap(
+    stream: AsyncIterator[Any],
+    *,
+    guardrails: list[GuardrailRule] | None = None,
+    retry: Retry | None = None,
+    timeout: Timeout | None = None,
+    adapter: Any | str | None = None,
+    on_event: Callable[[ObservabilityEvent], None] | None = None,
+    meta: dict[str, Any] | None = None,
+) -> Stream:
+    """Wrap a raw LLM stream with L0 reliability.
+
+    This is the preferred API - takes a raw stream directly, no lambda needed.
+
+    Args:
+        stream: Raw async iterator from OpenAI/LiteLLM/etc.
+        guardrails: Optional list of guardrail rules to apply
+        retry: Optional retry configuration
+        timeout: Optional timeout configuration
+        adapter: Optional adapter hint ("openai", "litellm", or Adapter instance)
+        on_event: Optional callback for observability events
+        meta: Optional metadata attached to all events
+
+    Returns:
+        Stream - async iterator with .state, .abort(), and .read()
+
+    Example:
+        ```python
+        import l0
+        import litellm
+
+        raw = litellm.acompletion(
+            model="gpt-4o",
+            messages=[{"role": "user", "content": "Hello!"}],
+            stream=True,
+        )
+
+        async with await l0.wrap(raw, guardrails=l0.Guardrails.recommended()) as result:
+            async for event in result:
+                if event.is_token:
+                    print(event.text, end="")
+
+        text = await result.read()
+        ```
+    """
+
+    # Wrap the stream in a lambda for internal use
+    # The stream is already created, so we just return it
+    async def stream_factory() -> AsyncIterator[Any]:
+        # If it's a coroutine (awaitable), await it first
+        if hasattr(stream, "__await__"):
+            return await stream  # type: ignore
+        return stream
+
+    return await _internal_run(
+        stream=stream_factory,
+        fallbacks=None,
+        guardrails=guardrails,
+        retry=retry,
+        timeout=timeout,
+        adapter=adapter,
+        on_event=on_event,
+        meta=meta,
+    )
+
+
+async def run(
     stream: Callable[[], AsyncIterator[Any]],
     *,
     fallbacks: list[Callable[[], AsyncIterator[Any]]] | None = None,
@@ -57,7 +124,10 @@ async def l0(
     on_event: Callable[[ObservabilityEvent], None] | None = None,
     meta: dict[str, Any] | None = None,
 ) -> Stream:
-    """Main L0 streaming runtime with guardrails and retry logic.
+    """Run L0 with a stream factory (supports retries and fallbacks).
+
+    Use this when you need retry/fallback support, which requires re-creating
+    the stream. For simple cases, prefer l0.wrap().
 
     Args:
         stream: Factory function that returns an async LLM stream
@@ -74,25 +144,31 @@ async def l0(
 
     Example:
         ```python
-        from l0 import l0, json_rule, Retry
+        import l0
+        from openai import AsyncOpenAI
 
-        result = await l0(
+        client = AsyncOpenAI()
+
+        result = await l0.run(
             stream=lambda: client.chat.completions.create(
                 model="gpt-4o",
                 messages=[{"role": "user", "content": "Hello"}],
                 stream=True,
             ),
-            guardrails=[json_rule()],
-            retry=Retry(attempts=3),
+            fallbacks=[
+                lambda: client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[{"role": "user", "content": "Hello"}],
+                    stream=True,
+                ),
+            ],
+            guardrails=l0.Guardrails.recommended(),
+            retry=l0.Retry(max_attempts=3),
         )
 
         async for event in result:
-            if event.type == EventType.TOKEN:
-                print(event.value, end="")
-
-        # Or get full text
-        text = await result.read()
-        print(result.state.token_count)
+            if event.is_token:
+                print(event.text, end="")
         ```
     """
     return await _internal_run(
@@ -107,16 +183,18 @@ async def l0(
     )
 
 
-# Alias
-run = l0
+# Legacy alias
+l0 = run
 
 
 __all__ = [
     # Version
     "__version__",
-    # Core
-    "l0",
-    "run",
+    # Core API
+    "wrap",  # Preferred - takes raw stream
+    "run",  # With factory - supports retries/fallbacks
+    "l0",  # Alias to run
+    # Types
     "Stream",
     "Event",
     "State",
@@ -140,6 +218,7 @@ __all__ = [
     "register_adapter",
     "detect_adapter",
     # Guardrails
+    "Guardrails",  # Class with .recommended(), .strict()
     "GuardrailRule",
     "GuardrailViolation",
     "check_guardrails",
@@ -149,8 +228,8 @@ __all__ = [
     "zero_output_rule",
     "stall_rule",
     "repetition_rule",
-    "recommended_guardrails",
-    "strict_guardrails",
+    "recommended_guardrails",  # Legacy
+    "strict_guardrails",  # Legacy
     # Structured
     "structured",
     # Parallel

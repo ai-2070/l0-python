@@ -46,9 +46,9 @@ class TestBackoffStrategy:
 
 class TestEvent:
     def test_create_token_event(self):
-        event = Event(type=EventType.TOKEN, value="hello")
+        event = Event(type=EventType.TOKEN, text="hello")
         assert event.type == EventType.TOKEN
-        assert event.value == "hello"
+        assert event.text == "hello"
         assert event.data is None
         assert event.error is None
 
@@ -67,6 +67,26 @@ class TestEvent:
         )
         assert event.type == EventType.COMPLETE
         assert event.usage["input_tokens"] == 100
+
+    def test_is_token_property(self):
+        event = Event(type=EventType.TOKEN, text="hello")
+        assert event.is_token is True
+        assert event.is_error is False
+        assert event.is_complete is False
+
+    def test_is_error_property(self):
+        event = Event(type=EventType.ERROR, error=Exception("test"))
+        assert event.is_error is True
+        assert event.is_token is False
+
+    def test_is_complete_property(self):
+        event = Event(type=EventType.COMPLETE)
+        assert event.is_complete is True
+        assert event.is_token is False
+
+    def test_is_tool_call_property(self):
+        event = Event(type=EventType.TOOL_CALL, data={"name": "test"})
+        assert event.is_tool_call is True
 
 
 class TestState:
@@ -87,25 +107,25 @@ class TestState:
 class TestRetry:
     def test_default_values(self):
         config = Retry()
-        assert config.attempts == 3
+        assert config.max_attempts == 3
         assert config.max_retries == 6
-        assert config.base_delay_ms == 1000
-        assert config.max_delay_ms == 10000
+        assert config.base_delay == 1.0  # seconds
+        assert config.max_delay == 10.0  # seconds
         assert config.strategy == BackoffStrategy.FIXED_JITTER
 
     def test_custom_values(self):
         config = Retry(
-            attempts=5,
-            base_delay_ms=500,
+            max_attempts=5,
+            base_delay=0.5,
             strategy=BackoffStrategy.EXPONENTIAL,
         )
-        assert config.attempts == 5
-        assert config.base_delay_ms == 500
+        assert config.max_attempts == 5
+        assert config.base_delay == 0.5
         assert config.strategy == BackoffStrategy.EXPONENTIAL
 
 
 class TestTimeout:
     def test_default_values(self):
         config = Timeout()
-        assert config.initial_token_ms == 5000
-        assert config.inter_token_ms == 10000
+        assert config.initial_token == 5.0  # seconds
+        assert config.inter_token == 10.0  # seconds
