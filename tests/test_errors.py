@@ -2,7 +2,6 @@
 
 import pytest
 
-from l0.types import ErrorCategory, ErrorTypeDelays, Retry
 from src.l0.errors import (
     Error,
     ErrorCode,
@@ -13,6 +12,7 @@ from src.l0.errors import (
     RecoveryPolicy,
     RecoveryStrategy,
 )
+from src.l0.types import ErrorCategory, ErrorTypeDelays, Retry
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Error Class Tests
