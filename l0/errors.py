@@ -752,6 +752,17 @@ def _categorize_error(error: Exception) -> ErrorCategory:
     """Categorize error for retry decisions (internal)."""
     msg = str(error).lower()
 
+    # Check for L0 TimeoutError (inter-token timeout is transient, can retry with continuation)
+    # Import here to avoid circular import
+    from .runtime import TimeoutError as L0TimeoutError
+
+    if isinstance(error, L0TimeoutError):
+        # Inter-token timeout is transient - good candidate for continuation
+        if error.timeout_type == "inter_token":
+            return ErrorCategory.TRANSIENT
+        # Initial token timeout is also transient but less likely to benefit from continuation
+        return ErrorCategory.TRANSIENT
+
     # Check network patterns first
     if NetworkError.check(error):
         # SSL/TLS errors are not retryable (configuration issue)

@@ -342,6 +342,50 @@ class TestTimeout:
 
         assert tokens == ["hello", " world"]
 
+    @pytest.mark.asyncio
+    async def test_inter_token_timeout_with_continuation(self):
+        """Test that inter_token timeout triggers retry with continuation."""
+        call_count = 0
+
+        async def stalling_then_succeeding_stream():
+            nonlocal call_count
+            call_count += 1
+
+            if call_count == 1:
+                # First call: yield some tokens then stall
+                yield Event(type=EventType.TOKEN, text="Hello ")
+                yield Event(type=EventType.TOKEN, text="world")
+                # Stall - will trigger inter_token timeout
+                await asyncio.sleep(0.5)
+                yield Event(type=EventType.TOKEN, text=" never")
+                yield Event(type=EventType.COMPLETE)
+            else:
+                # Second call (after retry): complete successfully
+                # With continuation, we resume from checkpoint
+                yield Event(type=EventType.TOKEN, text="Hello ")
+                yield Event(type=EventType.TOKEN, text="world")
+                yield Event(type=EventType.TOKEN, text="!")
+                yield Event(type=EventType.COMPLETE)
+
+        result = await _internal_run(
+            stream=stalling_then_succeeding_stream,
+            timeout=Timeout(initial_token=1.0, inter_token=0.1),
+            retry=Retry(attempts=3, max_retries=3),
+            continue_from_last_good_token=True,
+        )
+
+        tokens = []
+        async for event in result:
+            if event.is_token:
+                tokens.append(event.text)
+
+        # Should have retried and succeeded
+        assert call_count == 2
+        # Content should be from second successful call
+        # (with deduplication removing overlap if any)
+        assert result.state.completed is True
+        assert result.state.resumed is True
+
 
 class TestToolCallBuffering:
     """Test tool call buffering feature."""
