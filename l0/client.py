@@ -128,7 +128,7 @@ class ClientConfig:
         on_event: Callable[[ObservabilityEvent], None] | None = None,
         meta: dict[str, Any] | None = None,
         buffer_tool_calls: bool = False,
-        continue_from_last_good_token: ContinuationConfig | bool = True,
+        continue_from_last_good_token: ContinuationConfig | bool = False,
         build_continuation_prompt: Callable[[str], str] | None = None,
     ) -> None:
         self.fallbacks = fallbacks

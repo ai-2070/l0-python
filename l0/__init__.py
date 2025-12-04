@@ -113,7 +113,7 @@ def wrap(
     on_event: Callable[[ObservabilityEvent], None] | None = None,
     meta: dict[str, Any] | None = None,
     buffer_tool_calls: bool = False,
-    continue_from_last_good_token: "ContinuationConfig | bool" = True,
+    continue_from_last_good_token: "ContinuationConfig | bool" = False,
     build_continuation_prompt: Callable[[str], str] | None = None,
 ) -> WrappedClient | LazyStream:
     """Wrap an OpenAI/LiteLLM client or raw stream with L0 reliability.
@@ -130,7 +130,7 @@ def wrap(
         on_event: Observability event callback
         meta: Metadata attached to all events
         buffer_tool_calls: Buffer tool calls until complete (default: False)
-        continue_from_last_good_token: Resume from checkpoint on retry (default: True)
+        continue_from_last_good_token: Resume from checkpoint on retry (default: False)
         build_continuation_prompt: Callback to modify prompt for continuation
 
     Returns:
@@ -210,7 +210,7 @@ async def run(
     on_event: Callable[[ObservabilityEvent], None] | None = None,
     meta: dict[str, Any] | None = None,
     buffer_tool_calls: bool = False,
-    continue_from_last_good_token: "ContinuationConfig | bool" = True,
+    continue_from_last_good_token: "ContinuationConfig | bool" = False,
     build_continuation_prompt: Callable[[str], str] | None = None,
 ) -> Stream:
     """Run L0 with a stream factory (supports retries and fallbacks).
@@ -228,7 +228,7 @@ async def run(
         on_event: Optional callback for observability events
         meta: Optional metadata attached to all events
         buffer_tool_calls: Buffer tool call arguments until complete (default: False)
-        continue_from_last_good_token: Resume from checkpoint on retry (default: True)
+        continue_from_last_good_token: Resume from checkpoint on retry (default: False)
         build_continuation_prompt: Callback to modify prompt for continuation
 
     Returns:

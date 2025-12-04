@@ -87,7 +87,7 @@ async def _internal_run(
     on_event: Callable[[ObservabilityEvent], None] | None = None,
     meta: dict[str, Any] | None = None,
     buffer_tool_calls: bool = False,
-    continue_from_last_good_token: ContinuationConfig | bool = True,
+    continue_from_last_good_token: ContinuationConfig | bool = False,
     build_continuation_prompt: Callable[[str], str] | None = None,
 ) -> Stream:
     """Internal implementation of the L0 runtime.
@@ -102,7 +102,7 @@ async def _internal_run(
         on_event: Optional callback for observability events
         meta: Optional metadata attached to all events
         buffer_tool_calls: Buffer tool call arguments until complete (default: False)
-        continue_from_last_good_token: Resume from checkpoint on retry (default: True)
+        continue_from_last_good_token: Resume from checkpoint on retry (default: False)
         build_continuation_prompt: Callback to modify prompt for continuation
 
     Returns:
