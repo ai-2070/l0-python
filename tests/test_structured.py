@@ -6,7 +6,7 @@ from typing import Any
 import pytest
 from pydantic import BaseModel, ValidationError
 
-from src.l0.adapters import Adapters
+from src.l0.adapters import AdaptedEvent, Adapters
 from src.l0.events import ObservabilityEventType
 from src.l0.structured import (
     AutoCorrectInfo,
@@ -27,10 +27,10 @@ class PassthroughAdapter:
         """Detect async generators (our test streams)."""
         return hasattr(stream, "__anext__")
 
-    async def wrap(self, stream: Any) -> AsyncIterator[Event]:
-        """Pass through events directly."""
+    async def wrap(self, stream: Any) -> AsyncIterator[AdaptedEvent[Any]]:
+        """Pass through events wrapped in AdaptedEvent."""
         async for event in stream:
-            yield event
+            yield AdaptedEvent(event=event, raw_chunk=None)
 
 
 @pytest.fixture(autouse=True)
