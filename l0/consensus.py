@@ -170,22 +170,35 @@ class ConsensusPreset:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+def _normalize_for_comparison(value: Any) -> Any:
+    """Normalize a value for consistent comparison.
+
+    Returns a normalized version of the value with consistent ordering,
+    preserving the actual structure (not converting to strings prematurely).
+    """
+    if isinstance(value, dict):
+        # Recursively normalize nested dicts with sorted keys
+        return {k: _normalize_for_comparison(v) for k, v in sorted(value.items())}
+    elif isinstance(value, BaseModel):
+        # Convert to dict and recursively normalize
+        return _normalize_for_comparison(value.model_dump())
+    elif isinstance(value, list):
+        return [_normalize_for_comparison(v) for v in value]
+    elif isinstance(value, tuple):
+        return tuple(_normalize_for_comparison(v) for v in value)
+    else:
+        return value
+
+
 def _stable_repr(value: Any) -> str:
     """Get a stable string representation for equality comparison.
 
     Handles dicts with consistent key ordering and other types that may
     have inconsistent string representations.
     """
-    if isinstance(value, dict):
-        # Recursively normalize nested dicts for consistent ordering
-        return str({k: _stable_repr(v) for k, v in sorted(value.items())})
-    elif isinstance(value, BaseModel):
-        # Convert to dict and recursively normalize
-        return _stable_repr(value.model_dump())
-    elif isinstance(value, (list, tuple)):
-        return str([_stable_repr(v) for v in value])
-    else:
-        return str(value)
+    # First normalize the structure, then convert to repr
+    # Using repr() preserves type information (e.g., strings have quotes)
+    return repr(_normalize_for_comparison(value))
 
 
 def _calculate_similarity(a: str, b: str) -> float:

@@ -579,6 +579,25 @@ class TestHelperFunctions:
         result = Consensus.get_value(outputs)
         assert result == {"x": 10, "y": 20}
 
+    def test_dict_does_not_collide_with_string(self):
+        """Test that a dict doesn't collide with a string that looks like it."""
+        dict_val = {"key": "value"}
+        string_val = "{'key': 'value'}"
+        outputs = [dict_val, dict_val, string_val]
+        # The two dicts should win, not be confused with the string
+        result = Consensus.get_value(outputs)
+        assert result == {"key": "value"}
+        assert isinstance(result, dict)
+
+    def test_nested_dict_does_not_collide_with_string(self):
+        """Test that nested dicts don't collide with string representations."""
+        nested = {"outer": {"inner": 1}}
+        string_repr = str(nested)
+        outputs = [nested, nested, string_repr]
+        result = Consensus.get_value(outputs)
+        assert result == {"outer": {"inner": 1}}
+        assert isinstance(result, dict)
+
     @pytest.mark.asyncio
     async def test_validate_passes(self):
         async def task():
