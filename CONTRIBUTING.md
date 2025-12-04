@@ -46,12 +46,9 @@ All adapters must be maintained out-of-tree. The L0 core will remain small, depe
 2. **Clone your fork** locally:
    ```bash
    git clone https://github.com/ai-2070/l0-python.git
-   cd l0
+   cd l0-python
    ```
-3. **Install dependencies**:
-   ```bash
-   npm install
-   ```
+3. **Install dependencies** (see [Development Setup](#development-setup))
 4. **Create a branch** for your changes:
    ```bash
    git checkout -b feature/your-feature-name
@@ -61,53 +58,125 @@ All adapters must be maintained out-of-tree. The L0 core will remain small, depe
 
 ### Prerequisites
 
-- Node.js 18.0.0 or higher
-- npm, yarn, or pnpm
-- TypeScript 5.3+
+- Python 3.10 or higher
+- [uv](https://github.com/astral-sh/uv) (recommended) or pip
 
-### Build the project
+### Install dependencies
+
+Using uv (recommended):
 
 ```bash
-npm run build
+uv sync --extra dev
 ```
 
-### Watch mode (for development)
+Or using pip:
 
 ```bash
-npm run dev
+pip install -e ".[dev]"
+```
+
+### Optional extras
+
+```bash
+# OpenAI support
+uv sync --extra openai
+
+# LiteLLM support (100+ providers)
+uv sync --extra litellm
+
+# Observability (OpenTelemetry, Sentry)
+uv sync --extra observability
+
+# All extras
+uv sync --all-extras
 ```
 
 ### Run tests
 
 ```bash
-npm test
+pytest
+```
+
+### Run type checking
+
+```bash
+mypy src/l0
+```
+
+### Run linting
+
+```bash
+ruff check src/l0 tests
+ruff format src/l0 tests
 ```
 
 ## Project Structure
 
 ```
-src/
-├── index.ts           # Main entry point
-├── types/             # TypeScript type definitions
-├── runtime/           # Core runtime (l0, retry, drift, etc.)
-├── guardrails/        # Guardrail rules and engine
-├── format/            # Format helpers
-└── utils/             # Utility functions
+src/l0/
+├── __init__.py          # Main entry point and public API
+├── types.py             # Core type definitions
+├── runtime.py           # Main l0.run() runtime
+├── stream.py            # Stream handling
+├── retry.py             # Retry logic with backoff strategies
+├── guardrails.py        # Guardrail rules and engine
+├── errors.py            # Error types and categorization
+├── client.py            # Client utilities
+├── adapters.py          # Provider adapters (OpenAI, LiteLLM)
+├── consensus.py         # Multi-model consensus
+├── continuation.py      # Stream continuation
+├── parallel.py          # Parallel execution (race, batch)
+├── structured.py        # Structured output with Pydantic
+├── state.py             # State management
+├── events.py            # Event definitions
+├── window.py            # Token windowing
+├── multimodal.py        # Multimodal support
+├── format.py            # Format namespace
+├── logging.py           # Logging utilities
+├── version.py           # Version info
+├── _utils.py            # Internal utilities
+├── formatting/          # Format helpers
+│   ├── context.py
+│   ├── memory.py
+│   ├── output.py
+│   ├── strings.py
+│   └── tools.py
+├── monitoring/          # Observability
+│   ├── config.py
+│   ├── exporter.py
+│   ├── monitor.py
+│   ├── otel.py
+│   ├── sentry.py
+│   └── telemetry.py
+└── eventsourcing/       # Event sourcing
+    ├── adapters.py
+    ├── recorder.py
+    ├── replayer.py
+    ├── sourcing.py
+    ├── store.py
+    └── types.py
+
+tests/
+├── conftest.py          # Pytest fixtures
+├── test_*.py            # Unit tests
+└── integration/         # Integration tests
+    ├── test_openai.py
+    └── test_litellm.py
 ```
 
 ## Making Changes
 
 ### 1. Choose what to work on
 
-- Check [GitHub Issues](https://github.com/yourusername/l0/issues)
+- Check [GitHub Issues](https://github.com/ai-2070/l0-python/issues)
 - Look for issues labeled `good first issue` or `help wanted`
 - Discuss major changes in an issue first
 
 ### 2. Write your code
 
 - Follow the [Coding Standards](#coding-standards)
-- Add TypeScript types for all public APIs
-- Include JSDoc comments for functions
+- Add type hints for all public APIs
+- Include docstrings for functions and classes
 - Keep functions small and focused
 
 ### 3. Test your changes
@@ -120,52 +189,92 @@ src/
 
 ### Unit Tests
 
-Place tests in `tests/` directory with `.test.ts` extension:
+Place tests in `tests/` directory with `test_` prefix:
 
-```typescript
-// tests/guardrails/json.test.ts
-import { jsonRule } from "../../src/guardrails/json";
+```python
+# tests/test_guardrails.py
+import pytest
+from l0 import Guardrails
+from l0.types import State
 
-describe("jsonRule", () => {
-  it("should detect unbalanced braces", () => {
-    const rule = jsonRule();
-    const violations = rule.check({
-      content: '{"name": "Alice"',
-      isComplete: true,
-      tokenCount: 10,
-    });
-    expect(violations.length).toBeGreaterThan(0);
-  });
-});
+def test_json_rule_detects_unbalanced_braces():
+    rule = Guardrails.json()
+    state = State(content='{"name": "Alice"')
+    violations = rule.check(state)
+    assert len(violations) > 0
+```
+
+### Async Tests
+
+Use `pytest-asyncio` for async tests:
+
+```python
+# tests/test_runtime.py
+import pytest
+from l0 import run
+
+@pytest.mark.asyncio
+async def test_run_with_guardrails():
+    result = await run(
+        stream=lambda: mock_stream('{"test": true}'),
+        guardrails=Guardrails.recommended(),
+    )
+    text = await result.read()
+    assert text == '{"test": true}'
 ```
 
 ### Integration Tests
 
-Test full L0 workflows:
+Integration tests live in `tests/integration/`:
 
-```typescript
-import { l0, recommendedGuardrails } from "../../src";
+```python
+# tests/integration/test_openai.py
+import pytest
+from openai import AsyncOpenAI
+import l0
 
-describe("l0 integration", () => {
-  it("should handle streaming with guardrails", async () => {
-    const result = await l0({
-      stream: () => mockStream('{"test": true}'),
-      guardrails: recommendedGuardrails,
-    });
+@pytest.mark.asyncio
+async def test_openai_streaming():
+    client = AsyncOpenAI()
+    result = await l0.run(
+        stream=lambda: client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": "Say hello"}],
+            stream=True,
+        ),
+    )
+    text = await result.read()
+    assert len(text) > 0
+```
 
-    // Consume stream and verify
-  });
-});
+### Running Tests
+
+```bash
+# Run all tests
+pytest
+
+# Run with coverage
+pytest --cov=l0 --cov-report=term-missing
+
+# Run specific test file
+pytest tests/test_guardrails.py
+
+# Run specific test
+pytest tests/test_guardrails.py::test_json_rule_detects_unbalanced_braces
+
+# Run integration tests (requires API keys)
+pytest tests/integration/
 ```
 
 ## Submitting Changes
 
 ### Before submitting
 
-1. **Run tests**: `npm test`
-2. **Build successfully**: `npm run build`
-3. **Format code**: Follow TypeScript style guidelines
-4. **Update documentation**: Update README.md or API.md if needed
+1. **Run tests**: `pytest`
+2. **Run type checker**: `mypy src/l0`
+3. **Run linter**: `ruff check src/l0 tests`
+4. **Format code**: `ruff format src/l0 tests`
+5. **Update documentation**: Update README.md or API.md if needed
 
 ### Pull Request Process
 
@@ -193,133 +302,137 @@ describe("l0 integration", () => {
 
 ## Coding Standards
 
-### TypeScript Style
+### Python Style
 
-```typescript
-// Good: Clear types, JSDoc comments
-/**
- * Check if content is meaningful
- * @param content - Content to check
- * @returns True if meaningful
- */
-export function hasMeaningfulContent(content: string): boolean {
-  if (!content) return false;
-  return content.trim().length > 0;
-}
+```python
+# Good: Clear types, docstrings
+def has_meaningful_content(content: str) -> bool:
+    """Check if content is meaningful.
 
-// Bad: No types, no docs
-export function check(c) {
-  return c && c.trim().length > 0;
-}
+    Args:
+        content: Content to check.
+
+    Returns:
+        True if meaningful.
+    """
+    if not content:
+        return False
+    return content.strip().length > 0
+
+
+# Bad: No types, no docs
+def check(c):
+    return c and c.strip().length > 0
 ```
 
 ### Naming Conventions
 
-- **Functions**: `camelCase` - `formatContext`, `detectDrift`
+- **Functions/methods**: `snake_case` - `format_context`, `detect_drift`
 - **Classes**: `PascalCase` - `RetryManager`, `DriftDetector`
 - **Constants**: `UPPER_SNAKE_CASE` - `BAD_PATTERNS`, `MAX_RETRIES`
-- **Types/Interfaces**: `PascalCase` - `L0Options`, `GuardrailRule`
-- **Files**: `camelCase.ts` - `retry.ts`, `zeroToken.ts`
+- **Type aliases**: `PascalCase` - `L0Options`, `GuardrailRule`
+- **Files**: `snake_case.py` - `retry.py`, `zero_token.py`
+- **Private**: `_prefix` - `_internal_helper`, `_utils.py`
 
 ### Code Organization
 
 1. **Imports first**, in order:
 
-   ```typescript
-   // External imports
-   import { something } from "external-package";
+   ```python
+   # Standard library
+   from collections.abc import AsyncIterator
+   from typing import Any
 
-   // Type imports
-   import type { MyType } from "./types";
+   # Third-party
+   from pydantic import BaseModel
 
-   // Local imports
-   import { helper } from "./utils";
+   # Local imports
+   from l0.types import State
+   from l0._utils import helper
    ```
 
 2. **Types before implementation**:
 
-   ```typescript
-   export interface MyOptions {
-     enabled: boolean;
-   }
+   ```python
+   class MyOptions(BaseModel):
+       enabled: bool = True
 
-   export function myFunction(options: MyOptions) {
-     // implementation
-   }
+
+   def my_function(options: MyOptions) -> str:
+       # implementation
+       ...
    ```
 
-3. **Export at declaration**:
+3. **Export in `__init__.py`**:
 
-   ```typescript
-   // Good
-   export function myFunction() {}
+   ```python
+   # src/l0/__init__.py
+   from l0.runtime import run
+   from l0.guardrails import Guardrails
 
-   // Avoid
-   function myFunction() {}
-   export { myFunction };
+   __all__ = ["run", "Guardrails"]
    ```
 
 ### Documentation
 
-- All public functions need JSDoc comments
-- Include `@param` and `@returns` tags
-- Add `@example` for complex functions
-- Keep descriptions concise but clear
+- All public functions need docstrings
+- Use Google-style docstrings
+- Include `Args`, `Returns`, and `Raises` sections
+- Add `Example` for complex functions
 
 Example:
 
-````typescript
-/**
- * Format tool/function definition in a model-friendly way
- *
- * @param tool - Tool definition
- * @param options - Formatting options
- * @returns Formatted tool definition string
- *
- * @example
- * ```typescript
- * const tool = createTool("get_weather", "Get weather", []);
- * const formatted = formatTool(tool, { style: "json-schema" });
- * ```
- */
-export function formatTool(
-  tool: ToolDefinition,
-  options?: FormatToolOptions,
-): string {
-  // implementation
-}
-````
+```python
+def format_tool(
+    tool: ToolDefinition,
+    options: FormatToolOptions | None = None,
+) -> str:
+    """Format tool/function definition in a model-friendly way.
+
+    Args:
+        tool: Tool definition to format.
+        options: Formatting options.
+
+    Returns:
+        Formatted tool definition string.
+
+    Raises:
+        ValueError: If tool definition is invalid.
+
+    Example:
+        >>> tool = create_tool("get_weather", "Get weather", [])
+        >>> formatted = format_tool(tool, FormatToolOptions(style="json-schema"))
+    """
+    # implementation
+    ...
+```
 
 ## Adding New Features
 
 ### Adding a Guardrail Rule
 
-1. Create file in `src/guardrails/`:
+1. Add the rule to `src/l0/guardrails.py`:
 
-   ```typescript
-   // src/guardrails/myRule.ts
-   import type {
-     GuardrailRule,
-     GuardrailContext,
-     GuardrailViolation,
-   } from "../types/guardrails";
+   ```python
+   def my_rule() -> GuardrailRule:
+       """Create a rule that checks for X."""
 
-   export function myRule(): GuardrailRule {
-     return {
-       name: "my-rule",
-       description: "What this rule checks",
-       check: (context: GuardrailContext) => {
-         const violations: GuardrailViolation[] = [];
-         // Your validation logic
-         return violations;
-       },
-     };
-   }
+       def check(state: State) -> list[GuardrailViolation]:
+           violations: list[GuardrailViolation] = []
+           # Your validation logic
+           return violations
+
+       return GuardrailRule(
+           name="my-rule",
+           check=check,
+           streaming=True,
+           severity="error",
+       )
    ```
 
-2. Add tests in `tests/guardrails/myRule.test.ts`
+2. Add tests in `tests/test_guardrails.py`
 
-3. Export from `src/guardrails/index.ts`
+3. Export from `src/l0/__init__.py` if public
 
 4. Add to preset if appropriate
 
@@ -327,94 +440,99 @@ export function formatTool(
 
 ### Adding a Format Helper
 
-1. Create function in appropriate `src/format/` file
+1. Create function in appropriate `src/l0/formatting/` file
 
-2. Add TypeScript types
+2. Add type hints
 
-3. Add JSDoc documentation
+3. Add docstring
 
-4. Export from `src/format/index.ts`
+4. Export from `src/l0/formatting/__init__.py`
 
-5. Add to main `src/index.ts` exports
+5. Add to `src/l0/format.py` namespace if needed
 
 6. Document in API.md with examples
 
 ### Adding a Utility Function
 
-1. Add to appropriate `src/utils/` file
+1. Add to `src/l0/_utils.py` (internal) or appropriate module
 
 2. Keep functions pure (no side effects)
 
 3. Add comprehensive tests
 
-4. Export and document
+4. Export and document if public
 
-## Types and Interfaces
+## Type Hints
 
-- Always provide explicit types
-- Avoid `any` - use `unknown` if needed
-- Use `readonly` for immutable properties
-- Use `Partial<T>` for optional config objects
+- Always provide explicit type hints
+- Avoid `Any` - use `object` or specific types if possible
+- Use `|` for unions (Python 3.10+)
+- Use `collections.abc` for abstract types
 
-```typescript
-// Good
-export interface MyConfig {
-  readonly required: string;
-  optional?: number;
-}
+```python
+# Good
+from collections.abc import AsyncIterator, Callable
 
-export function process(config: MyConfig): string {
-  // implementation
-}
+def process(
+    config: MyConfig,
+    handler: Callable[[str], None] | None = None,
+) -> AsyncIterator[Event]:
+    ...
 
-// Bad
-export function process(config: any) {
-  // implementation
-}
+
+# Bad
+def process(config, handler=None):
+    ...
 ```
 
 ## Error Handling
 
-- Use specific Error subclasses when appropriate
+- Use specific exception classes
 - Provide clear error messages
 - Include context in error messages
 
-```typescript
-if (!content || content.length === 0) {
-  throw new Error("Content is required and cannot be empty");
-}
+```python
+if not content:
+    raise ValueError("Content is required and cannot be empty")
+
+# Use custom exceptions for domain errors
+from l0.errors import L0Error, GuardrailViolationError
+
+raise GuardrailViolationError(
+    rule="json",
+    message="Invalid JSON: unbalanced braces",
+)
 ```
 
 ## Performance Considerations
 
 - Avoid unnecessary iterations
-- Cache computed values when appropriate
 - Use early returns to avoid deep nesting
 - Consider memory usage for streaming operations
+- Use `async for` for async iteration
 
-```typescript
-// Good: Early return
-export function check(content: string): boolean {
-  if (!content) return false;
-  if (content.length < 10) return false;
-  return performExpensiveCheck(content);
-}
+```python
+# Good: Early return
+def check(content: str) -> bool:
+    if not content:
+        return False
+    if len(content) < 10:
+        return False
+    return perform_expensive_check(content)
 
-// Bad: Nested conditions
-export function check(content: string): boolean {
-  if (content) {
-    if (content.length >= 10) {
-      return performExpensiveCheck(content);
-    }
-  }
-  return false;
-}
+
+# Bad: Nested conditions
+def check(content: str) -> bool:
+    if content:
+        if len(content) >= 10:
+            return perform_expensive_check(content)
+    return False
 ```
 
 ## Questions?
 
-- Open a [GitHub Issue](https://github.com/yourusername/l0/issues)
-- Start a [Discussion](https://github.com/yourusername/l0/discussions)
+- Open a [GitHub Issue](https://github.com/ai-2070/l0-python/issues)
+- Start a [Discussion](https://github.com/ai-2070/l0-python/discussions)
 - Check existing issues and discussions
 
 ## Recognition
@@ -423,4 +541,4 @@ All contributors will be recognized in the project. Thank you for making L0 bett
 
 ---
 
-Happy contributing! 🎉
+Happy contributing!
