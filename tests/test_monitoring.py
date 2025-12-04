@@ -4,8 +4,8 @@ from datetime import datetime, timezone
 
 import pytest
 
-from l0.events import ObservabilityEvent, ObservabilityEventType
-from l0.monitoring import (
+from src.l0.events import ObservabilityEvent, ObservabilityEventType
+from src.l0.monitoring import (
     MetricsConfig,
     Monitor,
     MonitoringConfig,
@@ -13,14 +13,14 @@ from l0.monitoring import (
     Telemetry,
     TelemetryExporter,
 )
-from l0.monitoring.telemetry import (
+from src.l0.monitoring.telemetry import (
     ErrorInfo,
     GuardrailInfo,
     Metrics,
     RetryInfo,
     TimingInfo,
 )
-from l0.types import ErrorCategory
+from src.l0.types import ErrorCategory
 
 
 class TestMonitoringConfig:
@@ -493,11 +493,13 @@ class TestDisabledMonitoring:
                 meta={},
             )
         )
-        monitor.handle_event(ObservabilityEvent(
-            type=ObservabilityEventType.STREAM_INIT,
-            ts=1000.0,
-            stream_id="disabled-stream",
-            meta={},
-        ))
+        monitor.handle_event(
+            ObservabilityEvent(
+                type=ObservabilityEventType.STREAM_INIT,
+                ts=1000.0,
+                stream_id="disabled-stream",
+                meta={},
+            )
+        )
 
         assert monitor.get_telemetry() is None

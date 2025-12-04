@@ -23,7 +23,7 @@ Wrap an OpenAI or LiteLLM client to get automatic reliability:
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
 from typing import TYPE_CHECKING, Any
 
 from .continuation import ContinuationConfig
@@ -49,7 +49,7 @@ class WrappedCompletions:
         self._completions = completions
         self._config = config
 
-    async def create(self, **kwargs: Any) -> Stream | Any:
+    async def create(self, **kwargs: Any) -> "Stream[Any]" | Any:
         """Create a chat completion with L0 reliability.
 
         When stream=True, returns an L0 Stream with automatic retry,
@@ -66,8 +66,8 @@ class WrappedCompletions:
         # Streaming - wrap with L0
         from .runtime import _internal_run
 
-        async def stream_factory():
-            return await self._completions.create(**kwargs)
+        def stream_factory() -> Any:
+            return self._completions.create(**kwargs)
 
         return await _internal_run(
             stream=stream_factory,

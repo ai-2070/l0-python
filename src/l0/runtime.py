@@ -7,13 +7,13 @@ import inspect
 from collections.abc import AsyncIterator, Callable
 from typing import TYPE_CHECKING, Any
 
-from .adapters import Adapters
+from .adapters import AdaptedEvent, Adapter, Adapters
 from .continuation import ContinuationConfig, deduplicate_continuation, detect_overlap
 from .events import EventBus, ObservabilityEventType
 from .logging import logger
 from .retry import RetryManager
 from .state import append_token, create_state, mark_completed, update_checkpoint
-from .types import Event, EventType, Retry, State, Stream, Timeout
+from .types import Event, EventType, Retry, State, Stream, StreamFactory, Timeout
 
 
 class TimeoutError(Exception):
@@ -77,19 +77,19 @@ def _validate_checkpoint(
 
 
 async def _internal_run(
-    stream: Callable[[], AsyncIterator[Any]],
+    stream: StreamFactory,
     *,
-    fallbacks: list[Callable[[], AsyncIterator[Any]]] | None = None,
+    fallbacks: list[StreamFactory] | None = None,
     guardrails: list[GuardrailRule] | None = None,
     retry: Retry | None = None,
     timeout: Timeout | None = None,
-    adapter: Any | str | None = None,
+    adapter: Adapter | str | None = None,
     on_event: Callable[[ObservabilityEvent], None] | None = None,
     meta: dict[str, Any] | None = None,
     buffer_tool_calls: bool = False,
     continue_from_last_good_token: ContinuationConfig | bool = False,
     build_continuation_prompt: Callable[[str], str] | None = None,
-) -> Stream:
+) -> "Stream[Any]":
     """Internal implementation of the L0 runtime.
 
     Args:
@@ -129,6 +129,7 @@ async def _internal_run(
     event_bus = EventBus(on_event, meta=meta)
     errors: list[Exception] = []
     aborted = False
+    raw_chunks: list[Any] = []  # Collect raw chunks from provider
 
     # Track if we should use continuation on next retry
     use_continuation_on_retry = False
@@ -145,7 +146,7 @@ async def _internal_run(
         event_bus.emit(ObservabilityEventType.ABORT_REQUESTED, source="user")
 
     async def run_stream() -> AsyncIterator[Event]:
-        nonlocal state, use_continuation_on_retry, pending_checkpoint
+        nonlocal state, use_continuation_on_retry, pending_checkpoint, raw_chunks
 
         streams = [stream] + fallbacks
 
@@ -180,7 +181,11 @@ async def _internal_run(
                     and continuation_config is not None
                 )
 
-                if should_continue_from_checkpoint and pending_checkpoint:
+                if (
+                    should_continue_from_checkpoint
+                    and pending_checkpoint
+                    and continuation_config
+                ):
                     # Validate checkpoint before using
                     checkpoint_valid = True
                     if continuation_config.validate_checkpoint and guardrails:
@@ -288,11 +293,16 @@ async def _internal_run(
 
                         try:
                             if current_timeout is not None:
-                                event = await asyncio.wait_for(
+                                adapted_event = await asyncio.wait_for(
                                     adapted_stream.__anext__(), timeout=current_timeout
                                 )
                             else:
-                                event = await adapted_stream.__anext__()
+                                adapted_event = await adapted_stream.__anext__()
+
+                            # Unpack AdaptedEvent to get Event and raw chunk
+                            event = adapted_event.event
+                            if adapted_event.raw_chunk is not None:
+                                raw_chunks.append(adapted_event.raw_chunk)
                         except StopAsyncIteration:
                             break
                         except asyncio.TimeoutError as e:
@@ -604,4 +614,5 @@ async def _internal_run(
         state=state,
         abort=abort,
         errors=errors,
+        raw_chunks=raw_chunks,
     )

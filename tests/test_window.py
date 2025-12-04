@@ -2,7 +2,7 @@
 
 import pytest
 
-from l0.window import (
+from src.l0.window import (
     DocumentChunk,
     DocumentWindow,
     Window,

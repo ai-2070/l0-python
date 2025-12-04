@@ -4,6 +4,7 @@ from collections.abc import AsyncIterator, Callable
 from typing import Any
 
 from .adapters import (
+    AdaptedEvent,
     Adapter,
     Adapters,
     LiteLLMAdapter,
@@ -83,9 +84,12 @@ from .types import (
     EventType,
     LazyStream,
     Progress,
+    RawStream,
     Retry,
     State,
     Stream,
+    StreamFactory,
+    StreamSource,
     Timeout,
 )
 from .version import __version__
@@ -115,7 +119,7 @@ def wrap(
     buffer_tool_calls: bool = False,
     continue_from_last_good_token: "ContinuationConfig | bool" = False,
     build_continuation_prompt: Callable[[str], str] | None = None,
-) -> WrappedClient | LazyStream:
+) -> "WrappedClient | LazyStream[Any]":
     """Wrap an OpenAI/LiteLLM client or raw stream with L0 reliability.
 
     This is the preferred API. Pass a client for full retry support,
@@ -200,19 +204,19 @@ def wrap(
 
 
 async def run(
-    stream: Callable[[], AsyncIterator[Any]],
+    stream: StreamFactory,
     *,
-    fallbacks: list[Callable[[], AsyncIterator[Any]]] | None = None,
+    fallbacks: list[StreamFactory] | None = None,
     guardrails: list[GuardrailRule] | None = None,
     retry: Retry | None = None,
     timeout: Timeout | None = None,
-    adapter: Any | str | None = None,
+    adapter: Adapter | str | None = None,
     on_event: Callable[[ObservabilityEvent], None] | None = None,
     meta: dict[str, Any] | None = None,
     buffer_tool_calls: bool = False,
     continue_from_last_good_token: "ContinuationConfig | bool" = False,
     build_continuation_prompt: Callable[[str], str] | None = None,
-) -> Stream:
+) -> "Stream[Any]":
     """Run L0 with a stream factory (supports retries and fallbacks).
 
     Use this when you need retry/fallback support, which requires re-creating

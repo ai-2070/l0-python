@@ -4,7 +4,7 @@ import time
 
 import pytest
 
-from l0.guardrails import (
+from src.l0.guardrails import (
     BAD_PATTERNS,
     GuardrailRule,
     Guardrails,
@@ -34,7 +34,7 @@ from l0.guardrails import (
     strict_json_rule,
     zero_output_rule,
 )
-from l0.types import State
+from src.l0.types import State
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Core Types

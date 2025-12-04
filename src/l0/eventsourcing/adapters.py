@@ -6,6 +6,7 @@ Implement EventStore interface to create custom adapters.
 
 from __future__ import annotations
 
+import inspect
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
@@ -103,9 +104,10 @@ async def create_event_store(config: StorageAdapterConfig) -> "EventStore":
     result = factory(config)
 
     # Handle async factories
-    if hasattr(result, "__await__"):
+    if inspect.isawaitable(result):
         return await result
 
+    # Result is already an EventStore
     return result
 
 

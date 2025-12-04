@@ -1,3 +1,4 @@
+# mypy: disable-error-code="valid-type"
 """Format namespace for L0 formatting utilities.
 
 Provides a clean namespace for all formatting functions:

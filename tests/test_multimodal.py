@@ -2,8 +2,8 @@
 
 import pytest
 
-from l0 import ContentType, DataPayload, EventType, Multimodal, Progress
-from l0.types import Event
+from src.l0 import ContentType, DataPayload, EventType, Multimodal, Progress
+from src.l0.types import Event
 
 
 class TestMultimodalEventCreation:

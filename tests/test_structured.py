@@ -6,15 +6,15 @@ from typing import Any
 import pytest
 from pydantic import BaseModel, ValidationError
 
-from l0.adapters import Adapters
-from l0.events import ObservabilityEventType
-from l0.structured import (
+from src.l0.adapters import AdaptedEvent, Adapters
+from src.l0.events import ObservabilityEventType
+from src.l0.structured import (
     AutoCorrectInfo,
     StructuredResult,
     structured,
     structured_stream,
 )
-from l0.types import Event, EventType, Retry
+from src.l0.types import Event, EventType, Retry
 
 
 # Test adapter that passes through Event objects
@@ -27,10 +27,10 @@ class PassthroughAdapter:
         """Detect async generators (our test streams)."""
         return hasattr(stream, "__anext__")
 
-    async def wrap(self, stream: Any) -> AsyncIterator[Event]:
-        """Pass through events directly."""
+    async def wrap(self, stream: Any) -> AsyncIterator[AdaptedEvent[Any]]:
+        """Pass through events wrapped in AdaptedEvent."""
         async for event in stream:
-            yield event
+            yield AdaptedEvent(event=event, raw_chunk=None)
 
 
 @pytest.fixture(autouse=True)
@@ -308,7 +308,7 @@ class TestStructuredStream:
     @pytest.mark.asyncio
     async def test_structured_stream_validate_emits_events(self):
         """Test that validate() emits observability events via on_event callback."""
-        from l0.events import ObservabilityEventType
+        from src.l0.events import ObservabilityEventType
 
         events_received = []
 
@@ -363,7 +363,7 @@ class TestStructuredIteratorValidation:
     @pytest.mark.asyncio
     async def test_direct_iterator_with_retry_auto_buffers(self):
         """Test that direct async iterator is auto-buffered for retries."""
-        from l0 import Retry
+        from src.l0 import Retry
 
         attempt_count = 0
 
@@ -414,7 +414,7 @@ class TestStructuredIteratorValidation:
     @pytest.mark.asyncio
     async def test_factory_with_retry_works(self):
         """Test that using a factory function with retry works."""
-        from l0 import Retry
+        from src.l0 import Retry
 
         async def json_gen():
             yield Event(type=EventType.TOKEN, text='{"value": "test"}')

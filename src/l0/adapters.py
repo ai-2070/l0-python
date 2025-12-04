@@ -10,15 +10,34 @@ LiteLLM uses OpenAI-compatible format, so the OpenAI adapter handles both.
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
-from typing import Any, Protocol, runtime_checkable
+from dataclasses import dataclass
+from typing import Any, Generic, Protocol, TypeVar, runtime_checkable
 
 from .logging import logger
 from .types import Event, EventType
 
+# TypeVar for adapter chunk types
+AdapterChunkT = TypeVar("AdapterChunkT")
+
+
+@dataclass
+class AdaptedEvent(Generic[AdapterChunkT]):
+    """Event with associated raw chunk from the provider.
+
+    Wraps an L0 Event with the original raw chunk for provider-specific access.
+    """
+
+    event: Event
+    raw_chunk: AdapterChunkT | None = None
+
 
 @runtime_checkable
 class Adapter(Protocol):
-    """Protocol for stream adapters."""
+    """Protocol for stream adapters.
+
+    Adapters convert raw LLM provider streams into AdaptedEvent streams,
+    preserving raw chunks for provider-specific access.
+    """
 
     name: str
 
@@ -26,13 +45,21 @@ class Adapter(Protocol):
         """Check if this adapter can handle the given stream."""
         ...
 
-    def wrap(self, stream: Any) -> AsyncIterator[Event]:
-        """Wrap raw stream into Event stream."""
+    def wrap(self, stream: AsyncIterator[Any]) -> AsyncIterator[AdaptedEvent[Any]]:
+        """Wrap raw stream into AdaptedEvent stream.
+
+        Yields AdaptedEvent objects containing both the normalized Event
+        and the original raw chunk for provider-specific access.
+        """
         ...
 
 
 class OpenAIAdapter:
-    """Adapter for OpenAI SDK streams. Also works with LiteLLM."""
+    """Adapter for OpenAI SDK streams. Also works with LiteLLM.
+
+    Handles ChatCompletionChunk objects from OpenAI and LiteLLM,
+    preserving raw chunks for provider-specific access.
+    """
 
     name = "openai"
 
@@ -41,8 +68,8 @@ class OpenAIAdapter:
         type_name = type(stream).__module__
         return "openai" in type_name or "litellm" in type_name
 
-    async def wrap(self, stream: Any) -> AsyncIterator[Event]:
-        """Wrap OpenAI/LiteLLM stream into Events."""
+    async def wrap(self, stream: Any) -> AsyncIterator[AdaptedEvent[Any]]:
+        """Wrap OpenAI/LiteLLM stream into AdaptedEvents."""
         usage = None
         async for chunk in stream:
             if hasattr(chunk, "choices") and chunk.choices:
@@ -52,27 +79,33 @@ class OpenAIAdapter:
                 if delta:
                     # Text content
                     if hasattr(delta, "content") and delta.content:
-                        yield Event(type=EventType.TOKEN, text=delta.content)
+                        yield AdaptedEvent(
+                            event=Event(type=EventType.TOKEN, text=delta.content),
+                            raw_chunk=chunk,
+                        )
 
                     # Tool calls
                     if hasattr(delta, "tool_calls") and delta.tool_calls:
                         for tc in delta.tool_calls:
-                            yield Event(
-                                type=EventType.TOOL_CALL,
-                                data={
-                                    "index": getattr(tc, "index", None),
-                                    "id": getattr(tc, "id", None),
-                                    "name": (
-                                        getattr(tc.function, "name", None)
-                                        if hasattr(tc, "function")
-                                        else None
-                                    ),
-                                    "arguments": (
-                                        getattr(tc.function, "arguments", None)
-                                        if hasattr(tc, "function")
-                                        else None
-                                    ),
-                                },
+                            yield AdaptedEvent(
+                                event=Event(
+                                    type=EventType.TOOL_CALL,
+                                    data={
+                                        "index": getattr(tc, "index", None),
+                                        "id": getattr(tc, "id", None),
+                                        "name": (
+                                            getattr(tc.function, "name", None)
+                                            if hasattr(tc, "function")
+                                            else None
+                                        ),
+                                        "arguments": (
+                                            getattr(tc.function, "arguments", None)
+                                            if hasattr(tc, "function")
+                                            else None
+                                        ),
+                                    },
+                                ),
+                                raw_chunk=chunk,
                             )
 
             # Extract usage if present (typically on last chunk)
@@ -82,15 +115,42 @@ class OpenAIAdapter:
                     "output_tokens": getattr(chunk.usage, "completion_tokens", 0),
                 }
 
-        yield Event(type=EventType.COMPLETE, usage=usage)
+        yield AdaptedEvent(
+            event=Event(type=EventType.COMPLETE, usage=usage),
+            raw_chunk=None,
+        )
 
 
 # Alias for clarity
 LiteLLMAdapter = OpenAIAdapter  # LiteLLM uses OpenAI-compatible format
 
 
-# Registry
-_adapters: list[Adapter] = [OpenAIAdapter()]
+class EventPassthroughAdapter:
+    """Adapter for raw Event async iterators.
+
+    This adapter handles async iterators that yield Event objects directly,
+    wrapping them in AdaptedEvent for consistency with the runtime.
+    """
+
+    name = "event"
+
+    def detect(self, stream: Any) -> bool:
+        """Detect async iterators (fallback adapter)."""
+        # This is a fallback - detect any async iterator
+        return hasattr(stream, "__aiter__")
+
+    async def wrap(self, stream: Any) -> AsyncIterator[AdaptedEvent[Any]]:
+        """Wrap raw Event stream into AdaptedEvents."""
+        async for event in stream:
+            if isinstance(event, Event):
+                yield AdaptedEvent(event=event, raw_chunk=None)
+            else:
+                # If it's not an Event, skip it
+                pass
+
+
+# Registry - OpenAI adapter first (more specific), passthrough last (fallback)
+_adapters: list[Adapter] = [OpenAIAdapter(), EventPassthroughAdapter()]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -207,13 +267,14 @@ class Adapters:
 
     @staticmethod
     def reset() -> None:
-        """Reset to default adapters (OpenAI only).
+        """Reset to default adapters (OpenAI and Event passthrough).
 
         Useful for testing cleanup.
         """
         global _adapters
         _adapters.clear()
         _adapters.append(OpenAIAdapter())
+        _adapters.append(EventPassthroughAdapter())
 
     @staticmethod
     def openai() -> OpenAIAdapter:
