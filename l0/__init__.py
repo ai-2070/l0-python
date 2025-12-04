@@ -22,6 +22,13 @@ from .consensus import (
     FieldConsensusInfo,
     consensus,
 )
+from .continuation import (
+    ContinuationConfig,
+    DeduplicationOptions,
+    OverlapResult,
+    deduplicate_continuation,
+    detect_overlap,
+)
 from .errors import (
     # L0 Error (with .categorize() and .is_retryable() static methods)
     Error,
@@ -174,6 +181,8 @@ async def run(
     on_event: Callable[[ObservabilityEvent], None] | None = None,
     meta: dict[str, Any] | None = None,
     buffer_tool_calls: bool = False,
+    continuation: "ContinuationConfig | bool | None" = None,
+    build_continuation_prompt: Callable[[str], str] | None = None,
 ) -> Stream:
     """Run L0 with a stream factory (supports retries and fallbacks).
 
@@ -190,6 +199,8 @@ async def run(
         on_event: Optional callback for observability events
         meta: Optional metadata attached to all events
         buffer_tool_calls: Buffer tool call arguments until complete (default: False)
+        continuation: Enable continuation from checkpoint on retry (True, False, or ContinuationConfig)
+        build_continuation_prompt: Callback to modify prompt for continuation
 
     Returns:
         Stream - async iterator with .state, .abort(), and .read()
@@ -216,6 +227,7 @@ async def run(
             ],
             guardrails=l0.Guardrails.recommended(),
             retry=l0.Retry(max_attempts=3),
+            continuation=True,  # Resume from checkpoint on retry
         )
 
         async for event in result:
@@ -233,6 +245,8 @@ async def run(
         on_event=on_event,
         meta=meta,
         buffer_tool_calls=buffer_tool_calls,
+        continuation=continuation,
+        build_continuation_prompt=build_continuation_prompt,
     )
 
 
@@ -332,4 +346,10 @@ __all__ = [
     "ContentType",
     "DataPayload",
     "Progress",
+    # Continuation (checkpoint resumption)
+    "ContinuationConfig",
+    "DeduplicationOptions",
+    "OverlapResult",
+    "detect_overlap",
+    "deduplicate_continuation",
 ]

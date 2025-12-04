@@ -243,6 +243,12 @@ class State:
     # Multimodal state
     data_outputs: list[DataPayload] = field(default_factory=list)
     last_progress: Progress | None = None
+    # Continuation state
+    resume_point: str | None = None  # The checkpoint content used for resume
+    resume_from: int | None = None  # Character offset where resume occurred
+    continuation_used: bool = False  # Whether continuation was actually used
+    deduplication_applied: bool = False  # Whether deduplication removed overlap
+    overlap_removed: str | None = None  # The overlapping text that was removed
 
 
 # ─────────────────────────────────────────────────────────────────────────────

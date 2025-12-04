@@ -8,11 +8,12 @@ from collections.abc import AsyncIterator, Callable
 from typing import TYPE_CHECKING, Any
 
 from .adapters import Adapters
+from .continuation import ContinuationConfig, deduplicate_continuation, detect_overlap
 from .events import EventBus, ObservabilityEventType
 from .logging import logger
 from .retry import RetryManager
 from .state import append_token, create_state, mark_completed, update_checkpoint
-from .types import Event, EventType, Retry, Stream, Timeout
+from .types import Event, EventType, Retry, State, Stream, Timeout
 
 
 class TimeoutError(Exception):
@@ -29,6 +30,52 @@ if TYPE_CHECKING:
     from .guardrails import GuardrailRule
 
 
+def _validate_checkpoint(
+    checkpoint: str,
+    guardrails: list[GuardrailRule],
+    event_bus: EventBus,
+) -> bool:
+    """Validate checkpoint content against guardrails.
+
+    Returns True if checkpoint is valid for continuation, False otherwise.
+    """
+    if not checkpoint or not guardrails:
+        return True
+
+    # Create temporary state with checkpoint content
+    temp_state = State(content=checkpoint, completed=False)
+
+    event_bus.emit(
+        ObservabilityEventType.CHECKPOINT_START,
+        checkpoint_length=len(checkpoint),
+    )
+
+    has_fatal_violation = False
+
+    for rule in guardrails:
+        # Only check streaming rules (completion rules need completed=True)
+        if not rule.streaming:
+            continue
+
+        violations = rule.check(temp_state)
+        for v in violations:
+            if v.severity == "error":
+                has_fatal_violation = True
+                event_bus.emit(
+                    ObservabilityEventType.GUARDRAIL_RULE_RESULT,
+                    rule_id=rule.name,
+                    violations=[v.__dict__],
+                    checkpoint_validation=True,
+                )
+
+    event_bus.emit(
+        ObservabilityEventType.CHECKPOINT_END,
+        valid=not has_fatal_violation,
+    )
+
+    return not has_fatal_violation
+
+
 async def _internal_run(
     stream: Callable[[], AsyncIterator[Any]],
     *,
@@ -40,6 +87,8 @@ async def _internal_run(
     on_event: Callable[[ObservabilityEvent], None] | None = None,
     meta: dict[str, Any] | None = None,
     buffer_tool_calls: bool = False,
+    continuation: ContinuationConfig | bool | None = None,
+    build_continuation_prompt: Callable[[str], str] | None = None,
 ) -> Stream:
     """Internal implementation of the L0 runtime.
 
@@ -53,6 +102,8 @@ async def _internal_run(
         on_event: Optional callback for observability events
         meta: Optional metadata attached to all events
         buffer_tool_calls: Buffer tool call arguments until complete (default: False)
+        continuation: Enable continuation from checkpoint (True, False, or ContinuationConfig)
+        build_continuation_prompt: Callback to modify prompt for continuation
 
     Returns:
         Stream - async iterator with .state, .abort(), and .read()
@@ -60,11 +111,24 @@ async def _internal_run(
     fallbacks = fallbacks or []
     guardrails = guardrails or []
 
+    # Normalize continuation config
+    continuation_config: ContinuationConfig | None = None
+    if continuation is True:
+        continuation_config = ContinuationConfig.default()
+    elif continuation is False or continuation is None:
+        continuation_config = None
+    elif isinstance(continuation, ContinuationConfig):
+        continuation_config = continuation if continuation.enabled else None
+
     state = create_state()
     retry_mgr = RetryManager(retry)
     event_bus = EventBus(on_event, meta=meta)
     errors: list[Exception] = []
     aborted = False
+
+    # Track if we should use continuation on next retry
+    use_continuation_on_retry = False
+    pending_checkpoint: str | None = None
 
     logger.debug(f"Starting L0 stream: {event_bus.stream_id}")
     event_bus.emit(ObservabilityEventType.SESSION_START, session_id=event_bus.stream_id)
@@ -77,9 +141,14 @@ async def _internal_run(
         event_bus.emit(ObservabilityEventType.ABORT_REQUESTED, source="user")
 
     async def run_stream() -> AsyncIterator[Event]:
-        nonlocal state
+        nonlocal state, use_continuation_on_retry, pending_checkpoint
 
         streams = [stream] + fallbacks
+
+        # Determine checkpoint interval
+        checkpoint_interval = 5
+        if continuation_config:
+            checkpoint_interval = continuation_config.checkpoint_interval
 
         for fallback_idx, stream_fn in enumerate(streams):
             state.fallback_index = fallback_idx
@@ -99,6 +168,60 @@ async def _internal_run(
             while True:
                 if aborted:
                     return
+
+                # Check if we should emit continuation from checkpoint
+                should_continue_from_checkpoint = (
+                    use_continuation_on_retry
+                    and pending_checkpoint
+                    and continuation_config is not None
+                )
+
+                if should_continue_from_checkpoint and pending_checkpoint:
+                    # Validate checkpoint before using
+                    checkpoint_valid = True
+                    if continuation_config.validate_checkpoint and guardrails:
+                        checkpoint_valid = _validate_checkpoint(
+                            pending_checkpoint, guardrails, event_bus
+                        )
+
+                    if checkpoint_valid:
+                        event_bus.emit(
+                            ObservabilityEventType.CONTINUATION_START,
+                            checkpoint_length=len(pending_checkpoint),
+                        )
+
+                        # Emit checkpoint content as tokens first
+                        state.resume_point = pending_checkpoint
+                        state.resume_from = 0
+                        state.continuation_used = True
+
+                        # Yield checkpoint as a single token event
+                        # (The content is already in state from before the failure)
+                        yield Event(
+                            type=EventType.TOKEN, text=""
+                        )  # Empty - content already tracked
+
+                        # Call build_continuation_prompt if provided
+                        if build_continuation_prompt:
+                            # This allows the user to modify the prompt for the next call
+                            build_continuation_prompt(pending_checkpoint)
+
+                        event_bus.emit(
+                            ObservabilityEventType.CONTINUATION_END,
+                            checkpoint_length=len(pending_checkpoint),
+                        )
+
+                        logger.debug(
+                            f"Continuing from checkpoint ({len(pending_checkpoint)} chars)"
+                        )
+                    else:
+                        # Checkpoint invalid - start fresh
+                        logger.debug("Checkpoint validation failed, starting fresh")
+                        state.content = ""
+                        state.token_count = 0
+                        pending_checkpoint = None
+
+                use_continuation_on_retry = False
 
                 try:
                     event_bus.emit(ObservabilityEventType.STREAM_INIT)
@@ -191,6 +314,54 @@ async def _internal_run(
                             ) from e
 
                         if event.type == EventType.TOKEN and event.text:
+                            token_text = event.text
+
+                            # Handle deduplication for continuation
+                            if (
+                                state.continuation_used
+                                and not state.deduplication_applied
+                                and continuation_config
+                                and continuation_config.deduplicate
+                                and state.resume_point
+                            ):
+                                # Check for overlap with checkpoint
+                                event_bus.emit(
+                                    ObservabilityEventType.DEDUPLICATION_START
+                                )
+                                overlap_result = detect_overlap(
+                                    state.resume_point,
+                                    token_text,
+                                    continuation_config.deduplication_options,
+                                )
+
+                                if overlap_result.has_overlap:
+                                    token_text = overlap_result.deduplicated
+                                    state.deduplication_applied = True
+                                    state.overlap_removed = overlap_result.overlap_text
+                                    event_bus.emit(
+                                        ObservabilityEventType.DEDUPLICATION_END,
+                                        overlap_detected=True,
+                                        overlap_length=overlap_result.overlap_length,
+                                        overlap_text=overlap_result.overlap_text,
+                                    )
+                                    logger.debug(
+                                        f"Deduplication removed {overlap_result.overlap_length} chars overlap"
+                                    )
+
+                                    # Update the event with deduplicated text
+                                    if not token_text:
+                                        # Entire token was overlap, skip it
+                                        continue
+                                    event = Event(type=EventType.TOKEN, text=token_text)
+                                else:
+                                    state.deduplication_applied = (
+                                        True  # Mark as checked
+                                    )
+                                    event_bus.emit(
+                                        ObservabilityEventType.DEDUPLICATION_END,
+                                        overlap_detected=False,
+                                    )
+
                             if not first_token_received and inter_timeout is not None:
                                 # First token received, switch to inter-token timeout
                                 event_bus.emit(
@@ -199,10 +370,17 @@ async def _internal_run(
                                     token_index=state.token_count,
                                 )
                             first_token_received = True
-                            append_token(state, event.text)
+                            append_token(state, token_text)
+
+                            # Save checkpoint periodically
+                            if state.token_count % checkpoint_interval == 0:
+                                update_checkpoint(state)
 
                             # Check guardrails periodically
-                            if state.token_count % 5 == 0 and guardrails:
+                            if (
+                                state.token_count % checkpoint_interval == 0
+                                and guardrails
+                            ):
                                 event_bus.emit(
                                     ObservabilityEventType.GUARDRAIL_PHASE_START,
                                     context_size=len(state.content),
@@ -382,12 +560,20 @@ async def _internal_run(
                             is_network=is_network,
                         )
                         await retry_mgr.wait(e)
+
+                        # Save checkpoint for potential continuation
+                        update_checkpoint(state)
                         event_bus.emit(
                             ObservabilityEventType.CHECKPOINT_SAVED,
                             checkpoint=state.checkpoint,
                             token_count=state.token_count,
                         )
-                        update_checkpoint(state)
+
+                        # Enable continuation on next retry if configured
+                        if continuation_config and state.checkpoint:
+                            use_continuation_on_retry = True
+                            pending_checkpoint = state.checkpoint
+
                         state.resumed = True
                         event_bus.emit(ObservabilityEventType.RETRY_END, success=False)
                         continue
