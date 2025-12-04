@@ -2,6 +2,8 @@
 
 ### The missing reliability and observability layer for all AI streams.
 
+![L0: The Missing AI Reliability Substrate](img/l0-banner.jpg)
+
 <p align="center">
   <a href="https://pypi.org/project/l0/">
     <img src="https://img.shields.io/pypi/v/l0?color=brightgreen&label=pypi" alt="PyPI version">
