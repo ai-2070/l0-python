@@ -2,7 +2,11 @@
 
 import pytest
 
-from l0._utils import AutoCorrectResult, auto_correct_json, extract_json_from_markdown
+from src.l0._utils import (
+    AutoCorrectResult,
+    auto_correct_json,
+    extract_json_from_markdown,
+)
 
 
 class TestAutoCorrectJson:

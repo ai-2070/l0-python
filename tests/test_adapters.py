@@ -5,8 +5,8 @@ from typing import Any
 
 import pytest
 
-from l0.adapters import Adapters, OpenAIAdapter
-from l0.types import Event, EventType
+from src.l0.adapters import Adapters, OpenAIAdapter
+from src.l0.types import Event, EventType
 
 
 class MockDelta:

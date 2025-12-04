@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from l0.eventsourcing import (
+from src.l0.eventsourcing import (
     EventRecorder,
     EventReplayer,
     EventSourcing,

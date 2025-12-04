@@ -2,7 +2,7 @@
 
 import pytest
 
-from l0.events import EventBus, ObservabilityEvent, ObservabilityEventType
+from src.l0.events import EventBus, ObservabilityEvent, ObservabilityEventType
 
 
 class TestObservabilityEventType:

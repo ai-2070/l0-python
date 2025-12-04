@@ -2,8 +2,8 @@
 
 import pytest
 
-from l0.stream import consume_stream, get_text
-from l0.types import Event, EventType, State, Stream
+from src.l0.stream import consume_stream, get_text
+from src.l0.types import Event, EventType, State, Stream
 
 
 class TestConsumeStream:

@@ -2,8 +2,8 @@
 
 import pytest
 
-from l0.retry import RetryManager
-from l0.types import BackoffStrategy, ErrorCategory, Retry
+from src.l0.retry import RetryManager
+from src.l0.types import BackoffStrategy, ErrorCategory, Retry
 
 
 class TestRetryManager:

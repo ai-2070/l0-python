@@ -6,15 +6,15 @@ from typing import Any
 import pytest
 from pydantic import BaseModel, ValidationError
 
-from l0.adapters import Adapters
-from l0.events import ObservabilityEventType
-from l0.structured import (
+from src.l0.adapters import Adapters
+from src.l0.events import ObservabilityEventType
+from src.l0.structured import (
     AutoCorrectInfo,
     StructuredResult,
     structured,
     structured_stream,
 )
-from l0.types import Event, EventType, Retry
+from src.l0.types import Event, EventType, Retry
 
 
 # Test adapter that passes through Event objects
