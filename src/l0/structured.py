@@ -148,14 +148,14 @@ async def structured(
     # Build list of streams to try
     all_streams: list[AsyncIterator[Any] | Callable[[], AsyncIterator[Any]]] = [stream]
     if fallbacks:
-        wrapped_fallbacks = []
+        wrapped_fallbacks: list[Callable[[], AsyncIterator[Any]]] = []
         for fb in fallbacks:
             if _is_async_iterator(fb):
                 wrapped_fallbacks.append(
                     _make_buffering_factory(cast(AsyncIterator[Any], fb))
                 )
             else:
-                wrapped_fallbacks.append(fb)
+                wrapped_fallbacks.append(cast(Callable[[], AsyncIterator[Any]], fb))
         all_streams.extend(wrapped_fallbacks)
 
     last_error: Exception | None = None
@@ -166,14 +166,16 @@ async def structured(
             try:
                 # _internal_run expects a callable factory
                 # Handle both direct async iterators and factory functions
-                def make_stream_factory(src: Any) -> Callable[[], AsyncIterator[Any]]:
+                def make_stream_factory(
+                    src: AsyncIterator[Any] | Callable[[], AsyncIterator[Any]],
+                ) -> Callable[[], AsyncIterator[Any]]:
                     if callable(src) and not hasattr(src, "__anext__"):
                         # It's already a factory
                         return src
                     else:
                         # It's a direct async iterator - wrap in factory
                         # Note: This only works once per stream!
-                        return lambda: src
+                        return lambda: cast(AsyncIterator[Any], src)
 
                 stream_factory = make_stream_factory(stream_source)
 
@@ -228,7 +230,9 @@ async def structured(
         raise ValueError(
             f"Schema validation failed after all retries: {last_error}"
         ) from last_error
-    raise last_error
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError("All attempts exhausted with no error recorded")
 
 
 @dataclass
@@ -431,11 +435,13 @@ async def structured_stream(
     """
 
     # _internal_run expects a callable factory
-    def make_stream_factory(src: Any) -> Callable[[], AsyncIterator[Any]]:
+    def make_stream_factory(
+        src: AsyncIterator[Any] | Callable[[], AsyncIterator[Any]],
+    ) -> Callable[[], AsyncIterator[Any]]:
         if callable(src) and not hasattr(src, "__anext__"):
             return src
         else:
-            return lambda: src
+            return lambda: cast(AsyncIterator[Any], src)
 
     stream_factory = make_stream_factory(stream)
 
