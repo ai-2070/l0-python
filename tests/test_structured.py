@@ -1,5 +1,8 @@
 """Tests for l0.structured module."""
 
+from collections.abc import AsyncIterator
+from typing import Any
+
 import pytest
 from pydantic import BaseModel, ValidationError
 
@@ -16,18 +19,26 @@ from l0.types import Event, EventType, Retry
 
 # Test adapter that passes through Event objects
 class PassthroughAdapter:
+    """Test adapter that passes through Event objects directly."""
+
     name = "passthrough_structured"
 
-    def detect(self, stream):
+    def detect(self, stream: Any) -> bool:
+        """Detect async generators (our test streams)."""
         return hasattr(stream, "__anext__")
 
-    async def wrap(self, stream):
+    async def wrap(self, stream: Any) -> AsyncIterator[Event]:
+        """Pass through events directly."""
         async for event in stream:
             yield event
 
 
-# Ensure adapter is registered
-Adapters.register(PassthroughAdapter())
+@pytest.fixture(autouse=True)
+def register_passthrough_adapter():
+    """Register and cleanup the passthrough adapter for tests."""
+    Adapters.register(PassthroughAdapter())
+    yield
+    Adapters.reset()
 
 
 class UserProfile(BaseModel):
