@@ -7,7 +7,7 @@ import inspect
 from collections.abc import AsyncIterator, Callable
 from typing import TYPE_CHECKING, Any
 
-from .adapters import Adapter, Adapters
+from .adapters import AdaptedEvent, Adapter, Adapters
 from .continuation import ContinuationConfig, deduplicate_continuation, detect_overlap
 from .events import EventBus, ObservabilityEventType
 from .logging import logger
@@ -89,7 +89,7 @@ async def _internal_run(
     buffer_tool_calls: bool = False,
     continue_from_last_good_token: ContinuationConfig | bool = False,
     build_continuation_prompt: Callable[[str], str] | None = None,
-) -> Stream:
+) -> "Stream[Any]":
     """Internal implementation of the L0 runtime.
 
     Args:
@@ -129,6 +129,7 @@ async def _internal_run(
     event_bus = EventBus(on_event, meta=meta)
     errors: list[Exception] = []
     aborted = False
+    raw_chunks: list[Any] = []  # Collect raw chunks from provider
 
     # Track if we should use continuation on next retry
     use_continuation_on_retry = False
@@ -145,7 +146,7 @@ async def _internal_run(
         event_bus.emit(ObservabilityEventType.ABORT_REQUESTED, source="user")
 
     async def run_stream() -> AsyncIterator[Event]:
-        nonlocal state, use_continuation_on_retry, pending_checkpoint
+        nonlocal state, use_continuation_on_retry, pending_checkpoint, raw_chunks
 
         streams = [stream] + fallbacks
 
@@ -292,11 +293,16 @@ async def _internal_run(
 
                         try:
                             if current_timeout is not None:
-                                event = await asyncio.wait_for(
+                                adapted_event = await asyncio.wait_for(
                                     adapted_stream.__anext__(), timeout=current_timeout
                                 )
                             else:
-                                event = await adapted_stream.__anext__()
+                                adapted_event = await adapted_stream.__anext__()
+
+                            # Unpack AdaptedEvent to get Event and raw chunk
+                            event = adapted_event.event
+                            if adapted_event.raw_chunk is not None:
+                                raw_chunks.append(adapted_event.raw_chunk)
                         except StopAsyncIteration:
                             break
                         except asyncio.TimeoutError as e:
@@ -608,4 +614,5 @@ async def _internal_run(
         state=state,
         abort=abort,
         errors=errors,
+        raw_chunks=raw_chunks,
     )

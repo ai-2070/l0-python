@@ -64,7 +64,7 @@ class ChunkResult(Generic[T]):
 
     chunk: DocumentChunk
     status: Literal["success", "error"]
-    result: Stream | None = None
+    result: "Stream[Any]" | None = None
     content: str = ""
     error: str | None = None
 

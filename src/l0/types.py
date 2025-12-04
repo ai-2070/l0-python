@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
 if TYPE_CHECKING:
     from .events import ObservabilityEvent
@@ -15,14 +15,23 @@ if TYPE_CHECKING:
 # ─────────────────────────────────────────────────────────────────────────────
 
 # TypeVar for LLM provider chunk types (OpenAI, LiteLLM, etc.)
-# Using Any because chunks vary by provider and are converted by adapters
-ChunkT = TypeVar("ChunkT")
+# Covariant because streams produce chunks (output position only)
+ChunkT = TypeVar("ChunkT", covariant=True)
+
+# Invariant version for contexts that need both read and write
+ChunkT_co = TypeVar("ChunkT_co")
 
 # Raw stream from LLM provider (before adapter conversion)
 RawStream = AsyncIterator[Any]
 
+# Generic raw stream with specific chunk type
+RawStreamOf = AsyncIterator[ChunkT_co]
+
 # Factory that creates a raw stream (for retry support)
 StreamFactory = Callable[[], RawStream]
+
+# Generic factory with specific chunk type
+StreamFactoryOf = Callable[[], "AsyncIterator[ChunkT_co]"]
 
 # Stream or factory (accepted by structured() and other APIs)
 StreamSource = RawStream | StreamFactory
@@ -404,9 +413,16 @@ class Timeout:
 # Stream (the result type)
 # ─────────────────────────────────────────────────────────────────────────────
 
+# TypeVar for Stream's chunk type (invariant for class definition)
+_StreamChunkT = TypeVar("_StreamChunkT")
 
-class Stream:
+
+class Stream(Generic[_StreamChunkT]):
     """Async iterator result with state and abort attached.
+
+    Generic over the raw chunk type from the LLM provider (e.g., OpenAI's
+    ChatCompletionChunk). Use `raw()` to access raw chunks for provider-specific
+    processing.
 
     Supports both iteration and context manager patterns:
 
@@ -425,12 +441,24 @@ class Stream:
         # Get full text
         text = await result.read()
 
+        # Access raw chunks (provider-specific)
+        for chunk in result.raw():
+            print(chunk)  # OpenAI ChatCompletionChunk, etc.
+
         # Access state (after iteration)
         print(result.state.content)
         print(result.state.token_count)
     """
 
-    __slots__ = ("_iterator", "_consumed", "_content", "state", "abort", "errors")
+    __slots__ = (
+        "_iterator",
+        "_consumed",
+        "_content",
+        "_raw_chunks",
+        "state",
+        "abort",
+        "errors",
+    )
 
     def __init__(
         self,
@@ -438,10 +466,14 @@ class Stream:
         state: State,
         abort: Callable[[], None],
         errors: list[Exception] | None = None,
+        raw_chunks: list[_StreamChunkT] | None = None,
     ) -> None:
         self._iterator = iterator
         self._consumed = False
         self._content: str | None = None
+        self._raw_chunks: list[_StreamChunkT] = (
+            raw_chunks if raw_chunks is not None else []
+        )
         self.state = state
         self.abort = abort
         self.errors = errors or []
@@ -450,7 +482,7 @@ class Stream:
     # Async iterator protocol
     # ─────────────────────────────────────────────────────────────────────────
 
-    def __aiter__(self) -> Stream:
+    def __aiter__(self) -> "Stream[_StreamChunkT]":
         return self
 
     async def __anext__(self) -> Event:
@@ -464,7 +496,7 @@ class Stream:
     # Context manager protocol
     # ─────────────────────────────────────────────────────────────────────────
 
-    async def __aenter__(self) -> Stream:
+    async def __aenter__(self) -> "Stream[_StreamChunkT]":
         return self
 
     async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> bool:
@@ -491,9 +523,48 @@ class Stream:
         self._content = self.state.content
         return self._content
 
+    # ─────────────────────────────────────────────────────────────────────────
+    # Raw chunks interface
+    # ─────────────────────────────────────────────────────────────────────────
 
-class LazyStream:
+    def raw(self) -> list[_StreamChunkT]:
+        """Get the raw chunks from the LLM provider.
+
+        Returns the original chunk objects (e.g., OpenAI's ChatCompletionChunk)
+        that were received during streaming. Only available after the stream
+        has been consumed.
+
+        Returns:
+            List of raw chunks in order received
+
+        Example:
+            ```python
+            result = await l0.run(stream_factory)
+            text = await result.read()
+
+            # Access raw OpenAI chunks
+            for chunk in result.raw():
+                if chunk.usage:
+                    print(f"Tokens: {chunk.usage.total_tokens}")
+            ```
+        """
+        return self._raw_chunks
+
+    def _append_raw_chunk(self, chunk: _StreamChunkT) -> None:
+        """Internal: Append a raw chunk during streaming."""
+        self._raw_chunks.append(chunk)
+
+
+# TypeVar for LazyStream's chunk type (invariant for class definition)
+_LazyStreamChunkT = TypeVar("_LazyStreamChunkT")
+
+
+class LazyStream(Generic[_LazyStreamChunkT]):
     """Lazy stream wrapper - no await needed on creation.
+
+    Generic over the raw chunk type from the LLM provider (e.g., OpenAI's
+    ChatCompletionChunk). Use `raw()` to access raw chunks for provider-specific
+    processing.
 
     Like httpx.AsyncClient() or aiohttp.ClientSession(), this returns
     immediately and only does async work when you iterate or read.
@@ -511,6 +582,10 @@ class LazyStream:
         async with l0.wrap(stream) as result:
             async for event in result:
                 print(event.text)
+
+        # Access raw chunks
+        for chunk in result.raw():
+            print(chunk)
     """
 
     __slots__ = (
@@ -527,7 +602,7 @@ class LazyStream:
 
     def __init__(
         self,
-        stream: AsyncIterator[Any],
+        stream: AsyncIterator[_LazyStreamChunkT],
         *,
         guardrails: list[Any] | None = None,
         timeout: Timeout | None = None,
@@ -543,10 +618,10 @@ class LazyStream:
         self._on_event = on_event
         self._meta = meta
         self._buffer_tool_calls = buffer_tool_calls
-        self._runner: Stream | None = None
+        self._runner: Stream[_LazyStreamChunkT] | None = None
         self._started = False
 
-    async def _ensure_started(self) -> Stream:
+    async def _ensure_started(self) -> "Stream[_LazyStreamChunkT]":
         """Lazily start the L0 runtime."""
         if self._runner is None:
             # Import here to avoid circular import
@@ -555,7 +630,7 @@ class LazyStream:
             # Wrap stream in factory
             stream = self._stream
 
-            def stream_factory() -> AsyncIterator[Any]:
+            def stream_factory() -> AsyncIterator[_LazyStreamChunkT]:
                 return stream
 
             self._runner = await _internal_run(
@@ -600,7 +675,7 @@ class LazyStream:
     # Async iterator protocol
     # ─────────────────────────────────────────────────────────────────────────
 
-    def __aiter__(self) -> LazyStream:
+    def __aiter__(self) -> "LazyStream[_LazyStreamChunkT]":
         return self
 
     async def __anext__(self) -> Event:
@@ -611,7 +686,7 @@ class LazyStream:
     # Context manager protocol
     # ─────────────────────────────────────────────────────────────────────────
 
-    async def __aenter__(self) -> LazyStream:
+    async def __aenter__(self) -> "LazyStream[_LazyStreamChunkT]":
         await self._ensure_started()
         return self
 
@@ -627,3 +702,21 @@ class LazyStream:
         """Consume the stream and return the full text content."""
         runner = await self._ensure_started()
         return await runner.read()
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Raw chunks interface
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def raw(self) -> list[_LazyStreamChunkT]:
+        """Get the raw chunks from the LLM provider.
+
+        Returns the original chunk objects (e.g., OpenAI's ChatCompletionChunk)
+        that were received during streaming. Only available after the stream
+        has been consumed.
+
+        Returns:
+            List of raw chunks in order received
+        """
+        if self._runner is None:
+            return []
+        return self._runner.raw()
