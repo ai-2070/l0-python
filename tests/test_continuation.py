@@ -485,9 +485,16 @@ class TestDeduplicationThorough:
         continuation = "hello world test"  # space
 
         result = detect_overlap(checkpoint, continuation)
-        # "hello" matches but not "hello\tworld" vs "hello world"
-        assert result.has_overlap is True
-        assert result.overlap_text == "hello"
+        # Suffix "\tworld" doesn't match prefix "hello" - no overlap
+        # The algorithm matches checkpoint SUFFIX to continuation PREFIX
+        assert result.has_overlap is False
+
+        # But if continuation starts with the checkpoint suffix...
+        checkpoint2 = "hello\tworld"
+        continuation2 = "\tworld and more"
+        result2 = detect_overlap(checkpoint2, continuation2)
+        assert result2.has_overlap is True
+        assert result2.overlap_text == "\tworld"
 
     def test_mixed_whitespace_with_normalization(self):
         """Test mixed whitespace with normalization enabled."""
@@ -519,9 +526,16 @@ class TestDeduplicationThorough:
         continuation = "hello world again"
 
         result = detect_overlap(checkpoint, continuation)
-        # Only "ello" matches (case sensitive)
-        assert result.has_overlap is True
-        assert result.overlap_text == "ello"
+        # Suffix "World" doesn't match prefix "hello" (case sensitive)
+        # The algorithm matches checkpoint SUFFIX to continuation PREFIX
+        assert result.has_overlap is False
+
+        # But with matching case at boundary...
+        checkpoint2 = "Hello World"
+        continuation2 = "World again"
+        result2 = detect_overlap(checkpoint2, continuation2)
+        assert result2.has_overlap is True
+        assert result2.overlap_text == "World"
 
     def test_case_insensitive_full_match(self):
         """Test case-insensitive matching finds full overlap."""
@@ -676,23 +690,35 @@ class TestDeduplicationThorough:
 
     def test_large_strings_performance(self):
         """Test performance with large strings."""
-        # 10KB strings
-        checkpoint = "x" * 5000 + "overlap" + "y" * 5000
-        continuation = "overlap" + "z" * 10000
+        # The algorithm matches checkpoint SUFFIX to continuation PREFIX
+        # So the overlap must be at the END of checkpoint
+        overlap_text = "overlap_marker"
+        checkpoint = "x" * 5000 + overlap_text
+        continuation = overlap_text + "z" * 10000
 
         result = detect_overlap(checkpoint, continuation)
         assert result.has_overlap is True
-        assert result.overlap_text == "overlap"
+        assert result.overlap_text == overlap_text
+        assert result.deduplicated == "z" * 10000
 
     def test_many_potential_overlaps(self):
         """Test string with many potential overlap points."""
-        # String with repeated pattern
+        # The algorithm matches checkpoint SUFFIX to continuation PREFIX
+        # Use a pattern where suffix matches prefix
         checkpoint = "ab " * 100 + "end"
-        continuation = "ab " * 50 + "different"
+        continuation = "end of the story"
 
         result = detect_overlap(checkpoint, continuation)
-        # Should find some overlap
         assert result.has_overlap is True
+        assert result.overlap_text == "end"
+        assert result.deduplicated == " of the story"
+
+        # Also test repeated pattern overlap
+        checkpoint2 = "ab " * 100
+        continuation2 = "ab " * 50 + "different"
+        result2 = detect_overlap(checkpoint2, continuation2)
+        # Suffix "ab " matches prefix "ab "
+        assert result2.has_overlap is True
 
     def test_worst_case_no_overlap(self):
         """Test worst case - long strings with no overlap."""
