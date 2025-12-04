@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 
 from src.l0 import Retry, Timeout, TimeoutError
-from src.l0.adapters import Adapters
+from src.l0.adapters import AdaptedEvent, Adapters
 from src.l0.guardrails import GuardrailRule, GuardrailViolation
 from src.l0.runtime import _internal_run
 from src.l0.types import Event, EventType, State
@@ -22,10 +22,10 @@ class PassthroughAdapter:
         """Detect async generators (our test streams)."""
         return hasattr(stream, "__anext__")
 
-    async def wrap(self, stream: Any) -> AsyncIterator[Event]:
-        """Pass through events directly."""
+    async def wrap(self, stream: Any) -> AsyncIterator[AdaptedEvent[Any]]:
+        """Pass through events wrapped in AdaptedEvent."""
         async for event in stream:
-            yield event
+            yield AdaptedEvent(event=event, raw_chunk=None)
 
 
 @pytest.fixture(autouse=True)

@@ -49,7 +49,7 @@ class WrappedCompletions:
         self._completions = completions
         self._config = config
 
-    async def create(self, **kwargs: Any) -> Stream | Any:
+    async def create(self, **kwargs: Any) -> "Stream[Any]" | Any:
         """Create a chat completion with L0 reliability.
 
         When stream=True, returns an L0 Stream with automatic retry,

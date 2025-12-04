@@ -74,16 +74,17 @@ class TestOpenAIAdapter:
             yield MockChunk(choices=[MockChoice(delta=MockDelta(content=" world"))])
             yield MockChunk(choices=[MockChoice(delta=MockDelta())])
 
-        events = []
-        async for event in adapter.wrap(mock_stream()):
-            events.append(event)
+        adapted_events = []
+        async for adapted in adapter.wrap(mock_stream()):
+            adapted_events.append(adapted)
 
-        assert len(events) == 3
-        assert events[0].type == EventType.TOKEN
-        assert events[0].text == "Hello"
-        assert events[1].type == EventType.TOKEN
-        assert events[1].text == " world"
-        assert events[2].type == EventType.COMPLETE
+        assert len(adapted_events) == 3
+        assert adapted_events[0].event.type == EventType.TOKEN
+        assert adapted_events[0].event.text == "Hello"
+        assert adapted_events[0].raw_chunk is not None  # Raw chunk preserved
+        assert adapted_events[1].event.type == EventType.TOKEN
+        assert adapted_events[1].event.text == " world"
+        assert adapted_events[2].event.type == EventType.COMPLETE
 
     @pytest.mark.asyncio
     async def test_wrap_tool_calls(self):
@@ -108,16 +109,16 @@ class TestOpenAIAdapter:
             )
             yield MockChunk(choices=[MockChoice(delta=MockDelta())])
 
-        events = []
-        async for event in adapter.wrap(mock_stream()):
-            events.append(event)
+        adapted_events = []
+        async for adapted in adapter.wrap(mock_stream()):
+            adapted_events.append(adapted)
 
-        assert len(events) == 2
-        assert events[0].type == EventType.TOOL_CALL
-        assert events[0].data["id"] == "call_123"
-        assert events[0].data["name"] == "get_weather"
-        assert events[0].data["arguments"] == '{"location": "NYC"}'
-        assert events[1].type == EventType.COMPLETE
+        assert len(adapted_events) == 2
+        assert adapted_events[0].event.type == EventType.TOOL_CALL
+        assert adapted_events[0].event.data["id"] == "call_123"
+        assert adapted_events[0].event.data["name"] == "get_weather"
+        assert adapted_events[0].event.data["arguments"] == '{"location": "NYC"}'
+        assert adapted_events[1].event.type == EventType.COMPLETE
 
     @pytest.mark.asyncio
     async def test_wrap_with_usage(self):
@@ -133,14 +134,14 @@ class TestOpenAIAdapter:
                 usage=MockUsage(prompt_tokens=10, completion_tokens=5),
             )
 
-        events = []
-        async for event in adapter.wrap(mock_stream()):
-            events.append(event)
+        adapted_events = []
+        async for adapted in adapter.wrap(mock_stream()):
+            adapted_events.append(adapted)
 
-        assert len(events) == 2
-        assert events[0].type == EventType.TOKEN
-        assert events[1].type == EventType.COMPLETE
-        assert events[1].usage == {"input_tokens": 10, "output_tokens": 5}
+        assert len(adapted_events) == 2
+        assert adapted_events[0].event.type == EventType.TOKEN
+        assert adapted_events[1].event.type == EventType.COMPLETE
+        assert adapted_events[1].event.usage == {"input_tokens": 10, "output_tokens": 5}
 
     @pytest.mark.asyncio
     async def test_wrap_empty_stream(self):
@@ -151,12 +152,12 @@ class TestOpenAIAdapter:
             if False:
                 yield  # Make it an async generator
 
-        events = []
-        async for event in adapter.wrap(mock_stream()):
-            events.append(event)
+        adapted_events = []
+        async for adapted in adapter.wrap(mock_stream()):
+            adapted_events.append(adapted)
 
-        assert len(events) == 1
-        assert events[0].type == EventType.COMPLETE
+        assert len(adapted_events) == 1
+        assert adapted_events[0].event.type == EventType.COMPLETE
 
 
 class TestAdaptersDetect:
@@ -233,7 +234,7 @@ class TestAdaptersList:
     def test_list_default(self):
         """Test listing default adapters."""
         names = Adapters.list()
-        assert names == ["openai"]
+        assert names == ["openai", "event"]
 
     def test_list_after_register(self):
         """Test listing after registering an adapter."""
@@ -249,7 +250,7 @@ class TestAdaptersList:
 
         Adapters.register(FakeAdapter())
         names = Adapters.list()
-        assert names == ["fake", "openai"]
+        assert names == ["fake", "openai", "event"]
 
 
 class TestAdaptersUnregister:
@@ -309,7 +310,7 @@ class TestAdaptersReset:
         assert Adapters.list() == []
 
         Adapters.reset()
-        assert Adapters.list() == ["openai"]
+        assert Adapters.list() == ["openai", "event"]
 
     def test_reset_removes_custom(self):
         """Test that reset removes custom adapters."""
@@ -327,7 +328,7 @@ class TestAdaptersReset:
         assert "fake" in Adapters.list()
 
         Adapters.reset()
-        assert Adapters.list() == ["openai"]
+        assert Adapters.list() == ["openai", "event"]
 
 
 class TestAdaptersFactories:

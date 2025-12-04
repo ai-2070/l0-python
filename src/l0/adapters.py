@@ -125,8 +125,32 @@ class OpenAIAdapter:
 LiteLLMAdapter = OpenAIAdapter  # LiteLLM uses OpenAI-compatible format
 
 
-# Registry
-_adapters: list[Adapter] = [OpenAIAdapter()]
+class EventPassthroughAdapter:
+    """Adapter for raw Event async iterators.
+
+    This adapter handles async iterators that yield Event objects directly,
+    wrapping them in AdaptedEvent for consistency with the runtime.
+    """
+
+    name = "event"
+
+    def detect(self, stream: Any) -> bool:
+        """Detect async iterators (fallback adapter)."""
+        # This is a fallback - detect any async iterator
+        return hasattr(stream, "__aiter__")
+
+    async def wrap(self, stream: Any) -> AsyncIterator[AdaptedEvent[Any]]:
+        """Wrap raw Event stream into AdaptedEvents."""
+        async for event in stream:
+            if isinstance(event, Event):
+                yield AdaptedEvent(event=event, raw_chunk=None)
+            else:
+                # If it's not an Event, skip it
+                pass
+
+
+# Registry - OpenAI adapter first (more specific), passthrough last (fallback)
+_adapters: list[Adapter] = [OpenAIAdapter(), EventPassthroughAdapter()]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -243,13 +267,14 @@ class Adapters:
 
     @staticmethod
     def reset() -> None:
-        """Reset to default adapters (OpenAI only).
+        """Reset to default adapters (OpenAI and Event passthrough).
 
         Useful for testing cleanup.
         """
         global _adapters
         _adapters.clear()
         _adapters.append(OpenAIAdapter())
+        _adapters.append(EventPassthroughAdapter())
 
     @staticmethod
     def openai() -> OpenAIAdapter:

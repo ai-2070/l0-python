@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from .types import Event, EventType
 
@@ -20,6 +20,6 @@ async def consume_stream(stream: AsyncIterator[Event]) -> str:
     return "".join(parts)
 
 
-async def get_text(result: Stream) -> str:
+async def get_text(result: "Stream[Any]") -> str:
     """Helper to get text from Stream result."""
     return await result.read()
