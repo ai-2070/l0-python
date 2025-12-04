@@ -255,6 +255,18 @@ not valid json
         result = extract_json_from_output(output)
         assert result == '{"valid": true}'
 
+    def test_extract_skips_unmatched_opening_brace(self):
+        """Test that unmatched opening brace doesn't stop the search."""
+        output = 'Some text with { unmatched brace. JSON: {"valid": true}'
+        result = extract_json_from_output(output)
+        assert result == '{"valid": true}'
+
+    def test_extract_skips_unmatched_opening_bracket(self):
+        """Test that unmatched opening bracket doesn't stop the search."""
+        output = "Array [ without end. Real array: [1, 2, 3]"
+        result = extract_json_from_output(output)
+        assert result == "[1, 2, 3]"
+
 
 class TestCleanOutput:
     """Tests for clean_output function."""

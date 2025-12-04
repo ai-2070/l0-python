@@ -406,8 +406,9 @@ def extract_json_from_output(output: str) -> str:
                 search_start = json_start + 1
                 continue
         else:
-            # No matching end found, stop searching
-            break
+            # No matching end found, skip this start and keep searching
+            search_start = json_start + 1
+            continue
 
     return stripped
 
