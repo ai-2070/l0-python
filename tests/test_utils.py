@@ -57,6 +57,14 @@ class TestAutoCorrectJson:
         assert result.corrected is True
         assert any("quote" in c.lower() for c in result.corrections)
 
+    def test_converts_multiline_single_quoted_values(self):
+        """Test that multiline single-quoted values are converted."""
+        text = "{'msg': 'line1\nline2\nline3'}"
+        result = auto_correct_json(text)
+        assert '"msg"' in result.text
+        assert '"line1\nline2\nline3"' in result.text
+        assert result.corrected is True
+
     def test_converts_single_quotes_with_apostrophe(self):
         """Test that apostrophes inside single-quoted strings are preserved."""
         result = auto_correct_json(
