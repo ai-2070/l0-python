@@ -23,7 +23,7 @@ Please include:
 
 This security policy covers:
 
-- The L0 runtime library (`l0` npm package)
+- The L0 runtime library
 - All code in this repository
 
 ## Out of Scope
