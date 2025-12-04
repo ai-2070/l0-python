@@ -3,21 +3,25 @@
 Wrap an OpenAI or LiteLLM client to get automatic reliability:
 
     ```python
+    import asyncio
     import l0
     from openai import AsyncOpenAI
 
     # Wrap once
     client = l0.wrap(AsyncOpenAI())
 
-    # Use normally - L0 reliability is automatic
-    response = await client.chat.completions.create(
-        model="gpt-4",
-        messages=[{"role": "user", "content": "Hello!"}],
-        stream=True,
-    )
+    async def main():
+        # Use normally - L0 reliability is automatic
+        response = await client.chat.completions.create(
+            model="gpt-4",
+            messages=[{"role": "user", "content": "Hello!"}],
+            stream=True,
+        )
 
-    async for chunk in response:
-        print(chunk.choices[0].delta.content or "", end="")
+        async for chunk in response:
+            print(chunk.choices[0].delta.content or "", end="")
+
+    asyncio.run(main())
     ```
 """
 
