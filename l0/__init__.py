@@ -9,6 +9,7 @@ from .adapters import (
     LiteLLMAdapter,
     OpenAIAdapter,
 )
+from .client import WrappedClient, wrap_client
 from .consensus import (
     Agreement,
     Consensus,
@@ -103,71 +104,99 @@ from .window import (
 
 
 def wrap(
-    stream: AsyncIterator[Any],
+    client_or_stream: Any,
     *,
     guardrails: list[GuardrailRule] | None = None,
+    retry: Retry | None = None,
     timeout: Timeout | None = None,
     adapter: Any | str | None = None,
     on_event: Callable[[ObservabilityEvent], None] | None = None,
     meta: dict[str, Any] | None = None,
     buffer_tool_calls: bool = False,
-) -> LazyStream:
-    """Wrap a raw LLM stream with L0 reliability.
+    continue_from_last_good_token: "ContinuationConfig | bool" = True,
+    build_continuation_prompt: Callable[[str], str] | None = None,
+) -> WrappedClient | LazyStream:
+    """Wrap an OpenAI/LiteLLM client or raw stream with L0 reliability.
 
-    This is the preferred API - returns immediately, no await needed!
-    Like httpx.AsyncClient() or aiohttp.ClientSession().
-
-    Note: For retry support, use l0.run() with a factory function instead,
-    since a raw stream cannot be recreated after consumption.
+    This is the preferred API. Pass a client for full retry support,
+    or a raw stream for simple cases.
 
     Args:
-        stream: Raw async iterator from OpenAI/LiteLLM/etc.
-        guardrails: Optional list of guardrail rules to apply
-        timeout: Optional timeout configuration
-        adapter: Optional adapter hint ("openai", "litellm", or Adapter instance)
-        on_event: Optional callback for observability events
-        meta: Optional metadata attached to all events
-        buffer_tool_calls: Buffer tool call arguments until complete (default: False)
+        client_or_stream: OpenAI/LiteLLM client or raw async iterator
+        guardrails: Optional guardrail rules to apply
+        retry: Retry configuration (default: Retry.recommended() for clients)
+        timeout: Timeout configuration
+        adapter: Adapter hint ("openai", "litellm", or Adapter instance)
+        on_event: Observability event callback
+        meta: Metadata attached to all events
+        buffer_tool_calls: Buffer tool calls until complete (default: False)
+        continue_from_last_good_token: Resume from checkpoint on retry (default: True)
+        build_continuation_prompt: Callback to modify prompt for continuation
 
     Returns:
-        LazyStream - async iterator with .state, .abort(), and .read()
+        WrappedClient (for clients) or LazyStream (for raw streams)
 
-    Example:
+    Example - Wrap a client (recommended):
         ```python
         import l0
-        import litellm
+        from openai import AsyncOpenAI
 
-        raw = litellm.acompletion(
-            model="gpt-4o",
+        # Wrap the client once
+        client = l0.wrap(AsyncOpenAI())
+
+        # Use normally - L0 reliability is automatic
+        response = await client.chat.completions.create(
+            model="gpt-4",
             messages=[{"role": "user", "content": "Hello!"}],
             stream=True,
         )
 
-        # Simple - no double await!
-        result = l0.wrap(raw)
-        text = await result.read()
-
-        # Streaming
-        async for event in l0.wrap(raw):
+        # Iterate with L0 events
+        async for event in response:
             if event.is_token:
                 print(event.text, end="")
 
-        # Context manager
-        async with l0.wrap(raw, guardrails=l0.Guardrails.recommended()) as result:
-            async for event in result:
-                if event.is_token:
-                    print(event.text, end="")
+        # Or read all at once
+        text = await response.read()
+        ```
+
+    Example - Wrap a raw stream (no retry support):
+        ```python
+        import l0
+
+        raw = await client.chat.completions.create(..., stream=True)
+        result = l0.wrap(raw)
+        text = await result.read()
         ```
     """
-    return LazyStream(
-        stream=stream,
-        guardrails=guardrails,
-        timeout=timeout,
-        adapter=adapter,
-        on_event=on_event,
-        meta=meta,
-        buffer_tool_calls=buffer_tool_calls,
-    )
+    # Detect if this is a client (has .chat.completions) or a raw stream
+    if hasattr(client_or_stream, "chat") and hasattr(
+        client_or_stream.chat, "completions"
+    ):
+        # It's an OpenAI-style client
+        return wrap_client(
+            client_or_stream,
+            guardrails=guardrails,
+            retry=retry,
+            timeout=timeout,
+            adapter=adapter,
+            on_event=on_event,
+            meta=meta,
+            buffer_tool_calls=buffer_tool_calls,
+            continue_from_last_good_token=continue_from_last_good_token,
+            build_continuation_prompt=build_continuation_prompt,
+        )
+    else:
+        # It's a raw stream - wrap with LazyStream (no retry support)
+        return LazyStream(
+            stream=client_or_stream,
+            guardrails=guardrails,
+            timeout=timeout,
+            adapter=adapter,
+            on_event=on_event,
+            meta=meta,
+            buffer_tool_calls=buffer_tool_calls,
+        )
 
 
 async def run(
@@ -258,12 +287,13 @@ __all__ = [
     # Version
     "__version__",
     # Core API
-    "wrap",  # Preferred - takes raw stream
+    "wrap",  # Preferred - wraps client or raw stream
     "run",  # With factory - supports retries/fallbacks
     "l0",  # Alias to run
     # Types
     "Stream",
     "LazyStream",
+    "WrappedClient",  # Wrapped OpenAI/LiteLLM client
     "Event",
     "State",
     "EventType",
