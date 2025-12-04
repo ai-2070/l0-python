@@ -180,7 +180,11 @@ async def _internal_run(
                     and continuation_config is not None
                 )
 
-                if should_continue_from_checkpoint and pending_checkpoint:
+                if (
+                    should_continue_from_checkpoint
+                    and pending_checkpoint
+                    and continuation_config
+                ):
                     # Validate checkpoint before using
                     checkpoint_valid = True
                     if continuation_config.validate_checkpoint and guardrails:

@@ -13,27 +13,27 @@ import tempfile
 import time
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from typing import IO, TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 # Cross-platform file locking
 if sys.platform == "win32":
     import msvcrt
 
-    def _lock_file(f):
+    def _lock_file(f: IO[Any]) -> None:
         """Acquire exclusive lock on file (Windows)."""
         msvcrt.locking(f.fileno(), msvcrt.LK_LOCK, 1)
 
-    def _unlock_file(f):
+    def _unlock_file(f: IO[Any]) -> None:
         """Release lock on file (Windows)."""
         msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
 else:
     import fcntl
 
-    def _lock_file(f):
+    def _lock_file(f: IO[Any]) -> None:
         """Acquire exclusive lock on file (Unix)."""
         fcntl.flock(f.fileno(), fcntl.LOCK_EX)
 
-    def _unlock_file(f):
+    def _unlock_file(f: IO[Any]) -> None:
         """Release lock on file (Unix)."""
         fcntl.flock(f.fileno(), fcntl.LOCK_UN)
 
@@ -331,7 +331,7 @@ class InMemoryEventStore(BaseEventStoreWithSnapshots):
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def _event_to_dict(event: RecordedEvent) -> dict:
+def _event_to_dict(event: RecordedEvent) -> dict[str, Any]:
     """Convert a RecordedEvent to a dictionary for JSON serialization."""
     from dataclasses import asdict
 
@@ -341,7 +341,7 @@ def _event_to_dict(event: RecordedEvent) -> dict:
     return result
 
 
-def _dict_to_event(data: dict) -> RecordedEvent:
+def _dict_to_event(data: dict[str, Any]) -> RecordedEvent:
     """Convert a dictionary back to a RecordedEvent."""
     from .types import (
         CheckpointEvent,
@@ -434,7 +434,7 @@ def _dict_to_event(data: dict) -> RecordedEvent:
         raise ValueError(f"Unknown event type: {event_type}")
 
 
-def _envelope_to_dict(envelope: EventEnvelope) -> dict:
+def _envelope_to_dict(envelope: EventEnvelope) -> dict[str, Any]:
     """Convert an EventEnvelope to a dictionary."""
     return {
         "stream_id": envelope.stream_id,
@@ -443,7 +443,7 @@ def _envelope_to_dict(envelope: EventEnvelope) -> dict:
     }
 
 
-def _dict_to_envelope(data: dict) -> EventEnvelope:
+def _dict_to_envelope(data: dict[str, Any]) -> EventEnvelope:
     """Convert a dictionary back to an EventEnvelope."""
     return EventEnvelope(
         stream_id=data["stream_id"],
@@ -452,14 +452,14 @@ def _dict_to_envelope(data: dict) -> EventEnvelope:
     )
 
 
-def _snapshot_to_dict(snapshot: Snapshot) -> dict:
+def _snapshot_to_dict(snapshot: Snapshot) -> dict[str, Any]:
     """Convert a Snapshot to a dictionary."""
     from dataclasses import asdict
 
     return asdict(snapshot)
 
 
-def _dict_to_snapshot(data: dict) -> Snapshot:
+def _dict_to_snapshot(data: dict[str, Any]) -> Snapshot:
     """Convert a dictionary back to a Snapshot."""
     return Snapshot(**data)
 
@@ -529,7 +529,7 @@ class FileEventStore(BaseEventStoreWithSnapshots):
             _lock_file(lock_file)
             try:
                 # Read existing events
-                events: list[dict] = []
+                events: list[dict[str, Any]] = []
                 if file_path.exists():
                     content = file_path.read_text(encoding="utf-8")
                     events = json.loads(content)

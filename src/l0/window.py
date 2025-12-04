@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import re
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
 from dataclasses import dataclass, field
 from typing import Any, Generic, Literal, TypeVar
 
@@ -477,7 +477,7 @@ class DocumentWindow:
 
         return results
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[DocumentChunk]:
         """Iterate over all chunks."""
         return iter(self._chunks)
 

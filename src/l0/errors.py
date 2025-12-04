@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
-from .types import ErrorCategory
+from .types import ErrorCategory, ErrorTypeDelays
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Error Codes
@@ -707,7 +707,7 @@ class NetworkError:
             return 0.0
 
         # Exponential backoff
-        return min(base_delay * (2**attempt), max_delay)
+        return float(min(base_delay * (2**attempt), max_delay))
 
     # ─────────────────────────────────────────────────────────────────────────
     # Private Helpers
@@ -723,9 +723,9 @@ class NetworkError:
         return None
 
     @staticmethod
-    def _get_type_delay(error_type: NetworkErrorType, delays: Any) -> float:
+    def _get_type_delay(error_type: NetworkErrorType, delays: ErrorTypeDelays) -> float:
         """Get base delay for a specific network error type."""
-        mapping = {
+        mapping: dict[NetworkErrorType, float] = {
             NetworkErrorType.CONNECTION_DROPPED: delays.connection_dropped,
             NetworkErrorType.FETCH_ERROR: delays.fetch_error,
             NetworkErrorType.ECONNRESET: delays.econnreset,

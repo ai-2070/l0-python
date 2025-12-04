@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from pydantic import BaseModel, Field
 
@@ -198,7 +198,7 @@ class SentryExporter:
             for key, value in extra.items():
                 scope.set_extra(key, value)
 
-            return sentry_sdk.capture_exception(error)
+            return cast(str | None, sentry_sdk.capture_exception(error))
 
     def capture_telemetry_error(self, telemetry: Telemetry) -> str | None:
         """Capture an error from telemetry data.
@@ -227,9 +227,12 @@ class SentryExporter:
         with sentry_sdk.push_scope() as scope:
             self._add_telemetry_context(scope, telemetry)
 
-            return sentry_sdk.capture_message(
-                telemetry.error.message or "Unknown L0 error",
-                level="error",
+            return cast(
+                str | None,
+                sentry_sdk.capture_message(
+                    telemetry.error.message or "Unknown L0 error",
+                    level="error",
+                ),
             )
 
     def capture_message(
@@ -267,7 +270,7 @@ class SentryExporter:
             for key, value in extra.items():
                 scope.set_extra(key, value)
 
-            return sentry_sdk.capture_message(message, level=level)
+            return cast(str | None, sentry_sdk.capture_message(message, level=level))
 
     def add_breadcrumb(
         self,

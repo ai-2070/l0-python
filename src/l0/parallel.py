@@ -42,7 +42,7 @@ class ParallelResult(Generic[T]):
 
     def successful_results(self) -> list[T]:
         """Get only successful results (where no error occurred)."""
-        return [r for r, e in zip(self.results, self.errors) if e is None]
+        return [cast(T, r) for r, e in zip(self.results, self.errors) if e is None]
 
 
 @dataclass

@@ -1,3 +1,4 @@
+# mypy: disable-error-code="valid-type"
 """L0 guardrails engine with built-in rules and drift detection."""
 
 from __future__ import annotations
@@ -1451,17 +1452,17 @@ class Guardrails:
     # ─────────────────────────────────────────────────────────────────────────
 
     @staticmethod
-    def analyze_json(content: str) -> JsonAnalysis:
+    def analyze_json(content: str) -> "JsonAnalysis":
         """Analyze JSON structure for balance and issues."""
         return analyze_json_structure(content)
 
     @staticmethod
-    def analyze_markdown(content: str) -> MarkdownAnalysis:
+    def analyze_markdown(content: str) -> "MarkdownAnalysis":
         """Analyze Markdown structure for issues."""
         return analyze_markdown_structure(content)
 
     @staticmethod
-    def analyze_latex(content: str) -> LatexAnalysis:
+    def analyze_latex(content: str) -> "LatexAnalysis":
         """Analyze LaTeX structure for balance and issues."""
         return analyze_latex_structure(content)
 

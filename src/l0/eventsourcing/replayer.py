@@ -182,14 +182,14 @@ class ReplayResult:
         self._replayer = replayer
         self._stream_id = stream_id
         self._options = options
-        self._callbacks: dict[str, Callable] = {}
+        self._callbacks: dict[str, Callable[..., None]] = {}
         self._state: ReplayedState | None = None
 
     def set_callbacks(
         self,
         *,
         on_token: Callable[[str], None] | None = None,
-        on_violation: Callable[[dict], None] | None = None,
+        on_violation: Callable[[dict[str, Any]], None] | None = None,
         on_retry: Callable[[int, str], None] | None = None,
         on_event: Callable[[EventEnvelope], None] | None = None,
     ) -> None:

@@ -5,7 +5,7 @@ Wraps an event store with convenient recording methods.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from .types import (
     CheckpointEvent,
@@ -62,7 +62,7 @@ class EventRecorder:
 
     async def record_start(
         self,
-        options: SerializedOptions | dict | None = None,
+        options: SerializedOptions | dict[str, Any] | None = None,
     ) -> None:
         """Record a START event.
 
@@ -97,7 +97,7 @@ class EventRecorder:
     async def record_guardrail(
         self,
         at: int,
-        result: GuardrailEventResult | dict,
+        result: GuardrailEventResult | dict[str, Any],
     ) -> None:
         """Record a GUARDRAIL event.
 
@@ -113,7 +113,7 @@ class EventRecorder:
     async def record_drift(
         self,
         at: int,
-        result: DriftEventResult | dict,
+        result: DriftEventResult | dict[str, Any],
     ) -> None:
         """Record a DRIFT event.
 
@@ -178,7 +178,7 @@ class EventRecorder:
 
     async def record_error(
         self,
-        error: SerializedError | dict | Exception,
+        error: SerializedError | dict[str, Any] | Exception,
         failure_type: str = "",
         recovery_strategy: str = "",
         policy: str = "",
