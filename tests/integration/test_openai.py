@@ -7,7 +7,7 @@ Run with: pytest tests/integration -v
 import pytest
 from pydantic import BaseModel
 
-import l0
+import src.l0 as l0
 
 # Import the marker from conftest
 from tests.conftest import requires_openai
