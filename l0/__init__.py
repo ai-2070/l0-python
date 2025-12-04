@@ -181,7 +181,7 @@ async def run(
     on_event: Callable[[ObservabilityEvent], None] | None = None,
     meta: dict[str, Any] | None = None,
     buffer_tool_calls: bool = False,
-    continuation: "ContinuationConfig | bool | None" = None,
+    continue_from_last_good_token: "ContinuationConfig | bool" = True,
     build_continuation_prompt: Callable[[str], str] | None = None,
 ) -> Stream:
     """Run L0 with a stream factory (supports retries and fallbacks).
@@ -199,7 +199,7 @@ async def run(
         on_event: Optional callback for observability events
         meta: Optional metadata attached to all events
         buffer_tool_calls: Buffer tool call arguments until complete (default: False)
-        continuation: Enable continuation from checkpoint on retry (True, False, or ContinuationConfig)
+        continue_from_last_good_token: Resume from checkpoint on retry (default: True)
         build_continuation_prompt: Callback to modify prompt for continuation
 
     Returns:
@@ -227,7 +227,7 @@ async def run(
             ],
             guardrails=l0.Guardrails.recommended(),
             retry=l0.Retry(max_attempts=3),
-            continuation=True,  # Resume from checkpoint on retry
+            continue_from_last_good_token=True,  # Resume from checkpoint on retry
         )
 
         async for event in result:
@@ -245,7 +245,7 @@ async def run(
         on_event=on_event,
         meta=meta,
         buffer_tool_calls=buffer_tool_calls,
-        continuation=continuation,
+        continue_from_last_good_token=continue_from_last_good_token,
         build_continuation_prompt=build_continuation_prompt,
     )
 

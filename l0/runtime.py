@@ -87,7 +87,7 @@ async def _internal_run(
     on_event: Callable[[ObservabilityEvent], None] | None = None,
     meta: dict[str, Any] | None = None,
     buffer_tool_calls: bool = False,
-    continuation: ContinuationConfig | bool | None = None,
+    continue_from_last_good_token: ContinuationConfig | bool = True,
     build_continuation_prompt: Callable[[str], str] | None = None,
 ) -> Stream:
     """Internal implementation of the L0 runtime.
@@ -102,7 +102,7 @@ async def _internal_run(
         on_event: Optional callback for observability events
         meta: Optional metadata attached to all events
         buffer_tool_calls: Buffer tool call arguments until complete (default: False)
-        continuation: Enable continuation from checkpoint (True, False, or ContinuationConfig)
+        continue_from_last_good_token: Resume from checkpoint on retry (default: True)
         build_continuation_prompt: Callback to modify prompt for continuation
 
     Returns:
@@ -113,12 +113,16 @@ async def _internal_run(
 
     # Normalize continuation config
     continuation_config: ContinuationConfig | None = None
-    if continuation is True:
+    if continue_from_last_good_token is True:
         continuation_config = ContinuationConfig.default()
-    elif continuation is False or continuation is None:
+    elif continue_from_last_good_token is False:
         continuation_config = None
-    elif isinstance(continuation, ContinuationConfig):
-        continuation_config = continuation if continuation.enabled else None
+    elif isinstance(continue_from_last_good_token, ContinuationConfig):
+        continuation_config = (
+            continue_from_last_good_token
+            if continue_from_last_good_token.enabled
+            else None
+        )
 
     state = create_state()
     retry_mgr = RetryManager(retry)

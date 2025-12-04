@@ -226,7 +226,7 @@ class State:
     """Runtime state tracking."""
 
     content: str = ""
-    checkpoint: str = ""
+    checkpoint: str = ""  # Last known good slice for continuation
     token_count: int = 0
     model_retry_count: int = 0
     network_retry_count: int = 0
@@ -238,12 +238,12 @@ class State:
     first_token_at: float | None = None
     last_token_at: float | None = None
     duration: float | None = None
-    resumed: bool = False
+    resumed: bool = False  # Whether stream was resumed from checkpoint
     network_errors: list[Any] = field(default_factory=list)
     # Multimodal state
     data_outputs: list[DataPayload] = field(default_factory=list)
     last_progress: Progress | None = None
-    # Continuation state
+    # Continuation state (for observability)
     resume_point: str | None = None  # The checkpoint content used for resume
     resume_from: int | None = None  # Character offset where resume occurred
     continuation_used: bool = False  # Whether continuation was actually used
