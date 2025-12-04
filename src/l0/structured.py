@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Generic, TypeVar
+from typing import TYPE_CHECKING, Any, Generic, TypeVar, cast
 
 from pydantic import BaseModel, ValidationError
 
@@ -143,7 +143,7 @@ async def structured(
 
     # Wrap direct async iterators in buffering factories for retry support
     if _is_async_iterator(stream):
-        stream = _make_buffering_factory(stream)
+        stream = _make_buffering_factory(cast(AsyncIterator[Any], stream))
 
     # Build list of streams to try
     all_streams: list[AsyncIterator[Any] | Callable[[], AsyncIterator[Any]]] = [stream]
@@ -151,7 +151,9 @@ async def structured(
         wrapped_fallbacks = []
         for fb in fallbacks:
             if _is_async_iterator(fb):
-                wrapped_fallbacks.append(_make_buffering_factory(fb))
+                wrapped_fallbacks.append(
+                    _make_buffering_factory(cast(AsyncIterator[Any], fb))
+                )
             else:
                 wrapped_fallbacks.append(fb)
         all_streams.extend(wrapped_fallbacks)
