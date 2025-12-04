@@ -63,6 +63,9 @@ build-backend = "hatchling.build"
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+filterwarnings = [
+    "ignore::pydantic.warnings.PydanticDeprecatedSince20:litellm.*",
+]
 
 [tool.coverage.run]
 source = ["l0"]
