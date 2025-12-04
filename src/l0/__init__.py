@@ -83,9 +83,12 @@ from .types import (
     EventType,
     LazyStream,
     Progress,
+    RawStream,
     Retry,
     State,
     Stream,
+    StreamFactory,
+    StreamSource,
     Timeout,
 )
 from .version import __version__
@@ -200,13 +203,13 @@ def wrap(
 
 
 async def run(
-    stream: Callable[[], AsyncIterator[Any]],
+    stream: StreamFactory,
     *,
-    fallbacks: list[Callable[[], AsyncIterator[Any]]] | None = None,
+    fallbacks: list[StreamFactory] | None = None,
     guardrails: list[GuardrailRule] | None = None,
     retry: Retry | None = None,
     timeout: Timeout | None = None,
-    adapter: Any | str | None = None,
+    adapter: Adapter | str | None = None,
     on_event: Callable[[ObservabilityEvent], None] | None = None,
     meta: dict[str, Any] | None = None,
     buffer_tool_calls: bool = False,

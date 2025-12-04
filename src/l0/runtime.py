@@ -7,13 +7,13 @@ import inspect
 from collections.abc import AsyncIterator, Callable
 from typing import TYPE_CHECKING, Any
 
-from .adapters import Adapters
+from .adapters import Adapter, Adapters
 from .continuation import ContinuationConfig, deduplicate_continuation, detect_overlap
 from .events import EventBus, ObservabilityEventType
 from .logging import logger
 from .retry import RetryManager
 from .state import append_token, create_state, mark_completed, update_checkpoint
-from .types import Event, EventType, Retry, State, Stream, Timeout
+from .types import Event, EventType, Retry, State, Stream, StreamFactory, Timeout
 
 
 class TimeoutError(Exception):
@@ -77,13 +77,13 @@ def _validate_checkpoint(
 
 
 async def _internal_run(
-    stream: Callable[[], AsyncIterator[Any]],
+    stream: StreamFactory,
     *,
-    fallbacks: list[Callable[[], AsyncIterator[Any]]] | None = None,
+    fallbacks: list[StreamFactory] | None = None,
     guardrails: list[GuardrailRule] | None = None,
     retry: Retry | None = None,
     timeout: Timeout | None = None,
-    adapter: Any | str | None = None,
+    adapter: Adapter | str | None = None,
     on_event: Callable[[ObservabilityEvent], None] | None = None,
     meta: dict[str, Any] | None = None,
     buffer_tool_calls: bool = False,

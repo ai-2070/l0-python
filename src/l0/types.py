@@ -5,10 +5,27 @@ from __future__ import annotations
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeVar
 
 if TYPE_CHECKING:
     from .events import ObservabilityEvent
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Type Aliases for Stream Factories
+# ─────────────────────────────────────────────────────────────────────────────
+
+# TypeVar for LLM provider chunk types (OpenAI, LiteLLM, etc.)
+# Using Any because chunks vary by provider and are converted by adapters
+ChunkT = TypeVar("ChunkT")
+
+# Raw stream from LLM provider (before adapter conversion)
+RawStream = AsyncIterator[Any]
+
+# Factory that creates a raw stream (for retry support)
+StreamFactory = Callable[[], RawStream]
+
+# Stream or factory (accepted by structured() and other APIs)
+StreamSource = RawStream | StreamFactory
 
 
 # ─────────────────────────────────────────────────────────────────────────────

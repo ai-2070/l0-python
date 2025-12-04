@@ -10,9 +10,10 @@ from typing import TYPE_CHECKING, Any, Generic, TypeVar, cast
 from pydantic import BaseModel, ValidationError
 
 from ._utils import AutoCorrectResult, auto_correct_json, extract_json_from_markdown
+from .adapters import Adapter
 from .events import EventBus, ObservabilityEvent, ObservabilityEventType
 from .runtime import _internal_run
-from .types import Event, Retry, State
+from .types import Event, RawStream, Retry, State, StreamFactory, StreamSource
 
 if TYPE_CHECKING:
     pass
@@ -60,16 +61,15 @@ class AutoCorrectInfo:
 
 async def structured(
     schema: type[T],
-    stream: AsyncIterator[Any] | Callable[[], AsyncIterator[Any]],
+    stream: StreamSource,
     *,
-    fallbacks: list[AsyncIterator[Any] | Callable[[], AsyncIterator[Any]]]
-    | None = None,
+    fallbacks: list[StreamSource] | None = None,
     auto_correct: bool = True,
     retry: Retry | None = None,
     on_validation_error: Callable[[ValidationError, int], None] | None = None,
     on_auto_correct: Callable[[AutoCorrectInfo], None] | None = None,
     on_event: Callable[[ObservabilityEvent], None] | None = None,
-    adapter: Any | str | None = None,
+    adapter: Adapter | str | None = None,
 ) -> StructuredResult[T]:
     """Get structured output validated against Pydantic schema.
 
@@ -121,12 +121,12 @@ async def structured(
     # Helper to wrap a direct async iterator in a buffering factory
     # This consumes the iterator once and replays from buffer on subsequent calls
     def _make_buffering_factory(
-        iterator: AsyncIterator[Any],
-    ) -> Callable[[], AsyncIterator[Any]]:
+        iterator: RawStream,
+    ) -> StreamFactory:
         buffer: list[Any] = []
         consumed = False
 
-        async def buffering_iterator() -> AsyncIterator[Any]:
+        async def buffering_iterator() -> RawStream:
             nonlocal consumed
             if consumed:
                 # Replay from buffer
@@ -143,19 +143,17 @@ async def structured(
 
     # Wrap direct async iterators in buffering factories for retry support
     if _is_async_iterator(stream):
-        stream = _make_buffering_factory(cast(AsyncIterator[Any], stream))
+        stream = _make_buffering_factory(cast(RawStream, stream))
 
     # Build list of streams to try
-    all_streams: list[AsyncIterator[Any] | Callable[[], AsyncIterator[Any]]] = [stream]
+    all_streams: list[StreamSource] = [stream]
     if fallbacks:
-        wrapped_fallbacks: list[Callable[[], AsyncIterator[Any]]] = []
+        wrapped_fallbacks: list[StreamFactory] = []
         for fb in fallbacks:
             if _is_async_iterator(fb):
-                wrapped_fallbacks.append(
-                    _make_buffering_factory(cast(AsyncIterator[Any], fb))
-                )
+                wrapped_fallbacks.append(_make_buffering_factory(cast(RawStream, fb)))
             else:
-                wrapped_fallbacks.append(cast(Callable[[], AsyncIterator[Any]], fb))
+                wrapped_fallbacks.append(cast(StreamFactory, fb))
         all_streams.extend(wrapped_fallbacks)
 
     last_error: Exception | None = None
@@ -167,15 +165,15 @@ async def structured(
                 # _internal_run expects a callable factory
                 # Handle both direct async iterators and factory functions
                 def make_stream_factory(
-                    src: AsyncIterator[Any] | Callable[[], AsyncIterator[Any]],
-                ) -> Callable[[], AsyncIterator[Any]]:
+                    src: StreamSource,
+                ) -> StreamFactory:
                     if callable(src) and not hasattr(src, "__anext__"):
                         # It's already a factory
                         return src
                     else:
                         # It's a direct async iterator - wrap in factory
                         # Note: This only works once per stream!
-                        return lambda: cast(AsyncIterator[Any], src)
+                        return lambda: cast(RawStream, src)
 
                 stream_factory = make_stream_factory(stream_source)
 
@@ -397,13 +395,13 @@ class StructuredStreamResult(Generic[T]):
 
 async def structured_stream(
     schema: type[T],
-    stream: AsyncIterator[Any] | Callable[[], AsyncIterator[Any]],
+    stream: StreamSource,
     *,
     auto_correct: bool = True,
     on_auto_correct: Callable[[AutoCorrectInfo], None] | None = None,
     on_event: Callable[[ObservabilityEvent], None] | None = None,
-    adapter: Any | str | None = None,
-) -> tuple[AsyncIterator[Event], StructuredStreamResult[T]]:
+    adapter: Adapter | str | None = None,
+) -> tuple["AsyncIterator[Event]", StructuredStreamResult[T]]:
     """Stream tokens with validation at the end.
 
     Args:
@@ -436,12 +434,12 @@ async def structured_stream(
 
     # _internal_run expects a callable factory
     def make_stream_factory(
-        src: AsyncIterator[Any] | Callable[[], AsyncIterator[Any]],
-    ) -> Callable[[], AsyncIterator[Any]]:
+        src: StreamSource,
+    ) -> StreamFactory:
         if callable(src) and not hasattr(src, "__anext__"):
             return src
         else:
-            return lambda: cast(AsyncIterator[Any], src)
+            return lambda: cast(RawStream, src)
 
     stream_factory = make_stream_factory(stream)
 

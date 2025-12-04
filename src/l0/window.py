@@ -7,12 +7,12 @@ from __future__ import annotations
 
 import asyncio
 import re
-from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
+from collections.abc import Awaitable, Callable, Iterator
 from dataclasses import dataclass, field
 from typing import Any, Generic, Literal, TypeVar
 
 from .runtime import _internal_run
-from .types import Retry, Stream, Timeout
+from .types import Retry, Stream, StreamFactory, Timeout
 
 T = TypeVar("T")
 
@@ -52,10 +52,10 @@ class WindowConfig:
 class ChunkProcessConfig:
     """Configuration for processing a chunk."""
 
-    stream: Callable[[], AsyncIterator[Any]]
+    stream: StreamFactory
     retry: Retry | None = None
     timeout: Timeout | None = None
-    fallbacks: list[Callable[[], AsyncIterator[Any]]] | None = None
+    fallbacks: list[StreamFactory] | None = None
 
 
 @dataclass
