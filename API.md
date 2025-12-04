@@ -11,6 +11,7 @@ Complete API reference for L0 Python.
 - [Lifecycle Callbacks](#lifecycle-callbacks)
 - [Streaming Runtime](#streaming-runtime)
 - [Retry Configuration](#retry-configuration)
+- [Checkpoint Resumption](#checkpoint-resumption)
 - [Network Protection](#network-protection)
 - [Structured Output](#structured-output)
 - [Fallback Models](#fallback-models)
@@ -31,57 +32,81 @@ Complete API reference for L0 Python.
 
 ## Core Functions
 
-### wrap(stream, *, guardrails, retry, timeout, adapter, on_event, meta)
+### wrap(client_or_stream, *, guardrails, retry, timeout, ...)
 
-Wrap a raw LLM stream with L0 reliability. **Returns immediately (no await needed).**
+Wrap an OpenAI/LiteLLM client or raw stream with L0 reliability.
 
-This is the preferred API for simple cases - takes a raw stream directly, no lambda needed. Like `httpx.AsyncClient()` or `aiohttp.ClientSession()`.
+**This is the preferred API.** Pass a client for full retry support, or a raw stream for simple cases.
+
+#### Wrapping a Client (Recommended)
 
 ```python
 import l0
+from openai import AsyncOpenAI
 
-# Create your stream
-stream = client.chat.completions.create(
+# Wrap the client once
+client = l0.wrap(AsyncOpenAI())
+
+# Use normally - L0 reliability is automatic
+response = await client.chat.completions.create(
     model="gpt-4o",
     messages=[{"role": "user", "content": "Hello!"}],
     stream=True,
 )
 
-# wrap() returns immediately - no await!
-result = l0.wrap(stream, guardrails=l0.Guardrails.recommended())
-
-# Read full text
-text = await result.read()
-
-# Or stream events
-async for event in l0.wrap(stream):
+# Stream with L0 events
+async for event in response:
     if event.is_token:
         print(event.text, end="")
 
-# Or use context manager
-async with l0.wrap(stream) as result:
-    async for event in result:
-        if event.is_token:
-            print(event.text, end="")
+# Or read all at once
+text = await response.read()
+```
+
+#### With Full Configuration
+
+```python
+client = l0.wrap(
+    AsyncOpenAI(),
+    guardrails=l0.Guardrails.recommended(),
+    retry=l0.Retry(max_attempts=5),
+    timeout=l0.Timeout(initial_token=10.0, inter_token=30.0),
+    continue_from_last_good_token=True,  # Resume from checkpoint on failure
+    on_event=lambda e: print(f"[{e.type}]"),
+    meta={"user_id": "123"},
+)
+```
+
+#### Wrapping a Raw Stream (Simple Cases)
+
+```python
+# For one-off streams without retry support
+raw_stream = await client.chat.completions.create(..., stream=True)
+result = l0.wrap(raw_stream)
+text = await result.read()
 ```
 
 **Parameters:**
 
 | Parameter | Type | Default | Description |
 | --------- | ---- | ------- | ----------- |
-| `stream` | `AsyncIterator` | required | Raw async LLM stream |
+| `client_or_stream` | `Client \| AsyncIterator` | required | OpenAI/LiteLLM client or raw stream |
 | `guardrails` | `list[GuardrailRule]` | `None` | Guardrail rules to apply |
-| `retry` | `Retry` | `None` | Retry configuration |
+| `retry` | `Retry` | `Retry.recommended()` | Retry configuration (clients only) |
 | `timeout` | `Timeout` | `None` | Timeout configuration |
+| `continue_from_last_good_token` | `bool \| ContinuationConfig` | `False` | Resume from checkpoint on failure |
 | `adapter` | `str \| Adapter` | `None` | Adapter hint or instance |
 | `on_event` | `Callable` | `None` | Observability callback |
 | `meta` | `dict` | `None` | Metadata for events |
+| `build_continuation_prompt` | `Callable[[str], str]` | `None` | Modify prompt for continuation |
 
-**Returns:** `LazyStream` - Async iterator with attached state (starts lazily on first use)
+**Returns:** 
+- `WrappedClient` when passed a client (has `.chat.completions.create()`)
+- `LazyStream` when passed a raw stream
 
 ---
 
-### run(stream, *, fallbacks, guardrails, retry, timeout, adapter, on_event, meta)
+### run(stream, *, fallbacks, guardrails, retry, timeout, adapter, on_event, meta, continue_from_last_good_token)
 
 Run L0 with a stream factory. Use when you need **retries or fallbacks** (which require re-creating the stream).
 
@@ -133,6 +158,9 @@ result = await l0.run(
 
     # Optional: Metadata for events
     meta={"user_id": "123"},
+    
+    # Optional: Resume from checkpoint on failure
+    continue_from_last_good_token=True,
 )
 
 # Iterate with Pythonic event properties
@@ -166,9 +194,11 @@ print(result.state.duration)      # Duration in seconds
 | `guardrails` | `list[GuardrailRule]` | `None` | Guardrail rules to apply |
 | `retry` | `Retry` | `None` | Retry configuration |
 | `timeout` | `Timeout` | `None` | Timeout configuration |
+| `continue_from_last_good_token` | `bool \| ContinuationConfig` | `False` | Resume from checkpoint on failure |
 | `adapter` | `str \| Adapter` | `None` | Adapter hint or instance |
 | `on_event` | `Callable` | `None` | Observability callback |
 | `meta` | `dict` | `None` | Metadata for events |
+| `build_continuation_prompt` | `Callable[[str], str]` | `None` | Modify prompt for continuation |
 
 **Returns:** `Stream` - Async iterator with attached state
 
@@ -182,20 +212,49 @@ print(result.state.duration)      # Duration in seconds
 
 ### wrap() vs run()
 
-| Function | When to Use | Stream Argument |
-| -------- | ----------- | --------------- |
-| `wrap()` | Simple cases, no retries/fallbacks | Raw stream directly |
-| `run()` | Need retries or fallbacks | Lambda factory |
+| Function | When to Use | Returns |
+| -------- | ----------- | ------- |
+| `wrap(client)` | **Recommended** - Wrap OpenAI client once, use everywhere | `WrappedClient` |
+| `wrap(stream)` | Simple one-off, no retry support | `LazyStream` |
+| `run()` | Need fallbacks or LiteLLM | `Stream` |
 
 ```python
-# Simple - use wrap()
-result = l0.wrap(stream)
+# Recommended - wrap client
+client = l0.wrap(AsyncOpenAI())
+response = await client.chat.completions.create(...)
+
+# Simple one-off stream
+result = l0.wrap(raw_stream)
 text = await result.read()
 
-# With retries/fallbacks - use run()
+# With fallbacks - use run()
 result = await l0.run(
-    stream=lambda: create_stream(),  # Lambda for retries
+    stream=lambda: create_stream(),
     fallbacks=[lambda: backup_stream()],
+)
+```
+
+### WrappedClient
+
+When you wrap an OpenAI client, you get a `WrappedClient` that mirrors the original API:
+
+```python
+client = l0.wrap(AsyncOpenAI())
+
+# Same API as OpenAI
+response = await client.chat.completions.create(
+    model="gpt-4o",
+    messages=[...],
+    stream=True,
+)
+
+# Access the underlying client
+raw_client = client.unwrapped
+
+# Create a new client with different options
+strict_client = client.with_options(
+    guardrails=l0.Guardrails.strict(),
+    continue_from_last_good_token=True,
 )
 ```
 
@@ -521,6 +580,80 @@ state = manager.get_state()
 
 # Reset
 manager.reset()
+```
+
+---
+
+## Checkpoint Resumption
+
+When a stream fails mid-generation (timeout, network error), L0 can resume from the last checkpoint instead of starting over.
+
+### continue_from_last_good_token
+
+Enable with `continue_from_last_good_token=True`:
+
+```python
+client = l0.wrap(
+    AsyncOpenAI(),
+    continue_from_last_good_token=True,
+    timeout=l0.Timeout(inter_token=30.0),
+)
+
+# If the stream times out after "Hello wor", L0 will:
+# 1. Save checkpoint: "Hello wor"
+# 2. Retry the request
+# 3. Deduplicate any overlapping content from the retry
+# 4. Continue seamlessly
+```
+
+### How It Works
+
+1. **Checkpoint Saving**: L0 saves checkpoints at configurable intervals (default: every 5 tokens)
+2. **Failure Detection**: On timeout or transient error, the checkpoint is preserved
+3. **Retry with Continuation**: On retry, the checkpoint content is available
+4. **Deduplication**: If the LLM repeats content from the checkpoint, L0 removes the overlap
+
+### ContinuationConfig
+
+For fine-grained control:
+
+```python
+from l0 import ContinuationConfig, DeduplicationOptions
+
+config = ContinuationConfig(
+    enabled=True,
+    checkpoint_interval=5,        # Save checkpoint every N tokens
+    deduplicate=True,             # Remove overlapping content
+    deduplication_options=DeduplicationOptions(
+        min_overlap=2,            # Minimum chars to consider overlap
+        max_overlap=500,          # Maximum chars to check
+        case_sensitive=True,
+        normalize_whitespace=False,
+    ),
+    validate_checkpoint=True,     # Run guardrails on checkpoint
+)
+
+client = l0.wrap(
+    AsyncOpenAI(),
+    continue_from_last_good_token=config,
+)
+```
+
+### State Fields
+
+After completion, check continuation state:
+
+```python
+response = await client.chat.completions.create(...)
+async for event in response:
+    pass
+
+# Check if continuation was used
+print(response.state.resumed)              # True if retried
+print(response.state.checkpoint)           # Last checkpoint content
+print(response.state.continuation_used)    # True if resumed from checkpoint
+print(response.state.deduplication_applied)  # True if overlap removed
+print(response.state.overlap_removed)      # The overlapping text that was removed
 ```
 
 ---
@@ -1329,6 +1462,36 @@ l0.enable_debug()
 
 ## Types
 
+### WrappedClient
+
+```python
+class WrappedClient:
+    """Wrapped OpenAI/LiteLLM client with L0 reliability.
+    
+    Returned by l0.wrap(client). Mirrors the original client API
+    but adds automatic reliability features.
+    """
+    
+    chat: WrappedChat                         # chat.completions.create()
+    
+    @property
+    def unwrapped(self) -> Any:
+        """Access the underlying unwrapped client."""
+        ...
+    
+    def with_options(
+        self,
+        *,
+        guardrails: list[GuardrailRule] | None = None,
+        retry: Retry | None = None,
+        timeout: Timeout | None = None,
+        continue_from_last_good_token: ContinuationConfig | bool | None = None,
+        ...
+    ) -> WrappedClient:
+        """Create a new wrapped client with updated options."""
+        ...
+```
+
 ### Stream
 
 ```python
@@ -1377,7 +1540,7 @@ class LazyStream:
 @dataclass
 class State:
     content: str = ""
-    checkpoint: str = ""
+    checkpoint: str = ""                      # Last known good slice for continuation
     token_count: int = 0
     model_retry_count: int = 0
     network_retry_count: int = 0
@@ -1389,8 +1552,15 @@ class State:
     first_token_at: float | None = None
     last_token_at: float | None = None
     duration: float | None = None
-    resumed: bool = False
+    resumed: bool = False                     # Whether stream was resumed from checkpoint
     network_errors: list[Any] = field(default_factory=list)
+    
+    # Continuation state (for observability)
+    resume_point: str | None = None           # The checkpoint content used for resume
+    resume_from: int | None = None            # Character offset where resume occurred
+    continuation_used: bool = False           # Whether continuation was actually used
+    deduplication_applied: bool = False       # Whether deduplication removed overlap
+    overlap_removed: str | None = None        # The overlapping text that was removed
 ```
 
 ### Event
@@ -1647,8 +1817,9 @@ from l0 import (
 
 | Category | Exports |
 | -------- | ------- |
-| Core | `wrap`, `run`, `l0` (alias), `Stream`, `LazyStream`, `State`, `Event`, `EventType` |
+| Core | `wrap`, `run`, `l0` (alias), `Stream`, `LazyStream`, `WrappedClient`, `State`, `Event`, `EventType` |
 | Config | `Retry`, `Timeout`, `TimeoutError`, `BackoffStrategy`, `ErrorCategory`, `ErrorTypeDelays` |
+| Continuation | `ContinuationConfig`, `DeduplicationOptions`, `OverlapResult`, `detect_overlap`, `deduplicate_continuation` |
 | Errors | `Error`, `ErrorCode`, `ErrorContext`, `FailureType`, `RecoveryStrategy`, `RecoveryPolicy`, `NetworkError`, `NetworkErrorType`, `NetworkErrorAnalysis` |
 | Guardrails | `Guardrails`, `GuardrailRule`, `GuardrailViolation`, `JsonAnalysis`, `MarkdownAnalysis`, `LatexAnalysis` |
 | Structured | `structured`, `structured_stream`, `StructuredResult`, `StructuredStreamResult`, `AutoCorrectInfo` |

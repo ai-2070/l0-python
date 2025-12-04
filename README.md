@@ -48,6 +48,8 @@ _Production-grade reliability. Just pass your stream. L0'll take it from here._
 
 | Feature                                  | Description                                                                                                                                                                                           |
 | ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Client Wrapping**                      | Wrap your OpenAI client once, use normally. L0 reliability is automatic - no lambdas needed.                                                                                                         |
+| **Checkpoint Resumption**                | `continue_from_last_good_token` resumes from the last checkpoint on timeout or failure. No lost tokens.                                                                                              |
 | **Smart Retries**                        | Model-aware retries with fixed-jitter backoff. Automatic retries for zero-token output, network stalls, and provider overloads.                                                                      |
 | **Network Protection**                   | Automatic recovery from dropped streams, slow responses, 429/503 load shedding, DNS errors, and partial chunks.                                                                                       |
 | **Model Fallbacks**                      | Automatically fallback to secondary models (e.g., GPT-4o → GPT-4o-mini → Claude) with full retry logic.                                                                                               |
@@ -68,30 +70,55 @@ _Production-grade reliability. Just pass your stream. L0'll take it from here._
 
 ## Quick Start
 
-### With OpenAI SDK
+### Wrap Your Client (Recommended)
 
 ```python
 import asyncio
 from openai import AsyncOpenAI
 import l0
 
-client = AsyncOpenAI()
-
 async def main():
-    result = await l0.run(
-        stream=lambda: client.chat.completions.create(
-            model="gpt-4o",
-            messages=[{"role": "user", "content": "Hello!"}],
-            stream=True,
-        ),
-        guardrails=l0.Guardrails.recommended(),
+    # Wrap the client once - L0 reliability is automatic
+    client = l0.wrap(AsyncOpenAI())
+
+    # Use normally - no lambdas needed!
+    response = await client.chat.completions.create(
+        model="gpt-4o",
+        messages=[{"role": "user", "content": "Hello!"}],
+        stream=True,
     )
 
-    async for event in result:
+    # Stream with L0 events
+    async for event in response:
         if event.is_token:
             print(event.text, end="", flush=True)
 
+    # Or read all at once
+    text = await response.read()
+
 asyncio.run(main())
+```
+
+### With Configuration
+
+```python
+import l0
+from openai import AsyncOpenAI
+
+# Configure once, use everywhere
+client = l0.wrap(
+    AsyncOpenAI(),
+    guardrails=l0.Guardrails.recommended(),
+    retry=l0.Retry(max_attempts=5),
+    timeout=l0.Timeout(initial_token=10.0, inter_token=30.0),
+    continue_from_last_good_token=True,  # Resume from checkpoint on failure
+)
+
+response = await client.chat.completions.create(
+    model="gpt-4o",
+    messages=[{"role": "user", "content": "Hello!"}],
+    stream=True,
+)
 ```
 
 ### With LiteLLM (100+ Providers)
@@ -102,6 +129,7 @@ import litellm
 import l0
 
 async def main():
+    # For LiteLLM, use l0.run() with a factory function
     result = await l0.run(
         stream=lambda: litellm.acompletion(
             model="anthropic/claude-3-haiku-20240307",
@@ -111,44 +139,24 @@ async def main():
         guardrails=l0.Guardrails.recommended(),
     )
 
-    # Or just get full text
+    # Read full text
     text = await result.read()
     print(text)
 
 asyncio.run(main())
 ```
 
-### Simple Wrapping (No Lambda)
+### Wrap a Raw Stream (Simple Cases)
 
 ```python
 import l0
-import litellm
 
 async def main():
-    # Create your stream
-    stream = litellm.acompletion(
-        model="gpt-4o",
-        messages=[{"role": "user", "content": "Hello!"}],
-        stream=True,
-    )
-
-    # l0.wrap() returns immediately - no await needed!
-    result = l0.wrap(stream, guardrails=l0.Guardrails.recommended())
+    # For one-off streams without retry support
+    raw_stream = await client.chat.completions.create(..., stream=True)
     
-    # Read full text
+    result = l0.wrap(raw_stream)
     text = await result.read()
-    print(text)
-
-    # Or stream events
-    async for event in l0.wrap(stream):
-        if event.is_token:
-            print(event.text, end="")
-
-    # Or use context manager
-    async with l0.wrap(stream) as result:
-        async for event in result:
-            if event.is_token:
-                print(event.text, end="")
 ```
 
 ### Expanded Configuration
@@ -158,35 +166,17 @@ import asyncio
 import l0
 from openai import AsyncOpenAI
 
-client = AsyncOpenAI()
 prompt = "Write a haiku about coding"
 
 async def main():
-    result = await l0.run(
-        # Primary model stream
-        stream=lambda: client.chat.completions.create(
-            model="gpt-4o",
-            messages=[{"role": "user", "content": prompt}],
-            stream=True,
-        ),
-
-        # Optional: Fallback models
-        fallbacks=[
-            lambda: client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[{"role": "user", "content": prompt}],
-                stream=True,
-            ),
-        ],
-
-        # Optional: Guardrails
+    # Wrap client with full configuration
+    client = l0.wrap(
+        AsyncOpenAI(),
+        
+        # Guardrails
         guardrails=l0.Guardrails.recommended(),
-        # Or strict:
-        # guardrails=l0.Guardrails.strict(),
-        # Or custom:
-        # guardrails=[l0.json_rule(), l0.pattern_rule()],
-
-        # Optional: Retry configuration (defaults shown)
+        
+        # Retry configuration
         retry=l0.Retry(
             attempts=3,                              # LLM errors only
             max_retries=6,                           # Total (LLM + network)
@@ -194,22 +184,32 @@ async def main():
             max_delay=10.0,                          # Seconds
             strategy=l0.BackoffStrategy.FIXED_JITTER,
         ),
-
-        # Optional: Timeout configuration (defaults shown)
+        
+        # Timeout configuration
         timeout=l0.Timeout(
             initial_token=5.0,   # Seconds to first token
             inter_token=10.0,    # Seconds between tokens
         ),
-
-        # Optional: Event callback for observability
+        
+        # Checkpoint resumption (resume from last good token on failure)
+        continue_from_last_good_token=True,
+        
+        # Event callback for observability
         on_event=lambda event: print(f"[{event.type}]"),
-
-        # Optional: Metadata attached to all events
+        
+        # Metadata attached to all events
         meta={"user_id": "123", "session": "abc"},
     )
 
+    # Use the wrapped client normally
+    response = await client.chat.completions.create(
+        model="gpt-4o",
+        messages=[{"role": "user", "content": prompt}],
+        stream=True,
+    )
+
     # Stream events with Pythonic properties
-    async for event in result:
+    async for event in response:
         if event.is_token:
             print(event.text, end="")
         elif event.is_tool_call:
@@ -218,10 +218,33 @@ async def main():
             print(f"\nUsage: {event.usage}")
 
     # Access state anytime
-    print(f"\nTokens: {result.state.token_count}")
-    print(f"Duration: {result.state.duration}s")
+    print(f"\nTokens: {response.state.token_count}")
+    print(f"Duration: {response.state.duration}s")
 
 asyncio.run(main())
+```
+
+### Using l0.run() with Fallbacks
+
+For fallback models, use `l0.run()` with factory functions:
+
+```python
+result = await l0.run(
+    stream=lambda: client.chat.completions.create(
+        model="gpt-4o",
+        messages=[{"role": "user", "content": prompt}],
+        stream=True,
+    ),
+    fallbacks=[
+        lambda: client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            stream=True,
+        ),
+    ],
+    guardrails=l0.Guardrails.recommended(),
+    continue_from_last_good_token=True,
+)
 ```
 
 **See Also: [API.md](./API.md) - Complete API reference**
