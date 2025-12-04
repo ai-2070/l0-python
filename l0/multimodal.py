@@ -3,7 +3,7 @@
 Helpers for building adapters that handle image, audio, video, and other
 non-text AI outputs.
 
-Example:
+Example - Manual event creation:
     ```python
     from l0 import Multimodal
 
@@ -20,13 +20,50 @@ Example:
                 )
         yield Multimodal.complete()
     ```
+
+Example - Using to_events() converter:
+    ```python
+    from l0 import Multimodal
+
+    # Define extractors for your stream format
+    def extract_progress(chunk):
+        if chunk.type == "progress":
+            return {"percent": chunk.percent, "message": chunk.status}
+        return None
+
+    def extract_data(chunk):
+        if chunk.type == "image":
+            return Multimodal.image(
+                base64=chunk.image,
+                width=chunk.width,
+                height=chunk.height,
+            ).payload
+        return None
+
+    # Use in adapter
+    class FluxAdapter:
+        name = "flux"
+
+        def detect(self, stream):
+            return hasattr(stream, "__flux__")
+
+        def wrap(self, stream):
+            return Multimodal.to_events(
+                stream,
+                extract_progress=extract_progress,
+                extract_data=extract_data,
+            )
+    ```
 """
 
 from __future__ import annotations
 
-from typing import Any
+from collections.abc import AsyncIterator, Callable
+from typing import Any, TypeVar
 
 from .types import ContentType, DataPayload, Event, EventType, Progress
+
+T = TypeVar("T")
 
 
 class Multimodal:
@@ -307,3 +344,138 @@ class Multimodal:
     def error(error: Exception) -> Event:
         """Create an error event."""
         return Event(type=EventType.ERROR, error=error)
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Stream Conversion
+    # ─────────────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    async def to_events(
+        stream: AsyncIterator[T],
+        *,
+        extract_progress: Callable[[T], dict[str, Any] | Progress | None] | None = None,
+        extract_data: Callable[[T], DataPayload | None] | None = None,
+        extract_text: Callable[[T], str | None] | None = None,
+        extract_error: Callable[[T], Exception | None] | None = None,
+    ) -> AsyncIterator[Event]:
+        """Convert a multimodal stream to L0 events using extractors.
+
+        This is the easiest way to build a multimodal adapter. Provide
+        extractor functions that know how to pull progress, data, text,
+        or errors from your stream's chunk format.
+
+        Args:
+            stream: The source async iterator
+            extract_progress: Extract progress info from a chunk.
+                Return dict with keys: percent, step, total_steps, message, eta
+                Or return a Progress object directly.
+                Return None if chunk has no progress.
+            extract_data: Extract data payload from a chunk.
+                Return a DataPayload object.
+                Return None if chunk has no data.
+            extract_text: Extract text token from a chunk.
+                Return the text string.
+                Return None if chunk has no text.
+            extract_error: Extract error from a chunk.
+                Return an Exception.
+                Return None if chunk has no error.
+
+        Yields:
+            L0 Event objects
+
+        Example:
+            ```python
+            async def wrap(stream):
+                async for event in Multimodal.to_events(
+                    stream,
+                    extract_progress=lambda c: {"percent": c.progress} if c.type == "progress" else None,
+                    extract_data=lambda c: Multimodal.image(base64=c.image).payload if c.type == "image" else None,
+                ):
+                    yield event
+            ```
+        """
+        try:
+            async for chunk in stream:
+                # Try to extract progress
+                if extract_progress:
+                    progress_info = extract_progress(chunk)
+                    if progress_info is not None:
+                        if isinstance(progress_info, Progress):
+                            yield Event(type=EventType.PROGRESS, progress=progress_info)
+                        else:
+                            yield Event(
+                                type=EventType.PROGRESS,
+                                progress=Progress(
+                                    percent=progress_info.get("percent"),
+                                    step=progress_info.get("step"),
+                                    total_steps=progress_info.get("total_steps"),
+                                    message=progress_info.get("message"),
+                                    eta=progress_info.get("eta"),
+                                ),
+                            )
+
+                # Try to extract data
+                if extract_data:
+                    data_payload = extract_data(chunk)
+                    if data_payload is not None:
+                        yield Event(type=EventType.DATA, payload=data_payload)
+
+                # Try to extract text
+                if extract_text:
+                    text = extract_text(chunk)
+                    if text is not None:
+                        yield Event(type=EventType.TOKEN, text=text)
+
+                # Try to extract error
+                if extract_error:
+                    error = extract_error(chunk)
+                    if error is not None:
+                        yield Event(type=EventType.ERROR, error=error)
+                        return
+
+            # Stream completed successfully
+            yield Event(type=EventType.COMPLETE)
+
+        except Exception as e:
+            yield Event(type=EventType.ERROR, error=e)
+
+    @staticmethod
+    def from_stream(
+        stream: AsyncIterator[T],
+        *,
+        extract_progress: Callable[[T], dict[str, Any] | Progress | None] | None = None,
+        extract_data: Callable[[T], DataPayload | None] | None = None,
+        extract_text: Callable[[T], str | None] | None = None,
+        extract_error: Callable[[T], Exception | None] | None = None,
+    ) -> AsyncIterator[Event]:
+        """Convenience wrapper for to_events().
+
+        Same as to_events() but can be used directly without async iteration.
+
+        Args:
+            stream: The source async iterator
+            extract_progress: Extract progress info from a chunk
+            extract_data: Extract data payload from a chunk
+            extract_text: Extract text token from a chunk
+            extract_error: Extract error from a chunk
+
+        Returns:
+            Async iterator of L0 Events
+
+        Example:
+            ```python
+            # In an adapter
+            def wrap(self, stream):
+                return Multimodal.from_stream(
+                    stream,
+                    extract_data=lambda c: Multimodal.image(url=c.url).payload if c.url else None,
+                )
+            ```
+        """
+        return Multimodal.to_events(
+            stream,
+            extract_progress=extract_progress,
+            extract_data=extract_data,
+            extract_text=extract_text,
+            extract_error=extract_error,
+        )
