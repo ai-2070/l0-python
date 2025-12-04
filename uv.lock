@@ -945,7 +945,6 @@ dependencies = [
     { name = "httpx" },
     { name = "orjson" },
     { name = "pydantic" },
-    { name = "pytest" },
     { name = "typing-extensions" },
     { name = "uuid6" },
 ]
@@ -992,7 +991,6 @@ requires-dist = [
     { name = "opentelemetry-sdk", marker = "extra == 'observability'", specifier = ">=1.20" },
     { name = "orjson", specifier = ">=3.9.0" },
     { name = "pydantic", specifier = ">=2.0.0" },
-    { name = "pytest", specifier = ">=9.0.1" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.23" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.0" },
