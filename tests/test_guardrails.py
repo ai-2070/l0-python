@@ -1,0 +1,823 @@
+"""Tests for l0.guardrails module."""
+
+import time
+
+import pytest
+
+from l0.guardrails import (
+    BAD_PATTERNS,
+    GuardrailRule,
+    Guardrails,
+    GuardrailViolation,
+    JsonAnalysis,
+    LatexAnalysis,
+    MarkdownAnalysis,
+    analyze_json_structure,
+    analyze_latex_structure,
+    analyze_markdown_structure,
+    check_guardrails,
+    custom_pattern_rule,
+    find_bad_patterns,
+    is_noise_only,
+    is_zero_output,
+    json_rule,
+    latex_rule,
+    looks_like_json,
+    looks_like_latex,
+    looks_like_markdown,
+    markdown_rule,
+    pattern_rule,
+    recommended_guardrails,
+    repetition_rule,
+    stall_rule,
+    strict_guardrails,
+    strict_json_rule,
+    zero_output_rule,
+)
+from l0.types import State
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Core Types
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestGuardrailViolation:
+    def test_create_violation(self):
+        v = GuardrailViolation(
+            rule="test",
+            message="Test message",
+            severity="error",
+        )
+        assert v.rule == "test"
+        assert v.message == "Test message"
+        assert v.severity == "error"
+        assert v.recoverable is True
+
+    def test_violation_with_all_fields(self):
+        v = GuardrailViolation(
+            rule="test",
+            message="Test",
+            severity="fatal",
+            recoverable=False,
+            position=10,
+            timestamp=123.456,
+            context={"key": "value"},
+            suggestion="Fix it",
+        )
+        assert v.position == 10
+        assert v.timestamp == 123.456
+        assert v.context == {"key": "value"}
+        assert v.suggestion == "Fix it"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# JSON Analysis
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestAnalyzeJsonStructure:
+    def test_balanced_json(self):
+        result = analyze_json_structure('{"key": "value"}')
+        assert result.is_balanced is True
+        assert result.open_braces == 1
+        assert result.close_braces == 1
+        assert len(result.issues) == 0
+
+    def test_unbalanced_braces(self):
+        result = analyze_json_structure('{"key": "value"')
+        assert result.is_balanced is False
+        assert result.open_braces == 1
+        assert result.close_braces == 0
+        assert any("Unbalanced braces" in issue for issue in result.issues)
+
+    def test_too_many_closes(self):
+        result = analyze_json_structure('{"key": "value"}}')
+        assert result.is_balanced is False
+        assert any("Too many closing braces" in issue for issue in result.issues)
+
+    def test_unbalanced_brackets(self):
+        result = analyze_json_structure("[1, 2, 3")
+        assert result.is_balanced is False
+        assert result.open_brackets == 1
+        assert result.close_brackets == 0
+
+    def test_unclosed_string(self):
+        result = analyze_json_structure('{"key": "unclosed')
+        assert result.unclosed_string is True
+        assert result.in_string is True
+        assert any("Unclosed string" in issue for issue in result.issues)
+
+    def test_consecutive_commas(self):
+        result = analyze_json_structure('{"a": 1,, "b": 2}')
+        assert any("consecutive commas" in issue for issue in result.issues)
+
+    def test_malformed_pattern_brace(self):
+        result = analyze_json_structure("[,{]")
+        assert any("Malformed pattern" in issue for issue in result.issues)
+
+    def test_nested_json(self):
+        result = analyze_json_structure('{"a": {"b": [1, 2, {"c": 3}]}}')
+        assert result.is_balanced is True
+        assert result.open_braces == 3
+        assert result.close_braces == 3
+
+    def test_string_with_braces(self):
+        # Braces inside strings should not be counted
+        result = analyze_json_structure('{"key": "{not a brace}"}')
+        assert result.is_balanced is True
+
+
+class TestLooksLikeJson:
+    def test_object_start(self):
+        assert looks_like_json('{"key": "value"}') is True
+
+    def test_array_start(self):
+        assert looks_like_json("[1, 2, 3]") is True
+
+    def test_not_json(self):
+        assert looks_like_json("Hello world") is False
+
+    def test_empty(self):
+        assert looks_like_json("") is False
+
+    def test_whitespace_then_json(self):
+        assert looks_like_json('  {"key": 1}') is True
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Markdown Analysis
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestAnalyzeMarkdownStructure:
+    def test_balanced_fences(self):
+        result = analyze_markdown_structure("```js\ncode\n```")
+        assert result.is_balanced is True
+        assert result.in_fence is False
+        assert result.open_fences == 1
+        assert result.close_fences == 1
+
+    def test_unclosed_fence(self):
+        result = analyze_markdown_structure("```js\ncode")
+        assert result.is_balanced is False
+        assert result.in_fence is True
+        assert any("Unclosed code fence" in issue for issue in result.issues)
+
+    def test_fence_language_detected(self):
+        result = analyze_markdown_structure("```python\ncode\n```")
+        assert "python" in result.fence_languages
+
+    def test_multiple_fences(self):
+        content = "```js\ncode1\n```\n\n```py\ncode2\n```"
+        result = analyze_markdown_structure(content)
+        assert result.is_balanced is True
+        assert result.open_fences == 2
+
+
+class TestLooksLikeMarkdown:
+    def test_header(self):
+        assert looks_like_markdown("# Header") is True
+
+    def test_code_fence(self):
+        assert looks_like_markdown("```code```") is True
+
+    def test_list(self):
+        assert looks_like_markdown("- item") is True
+
+    def test_link(self):
+        assert looks_like_markdown("[text](url)") is True
+
+    def test_bold(self):
+        assert looks_like_markdown("**bold**") is True
+
+    def test_plain_text(self):
+        assert looks_like_markdown("Just plain text") is False
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# LaTeX Analysis
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestAnalyzeLatexStructure:
+    def test_balanced_environment(self):
+        result = analyze_latex_structure(r"\begin{equation}x=1\end{equation}")
+        assert result.is_balanced is True
+        assert len(result.open_environments) == 0
+
+    def test_unclosed_environment(self):
+        result = analyze_latex_structure(r"\begin{equation}x=1")
+        assert result.is_balanced is False
+        assert "equation" in result.open_environments
+
+    def test_mismatched_environment(self):
+        result = analyze_latex_structure(r"\begin{equation}x=1\end{align}")
+        assert any("Mismatched" in issue for issue in result.issues)
+
+    def test_starred_environment_balanced(self):
+        """Starred environments like align* should be detected."""
+        result = analyze_latex_structure(r"\begin{align*}x=1\end{align*}")
+        assert result.is_balanced is True
+        assert len(result.open_environments) == 0
+
+    def test_starred_environment_unbalanced(self):
+        """Unclosed starred environments should be detected."""
+        result = analyze_latex_structure(r"\begin{align*}x=1")
+        assert result.is_balanced is False
+        assert "align*" in result.open_environments
+
+    def test_starred_environment_mismatched(self):
+        """Mismatched starred environments should be detected."""
+        result = analyze_latex_structure(r"\begin{align*}x=1\end{equation*}")
+        assert any("Mismatched" in issue for issue in result.issues)
+
+    def test_display_math_balanced(self):
+        result = analyze_latex_structure("$$x=1$$")
+        assert result.display_math_balanced is True
+
+    def test_display_math_unbalanced(self):
+        result = analyze_latex_structure("$$x=1")
+        assert result.display_math_balanced is False
+
+    def test_bracket_math_balanced(self):
+        result = analyze_latex_structure(r"\[x=1\]")
+        assert result.bracket_math_balanced is True
+
+    def test_bracket_math_unbalanced(self):
+        result = analyze_latex_structure(r"\[x=1")
+        assert result.bracket_math_balanced is False
+
+    def test_inline_math_balanced(self):
+        result = analyze_latex_structure("$x=1$")
+        assert result.inline_math_balanced is True
+
+    def test_inline_math_unbalanced(self):
+        result = analyze_latex_structure("$x=1")
+        assert result.inline_math_balanced is False
+
+    def test_escaped_dollar_not_counted_as_math(self):
+        """Escaped dollar signs should not be treated as math delimiters."""
+        result = analyze_latex_structure(r"The price is \$100")
+        assert result.inline_math_balanced is True
+
+    def test_escaped_dollar_with_actual_math(self):
+        """Escaped dollars mixed with real math should work correctly."""
+        result = analyze_latex_structure(r"Cost is \$50 and $x=1$")
+        assert result.inline_math_balanced is True
+
+    def test_multiple_escaped_dollars(self):
+        """Multiple escaped dollar signs should all be ignored."""
+        result = analyze_latex_structure(r"\$10, \$20, and \$30")
+        assert result.inline_math_balanced is True
+
+    def test_unbalanced_with_escaped_dollar(self):
+        """Unbalanced math should still be detected with escaped dollars present."""
+        result = analyze_latex_structure(r"\$100 and $x=1")
+        assert result.inline_math_balanced is False
+
+
+class TestLooksLikeLatex:
+    def test_begin_end(self):
+        assert looks_like_latex(r"\begin{document}") is True
+
+    def test_display_math(self):
+        assert looks_like_latex("$$x=1$$") is True
+
+    def test_frac(self):
+        assert looks_like_latex(r"\frac{1}{2}") is True
+
+    def test_plain_text(self):
+        assert looks_like_latex("Just text") is False
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Zero Output / Noise Detection
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestIsZeroOutput:
+    def test_empty_string(self):
+        assert is_zero_output("") is True
+
+    def test_whitespace_only(self):
+        assert is_zero_output("   \n\t  ") is True
+
+    def test_content(self):
+        assert is_zero_output("Hello") is False
+
+
+class TestIsNoiseOnly:
+    def test_punctuation_only(self):
+        assert is_noise_only("...") is True
+        assert is_noise_only("!?!?") is True
+
+    def test_repeated_char(self):
+        assert is_noise_only("aaaaaaaaaaaaa") is True
+
+    def test_real_content(self):
+        assert is_noise_only("Hello world") is False
+
+    def test_empty(self):
+        assert is_noise_only("") is True
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Bad Patterns
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestBadPatterns:
+    def test_has_categories(self):
+        assert len(BAD_PATTERNS.META_COMMENTARY) > 0
+        assert len(BAD_PATTERNS.HEDGING) > 0
+        assert len(BAD_PATTERNS.REFUSAL) > 0
+        assert len(BAD_PATTERNS.INSTRUCTION_LEAK) > 0
+        assert len(BAD_PATTERNS.PLACEHOLDERS) > 0
+        assert len(BAD_PATTERNS.FORMAT_COLLAPSE) > 0
+
+    def test_all_patterns(self):
+        all_patterns = BAD_PATTERNS.all_patterns()
+        assert len(all_patterns) > 50  # Should have many patterns
+
+
+class TestFindBadPatterns:
+    def test_find_meta_commentary(self):
+        matches = find_bad_patterns(
+            "As an AI, I cannot help", BAD_PATTERNS.META_COMMENTARY
+        )
+        assert len(matches) > 0
+
+    def test_find_hedging(self):
+        matches = find_bad_patterns("Sure! I'd be happy to help", BAD_PATTERNS.HEDGING)
+        assert len(matches) > 0
+
+    def test_no_matches(self):
+        matches = find_bad_patterns(
+            "Normal response text", BAD_PATTERNS.META_COMMENTARY
+        )
+        assert len(matches) == 0
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# JSON Rule
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestJsonRule:
+    def test_balanced_json_passes(self):
+        state = State(content='{"key": "value"}')
+        rule = json_rule()
+        violations = rule.check(state)
+        assert len(violations) == 0
+
+    def test_unbalanced_json_fails(self):
+        state = State(content='{"key": "value"}}')
+        rule = json_rule()
+        violations = rule.check(state)
+        assert len(violations) >= 1
+        assert violations[0].rule == "json"
+
+    def test_non_json_skipped(self):
+        state = State(content="Just plain text")
+        rule = json_rule()
+        violations = rule.check(state)
+        assert len(violations) == 0
+
+    def test_malformed_pattern_detected(self):
+        # Test unbalanced braces which is detected as malformed
+        state = State(content='{"a": 1}}}', completed=True)
+        rule = json_rule()
+        violations = rule.check(state)
+        assert len(violations) >= 1
+        assert any("brace" in v.message.lower() for v in violations)
+
+    def test_missing_closing_brace_on_completion(self):
+        """Test that missing closing braces are detected on completion."""
+        state = State(content='{"key": "value"', completed=True)
+        rule = json_rule()
+        violations = rule.check(state)
+        assert len(violations) >= 1
+        assert any("missing" in v.message.lower() for v in violations)
+
+    def test_missing_closing_bracket_on_completion(self):
+        """Test that missing closing brackets are detected on completion."""
+        state = State(content="[1, 2, 3", completed=True)
+        rule = json_rule()
+        violations = rule.check(state)
+        assert len(violations) >= 1
+        assert any("missing" in v.message.lower() for v in violations)
+
+
+class TestStrictJsonRule:
+    def test_valid_json_passes(self):
+        state = State(content='{"key": "value"}', completed=True)
+        rule = strict_json_rule()
+        violations = rule.check(state)
+        assert len(violations) == 0
+
+    def test_invalid_json_fails(self):
+        state = State(content='{"key": value}', completed=True)
+        rule = strict_json_rule()
+        violations = rule.check(state)
+        assert len(violations) == 1
+        assert "Invalid JSON" in violations[0].message
+
+    def test_incomplete_stream_skipped(self):
+        state = State(content='{"key":', completed=False)
+        rule = strict_json_rule()
+        violations = rule.check(state)
+        assert len(violations) == 0
+
+    def test_non_json_content_fails(self):
+        """Test that non-JSON content is flagged as a violation."""
+        state = State(content="This is plain text", completed=True)
+        rule = strict_json_rule()
+        violations = rule.check(state)
+        assert len(violations) == 1
+        assert "does not appear to be JSON" in violations[0].message
+
+    def test_empty_content_fails(self):
+        """Test that empty content is flagged as a violation."""
+        state = State(content="", completed=True)
+        rule = strict_json_rule()
+        violations = rule.check(state)
+        assert len(violations) == 1
+        assert "Empty output" in violations[0].message
+
+    def test_whitespace_only_content_fails(self):
+        """Test that whitespace-only content is flagged as a violation."""
+        state = State(content="   \n\t  ", completed=True)
+        rule = strict_json_rule()
+        violations = rule.check(state)
+        assert len(violations) == 1
+        assert "Empty output" in violations[0].message
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Markdown Rule
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestMarkdownRule:
+    def test_balanced_markdown_passes(self):
+        state = State(content="```js\ncode\n```", completed=True)
+        rule = markdown_rule()
+        violations = rule.check(state)
+        assert len(violations) == 0
+
+    def test_unclosed_fence_fails(self):
+        state = State(content="```js\ncode", completed=True)
+        rule = markdown_rule()
+        violations = rule.check(state)
+        assert len(violations) >= 1
+        assert any("Unclosed" in v.message for v in violations)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# LaTeX Rule
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestLatexRule:
+    def test_balanced_latex_passes(self):
+        state = State(content=r"\begin{equation}x\end{equation}", completed=True)
+        rule = latex_rule()
+        violations = rule.check(state)
+        assert len(violations) == 0
+
+    def test_unclosed_environment_fails(self):
+        state = State(content=r"\begin{equation}x", completed=True)
+        rule = latex_rule()
+        violations = rule.check(state)
+        assert len(violations) >= 1
+
+    def test_non_latex_skipped(self):
+        state = State(content="Just plain text", completed=True)
+        rule = latex_rule()
+        violations = rule.check(state)
+        assert len(violations) == 0
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Pattern Rule
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestPatternRule:
+    def test_default_patterns(self):
+        rule = pattern_rule()
+        state = State(content="As an AI, I cannot do that")
+        violations = rule.check(state)
+        assert len(violations) >= 1
+
+    def test_custom_patterns(self):
+        rule = pattern_rule(patterns=[r"\bfoo\b"])
+        state = State(content="This has foo in it")
+        violations = rule.check(state)
+        assert len(violations) == 1
+
+    def test_no_match_passes(self):
+        rule = pattern_rule()
+        state = State(content="Normal response without triggers")
+        violations = rule.check(state)
+        assert len(violations) == 0
+
+    def test_include_categories(self):
+        rule = pattern_rule(include_categories=["META_COMMENTARY"])
+        state = State(content="As an AI assistant, I can help")
+        violations = rule.check(state)
+        assert len(violations) >= 1
+
+    def test_exclude_categories(self):
+        rule = pattern_rule(
+            exclude_categories=["META_COMMENTARY", "HEDGING", "REFUSAL"]
+        )
+        state = State(content="As an AI, I cannot help")
+        violations = rule.check(state)
+        # Should not match META_COMMENTARY or REFUSAL patterns
+        assert len(violations) == 0
+
+
+class TestCustomPatternRule:
+    def test_custom_rule(self):
+        rule = custom_pattern_rule(
+            [r"forbidden", r"blocked"], "Custom violation", "error"
+        )
+        state = State(content="This is forbidden content")
+        violations = rule.check(state)
+        assert len(violations) == 1
+        assert "Custom violation" in violations[0].message
+        assert violations[0].severity == "error"
+
+    def test_no_match(self):
+        rule = custom_pattern_rule([r"forbidden"], "Custom", "error")
+        state = State(content="Normal content")
+        violations = rule.check(state)
+        assert len(violations) == 0
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Zero Output Rule
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestZeroOutputRule:
+    def test_empty_completed_fails(self):
+        state = State(content="", completed=True)
+        rule = zero_output_rule()
+        violations = rule.check(state)
+        assert len(violations) == 1
+
+    def test_whitespace_only_fails(self):
+        state = State(content="   \n\t  ", completed=True)
+        rule = zero_output_rule()
+        violations = rule.check(state)
+        assert len(violations) == 1
+
+    def test_noise_only_fails(self):
+        state = State(content="...", completed=True)
+        rule = zero_output_rule()
+        violations = rule.check(state)
+        assert len(violations) == 1
+        assert "noise" in violations[0].message.lower()
+
+    def test_content_passes(self):
+        state = State(content="Hello world", completed=True)
+        rule = zero_output_rule()
+        violations = rule.check(state)
+        assert len(violations) == 0
+
+    def test_incomplete_stream_skipped(self):
+        state = State(content="", completed=False)
+        rule = zero_output_rule()
+        violations = rule.check(state)
+        assert len(violations) == 0
+
+    def test_instant_completion_warning(self):
+        state = State(content="Hi", completed=True, duration=0.1)
+        rule = zero_output_rule(min_completion_time=0.5)
+        violations = rule.check(state)
+        assert any("instant" in v.message.lower() for v in violations)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Drift Detection
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestStallRule:
+    def test_no_stall(self):
+        state = State(last_token_at=time.time())
+        rule = stall_rule(max_gap=5.0)
+        violations = rule.check(state)
+        assert len(violations) == 0
+
+    def test_stall_detected(self):
+        state = State(last_token_at=time.time() - 10)
+        rule = stall_rule(max_gap=5.0)
+        violations = rule.check(state)
+        assert len(violations) == 1
+        assert state.drift_detected is True
+
+
+class TestRepetitionRule:
+    def test_no_repetition(self):
+        state = State(content="a" * 100 + "b" * 100)
+        rule = repetition_rule(window=100, threshold=0.5)
+        violations = rule.check(state)
+        # No character-based repetition violation
+        char_violations = [v for v in violations if "character" in v.message.lower()]
+        assert len(char_violations) == 0
+
+    def test_repetition_detected(self):
+        repeated_block = "x" * 100
+        state = State(content=repeated_block + repeated_block)
+        rule = repetition_rule(window=100, threshold=0.5)
+        violations = rule.check(state)
+        assert len(violations) >= 1
+        assert state.drift_detected is True
+
+    def test_short_content_skipped(self):
+        state = State(content="short")
+        rule = repetition_rule(window=100)
+        violations = rule.check(state)
+        assert len(violations) == 0
+
+    def test_sentence_repetition(self):
+        sentence = "This is a repeated sentence. "
+        state = State(content=sentence * 5)
+        rule = repetition_rule(sentence_check=True, sentence_repeat_count=3)
+        violations = rule.check(state)
+        assert any("repeated" in v.message.lower() for v in violations)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Check Guardrails
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestCheckGuardrails:
+    def test_runs_all_rules(self):
+        state = State(content="As an AI, I cannot help", completed=True)
+        rules = [pattern_rule(), zero_output_rule()]
+        violations = check_guardrails(state, rules)
+        assert len(violations) >= 1
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Presets
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestPresets:
+    def test_minimal_guardrails(self):
+        rules = Guardrails.minimal()
+        assert len(rules) == 2
+        names = [r.name for r in rules]
+        assert "json" in names
+        assert "zero_output" in names
+
+    def test_recommended_guardrails(self):
+        rules = Guardrails.recommended()
+        assert len(rules) == 4
+        names = [r.name for r in rules]
+        assert "json" in names
+        assert "markdown" in names
+        assert "pattern" in names
+        assert "zero_output" in names
+
+    def test_strict_guardrails(self):
+        rules = Guardrails.strict()
+        assert len(rules) == 8
+        names = [r.name for r in rules]
+        assert "strict_json" in names
+        assert "latex" in names
+        assert "stall" in names
+        assert "repetition" in names
+
+    def test_json_only(self):
+        rules = Guardrails.json_only()
+        assert len(rules) == 3
+        names = [r.name for r in rules]
+        assert "json" in names
+        assert "strict_json" in names
+
+    def test_markdown_only(self):
+        rules = Guardrails.markdown_only()
+        assert len(rules) == 2
+        names = [r.name for r in rules]
+        assert "markdown" in names
+
+    def test_latex_only(self):
+        rules = Guardrails.latex_only()
+        assert len(rules) == 2
+        names = [r.name for r in rules]
+        assert "latex" in names
+
+    def test_none(self):
+        rules = Guardrails.none()
+        assert len(rules) == 0
+
+    def test_legacy_recommended(self):
+        rules = recommended_guardrails()
+        assert len(rules) == 4
+
+    def test_legacy_strict(self):
+        rules = strict_guardrails()
+        assert len(rules) == 8
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Guardrails Namespace
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestGuardrailsNamespace:
+    """Tests for the Guardrails namespace class."""
+
+    def test_rules_json(self):
+        rule = Guardrails.json()
+        assert rule.name == "json"
+
+    def test_rules_strict_json(self):
+        rule = Guardrails.strict_json()
+        assert rule.name == "strict_json"
+
+    def test_rules_markdown(self):
+        rule = Guardrails.markdown()
+        assert rule.name == "markdown"
+
+    def test_rules_latex(self):
+        rule = Guardrails.latex()
+        assert rule.name == "latex"
+
+    def test_rules_pattern(self):
+        rule = Guardrails.pattern()
+        assert rule.name == "pattern"
+
+    def test_rules_custom_pattern(self):
+        rule = Guardrails.custom_pattern([r"test"], "Test msg", "warning")
+        assert rule.name == "custom_pattern"
+
+    def test_rules_zero_output(self):
+        rule = Guardrails.zero_output()
+        assert rule.name == "zero_output"
+
+    def test_rules_stall(self):
+        rule = Guardrails.stall(max_gap=10.0)
+        assert rule.name == "stall"
+
+    def test_rules_repetition(self):
+        rule = Guardrails.repetition(window=50)
+        assert rule.name == "repetition"
+
+    def test_analyze_json(self):
+        result = Guardrails.analyze_json('{"key": 1}')
+        assert result.is_balanced is True
+
+    def test_analyze_markdown(self):
+        result = Guardrails.analyze_markdown("```\ncode\n```")
+        assert result.is_balanced is True
+
+    def test_analyze_latex(self):
+        result = Guardrails.analyze_latex(r"\begin{doc}\end{doc}")
+        assert result.is_balanced is True
+
+    def test_looks_like_json(self):
+        assert Guardrails.looks_like_json("{}") is True
+        assert Guardrails.looks_like_json("hello") is False
+
+    def test_looks_like_markdown(self):
+        assert Guardrails.looks_like_markdown("# Header") is True
+
+    def test_looks_like_latex(self):
+        assert Guardrails.looks_like_latex(r"\begin{doc}") is True
+
+    def test_is_zero_output(self):
+        assert Guardrails.is_zero_output("") is True
+        assert Guardrails.is_zero_output("hello") is False
+
+    def test_is_noise_only(self):
+        assert Guardrails.is_noise_only("...") is True
+        assert Guardrails.is_noise_only("hello") is False
+
+    def test_find_patterns(self):
+        matches = Guardrails.find_patterns(
+            "As an AI", Guardrails.BAD_PATTERNS.META_COMMENTARY
+        )
+        assert len(matches) > 0
+
+    def test_bad_patterns(self):
+        assert len(Guardrails.BAD_PATTERNS.META_COMMENTARY) > 0
+        assert len(Guardrails.BAD_PATTERNS.HEDGING) > 0
+
+    def test_types_accessible(self):
+        assert Guardrails.Rule is not None
+        assert Guardrails.Violation is not None
+        assert Guardrails.JsonAnalysis is not None
+
+    def test_check(self):
+        state = State(content="As an AI", completed=True)
+        rules = [Guardrails.pattern()]
+        violations = Guardrails.check(state, rules)
+        assert len(violations) >= 1

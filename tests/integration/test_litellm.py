@@ -1,0 +1,213 @@
+"""Integration tests with LiteLLM.
+
+These tests require litellm to be installed and an API key to be set.
+LiteLLM supports 100+ providers - tests use OpenAI by default but can use any.
+
+Run with: pytest tests/integration/test_litellm.py -v
+"""
+
+import pytest
+from pydantic import BaseModel
+
+import l0
+from tests.conftest import requires_litellm
+
+
+@requires_litellm
+class TestLiteLLMIntegration:
+    """Integration tests using LiteLLM."""
+
+    @pytest.mark.asyncio
+    async def test_basic_wrap(self):
+        """Test basic l0.wrap() with LiteLLM."""
+        import litellm  # type: ignore[import-not-found]
+
+        stream = await litellm.acompletion(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": "Say 'hello' and nothing else."}],
+            stream=True,
+            max_tokens=10,
+        )
+
+        result = l0.wrap(stream, adapter="litellm")
+        text = await result.read()
+
+        assert "hello" in text.lower()
+        assert result.state.token_count > 0
+        assert result.state.completed
+
+    @pytest.mark.asyncio
+    async def test_streaming_events(self):
+        """Test streaming individual events."""
+        import litellm  # type: ignore[import-not-found]
+
+        stream = await litellm.acompletion(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": "Count from 1 to 3."}],
+            stream=True,
+            max_tokens=20,
+        )
+
+        tokens = []
+        async for event in l0.wrap(stream, adapter="litellm"):
+            if event.is_token:
+                tokens.append(event.text)
+            elif event.is_complete:
+                break
+
+        assert len(tokens) > 0
+        full_text = "".join(t for t in tokens if t)
+        assert any(c in full_text for c in ["1", "2", "3"])
+
+    @pytest.mark.asyncio
+    async def test_with_guardrails(self):
+        """Test streaming with guardrails."""
+        import litellm  # type: ignore[import-not-found]
+
+        stream = await litellm.acompletion(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": "Say 'hello world'."}],
+            stream=True,
+            max_tokens=10,
+        )
+
+        result = l0.wrap(
+            stream, adapter="litellm", guardrails=l0.Guardrails.recommended()
+        )
+        text = await result.read()
+
+        assert len(text) > 0
+        assert len(result.state.violations) == 0
+
+    @pytest.mark.asyncio
+    async def test_context_manager(self):
+        """Test async context manager pattern."""
+        import litellm  # type: ignore[import-not-found]
+
+        stream = await litellm.acompletion(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": "Say 'hi'."}],
+            stream=True,
+            max_tokens=5,
+        )
+
+        async with l0.wrap(stream, adapter="litellm") as result:
+            tokens = []
+            async for event in result:
+                if event.is_token and event.text:
+                    tokens.append(event.text)
+
+        assert len(tokens) > 0
+
+    @pytest.mark.asyncio
+    async def test_observability_callback(self):
+        """Test observability event callback."""
+        import litellm  # type: ignore[import-not-found]
+
+        events_received = []
+
+        def on_event(event):
+            events_received.append(event.type)
+
+        stream = await litellm.acompletion(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": "Hi"}],
+            stream=True,
+            max_tokens=5,
+        )
+
+        result = l0.wrap(stream, adapter="litellm", on_event=on_event)
+        await result.read()
+
+        assert len(events_received) > 0
+        assert l0.ObservabilityEventType.STREAM_INIT in events_received
+        assert l0.ObservabilityEventType.COMPLETE in events_received
+
+    @pytest.mark.asyncio
+    async def test_with_timeout(self):
+        """Test that fast responses don't timeout."""
+        import litellm  # type: ignore[import-not-found]
+
+        stream = await litellm.acompletion(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": "Say 'ok'."}],
+            stream=True,
+            max_tokens=5,
+        )
+
+        result = l0.wrap(
+            stream,
+            adapter="litellm",
+            timeout=l0.Timeout(initial_token=30.0, inter_token=30.0),
+        )
+        text = await result.read()
+
+        assert len(text) > 0
+
+
+@requires_litellm
+class TestLiteLLMRunWithFallbacks:
+    """Test l0.run() with fallbacks using LiteLLM."""
+
+    @pytest.mark.asyncio
+    async def test_fallback_succeeds(self):
+        """Test that fallback works when using valid models."""
+        import litellm  # type: ignore[import-not-found]
+
+        # run() needs lambdas for retry/fallback support
+        result = await l0.run(
+            stream=lambda: litellm.acompletion(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": "Say 'primary'."}],
+                stream=True,
+                max_tokens=10,
+            ),
+            fallbacks=[
+                lambda: litellm.acompletion(
+                    model="gpt-4o-mini",
+                    messages=[{"role": "user", "content": "Say 'fallback'."}],
+                    stream=True,
+                    max_tokens=10,
+                ),
+            ],
+            adapter="litellm",
+        )
+
+        text = await result.read()
+        # Primary should succeed
+        assert result.state.fallback_index == 0
+        assert "primary" in text.lower()
+
+
+@requires_litellm
+class TestLiteLLMStructuredOutput:
+    """Test structured output with LiteLLM."""
+
+    @pytest.mark.asyncio
+    async def test_structured_json(self):
+        """Test structured output parsing."""
+        import litellm  # type: ignore[import-not-found]
+
+        class Person(BaseModel):
+            name: str
+            age: int
+
+        # structured() needs lambda for potential retries
+        result = await l0.structured(
+            schema=Person,
+            stream=lambda: litellm.acompletion(
+                model="gpt-4o-mini",
+                messages=[
+                    {
+                        "role": "user",
+                        "content": 'Return JSON: {"name": "Alice", "age": 30}',
+                    }
+                ],
+                stream=True,
+                max_tokens=50,
+            ),
+            adapter="litellm",
+        )
+
+        assert result.name == "Alice"
+        assert result.age == 30
