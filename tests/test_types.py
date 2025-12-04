@@ -137,7 +137,7 @@ class TestStream:
     @pytest.mark.asyncio
     async def test_read_returns_content(self):
         """Test that read() returns accumulated content."""
-        from l0.types import Stream
+        from src.l0.types import Stream
 
         # Create a simple async iterator
         async def token_iterator():
@@ -163,7 +163,7 @@ class TestStream:
     @pytest.mark.asyncio
     async def test_read_consumes_stream(self):
         """Test that read() consumes the stream and returns text."""
-        from l0.types import Stream
+        from src.l0.types import Stream
 
         async def token_iterator():
             for token in ["Test", " ", "content"]:

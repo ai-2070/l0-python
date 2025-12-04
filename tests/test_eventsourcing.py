@@ -1,4 +1,4 @@
-"""Tests for l0.eventsourcing module."""
+"""Tests for src.l0.eventsourcing module."""
 
 import shutil
 import tempfile
@@ -86,7 +86,7 @@ class TestInMemoryEventStore:
 
     @pytest.mark.asyncio
     async def test_append_and_get_events(self, store):
-        from l0.eventsourcing.types import TokenEvent, now_ms
+        from src.l0.eventsourcing.types import TokenEvent, now_ms
 
         stream_id = "test-stream"
         event = TokenEvent(ts=now_ms(), value="Hello", index=0)
@@ -101,7 +101,7 @@ class TestInMemoryEventStore:
 
     @pytest.mark.asyncio
     async def test_exists(self, store):
-        from l0.eventsourcing.types import TokenEvent, now_ms
+        from src.l0.eventsourcing.types import TokenEvent, now_ms
 
         stream_id = "test-stream"
         assert await store.exists(stream_id) is False
@@ -112,7 +112,7 @@ class TestInMemoryEventStore:
 
     @pytest.mark.asyncio
     async def test_delete(self, store):
-        from l0.eventsourcing.types import TokenEvent, now_ms
+        from src.l0.eventsourcing.types import TokenEvent, now_ms
 
         stream_id = "test-stream"
         event = TokenEvent(ts=now_ms(), value="Hello", index=0)
@@ -123,7 +123,7 @@ class TestInMemoryEventStore:
 
     @pytest.mark.asyncio
     async def test_list_streams(self, store):
-        from l0.eventsourcing.types import TokenEvent, now_ms
+        from src.l0.eventsourcing.types import TokenEvent, now_ms
 
         event = TokenEvent(ts=now_ms(), value="Hello", index=0)
         await store.append("stream-1", event)
@@ -135,7 +135,7 @@ class TestInMemoryEventStore:
 
     @pytest.mark.asyncio
     async def test_get_last_event(self, store):
-        from l0.eventsourcing.types import TokenEvent, now_ms
+        from src.l0.eventsourcing.types import TokenEvent, now_ms
 
         stream_id = "test-stream"
         await store.append(stream_id, TokenEvent(ts=now_ms(), value="A", index=0))
@@ -147,7 +147,7 @@ class TestInMemoryEventStore:
 
     @pytest.mark.asyncio
     async def test_get_events_after(self, store):
-        from l0.eventsourcing.types import TokenEvent, now_ms
+        from src.l0.eventsourcing.types import TokenEvent, now_ms
 
         stream_id = "test-stream"
         await store.append(stream_id, TokenEvent(ts=now_ms(), value="A", index=0))
@@ -193,7 +193,7 @@ class TestFileEventStore:
 
     @pytest.mark.asyncio
     async def test_append_and_get_events(self, store):
-        from l0.eventsourcing.types import TokenEvent, now_ms
+        from src.l0.eventsourcing.types import TokenEvent, now_ms
 
         stream_id = "test-stream"
         event = TokenEvent(ts=now_ms(), value="Hello", index=0)
@@ -206,7 +206,7 @@ class TestFileEventStore:
 
     @pytest.mark.asyncio
     async def test_exists(self, store):
-        from l0.eventsourcing.types import TokenEvent, now_ms
+        from src.l0.eventsourcing.types import TokenEvent, now_ms
 
         stream_id = "test-stream"
         assert await store.exists(stream_id) is False
@@ -217,7 +217,7 @@ class TestFileEventStore:
 
     @pytest.mark.asyncio
     async def test_delete(self, store):
-        from l0.eventsourcing.types import TokenEvent, now_ms
+        from src.l0.eventsourcing.types import TokenEvent, now_ms
 
         stream_id = "test-stream"
         event = TokenEvent(ts=now_ms(), value="Hello", index=0)
@@ -228,7 +228,7 @@ class TestFileEventStore:
 
     @pytest.mark.asyncio
     async def test_list_streams(self, store):
-        from l0.eventsourcing.types import TokenEvent, now_ms
+        from src.l0.eventsourcing.types import TokenEvent, now_ms
 
         event = TokenEvent(ts=now_ms(), value="Hello", index=0)
         await store.append("stream-1", event)
@@ -240,7 +240,7 @@ class TestFileEventStore:
 
     @pytest.mark.asyncio
     async def test_snapshot(self, store):
-        from l0.eventsourcing.types import Snapshot
+        from src.l0.eventsourcing.types import Snapshot
 
         snapshot = Snapshot(
             stream_id="test-stream",
@@ -415,7 +415,7 @@ class TestEventReplayer:
     @pytest.mark.asyncio
     async def test_replay_result_continuation_rewinds_token_count(self, store):
         """Test that ReplayResult also rewinds token_count on continuation."""
-        from l0.eventsourcing.replayer import replay
+        from src.l0.eventsourcing.replayer import replay
 
         recorder = EventRecorder(store, "test-stream")
         await recorder.record_start({})
@@ -501,7 +501,7 @@ class TestEventSourcing:
         assert meta.completed is True
 
     def test_compare_identical(self):
-        from l0.eventsourcing import ReplayedState
+        from src.l0.eventsourcing import ReplayedState
 
         state1 = ReplayedState(content="Hello", token_count=1, completed=True)
         state2 = ReplayedState(content="Hello", token_count=1, completed=True)
@@ -511,7 +511,7 @@ class TestEventSourcing:
         assert len(comparison.differences) == 0
 
     def test_compare_different(self):
-        from l0.eventsourcing import ReplayedState
+        from src.l0.eventsourcing import ReplayedState
 
         state1 = ReplayedState(content="Hello", token_count=1, completed=True)
         state2 = ReplayedState(content="World", token_count=2, completed=False)
@@ -522,7 +522,7 @@ class TestEventSourcing:
 
     def test_compare_different_violations_same_length(self):
         """Test that violations with same length but different contents are detected."""
-        from l0.eventsourcing import ReplayedState
+        from src.l0.eventsourcing import ReplayedState
 
         state1 = ReplayedState(
             content="Hello",
@@ -543,8 +543,8 @@ class TestEventSourcing:
 
     def test_compare_different_errors(self):
         """Test that different errors are detected."""
-        from l0.eventsourcing import ReplayedState
-        from l0.eventsourcing.types import SerializedError
+        from src.l0.eventsourcing import ReplayedState
+        from src.l0.eventsourcing.types import SerializedError
 
         state1 = ReplayedState(
             content="Hello",
@@ -565,8 +565,8 @@ class TestEventSourcing:
 
     def test_compare_error_vs_no_error(self):
         """Test that presence/absence of error is detected."""
-        from l0.eventsourcing import ReplayedState
-        from l0.eventsourcing.types import SerializedError
+        from src.l0.eventsourcing import ReplayedState
+        from src.l0.eventsourcing.types import SerializedError
 
         state1 = ReplayedState(
             content="Hello",
@@ -587,7 +587,7 @@ class TestEventSourcing:
 
     def test_compare_different_network_retry_count(self):
         """Test that different network_retry_count is detected."""
-        from l0.eventsourcing import ReplayedState
+        from src.l0.eventsourcing import ReplayedState
 
         state1 = ReplayedState(content="Hello", network_retry_count=0)
         state2 = ReplayedState(content="Hello", network_retry_count=3)
@@ -598,7 +598,7 @@ class TestEventSourcing:
 
     def test_compare_different_timestamps(self):
         """Test that different timestamps are detected."""
-        from l0.eventsourcing import ReplayedState
+        from src.l0.eventsourcing import ReplayedState
 
         state1 = ReplayedState(content="Hello", start_ts=1000.0, end_ts=2000.0)
         state2 = ReplayedState(content="Hello", start_ts=1000.0, end_ts=3000.0)
@@ -609,7 +609,7 @@ class TestEventSourcing:
 
     def test_compare_different_checkpoint(self):
         """Test that different checkpoints are detected."""
-        from l0.eventsourcing import ReplayedState
+        from src.l0.eventsourcing import ReplayedState
 
         state1 = ReplayedState(content="Hello", checkpoint="check1")
         state2 = ReplayedState(content="Hello", checkpoint="check2")
@@ -627,8 +627,8 @@ class TestEventSourcing:
 class TestCompositeEventStore:
     @pytest.mark.asyncio
     async def test_writes_to_all_stores(self):
-        from l0.eventsourcing import CompositeEventStore
-        from l0.eventsourcing.types import TokenEvent, now_ms
+        from src.l0.eventsourcing import CompositeEventStore
+        from src.l0.eventsourcing.types import TokenEvent, now_ms
 
         store1 = InMemoryEventStore()
         store2 = InMemoryEventStore()
@@ -646,8 +646,8 @@ class TestCompositeEventStore:
 
     @pytest.mark.asyncio
     async def test_reads_from_primary(self):
-        from l0.eventsourcing import CompositeEventStore
-        from l0.eventsourcing.types import TokenEvent, now_ms
+        from src.l0.eventsourcing import CompositeEventStore
+        from src.l0.eventsourcing.types import TokenEvent, now_ms
 
         store1 = InMemoryEventStore()
         store2 = InMemoryEventStore()
@@ -664,8 +664,8 @@ class TestCompositeEventStore:
 class TestTTLEventStore:
     @pytest.mark.asyncio
     async def test_filters_expired_events(self):
-        from l0.eventsourcing import TTLEventStore
-        from l0.eventsourcing.types import TokenEvent
+        from src.l0.eventsourcing import TTLEventStore
+        from src.l0.eventsourcing.types import TokenEvent
 
         store = InMemoryEventStore()
         ttl_store = TTLEventStore(store, ttl_ms=1000)  # 1 second TTL
@@ -680,8 +680,8 @@ class TestTTLEventStore:
     @pytest.mark.asyncio
     async def test_exists_respects_ttl(self):
         """exists() should return False when all events have expired."""
-        from l0.eventsourcing import TTLEventStore
-        from l0.eventsourcing.types import TokenEvent
+        from src.l0.eventsourcing import TTLEventStore
+        from src.l0.eventsourcing.types import TokenEvent
 
         store = InMemoryEventStore()
         ttl_store = TTLEventStore(store, ttl_ms=1000)  # 1 second TTL
@@ -696,8 +696,8 @@ class TestTTLEventStore:
     @pytest.mark.asyncio
     async def test_exists_true_with_unexpired_events(self):
         """exists() should return True when there are unexpired events."""
-        from l0.eventsourcing import TTLEventStore
-        from l0.eventsourcing.types import TokenEvent, now_ms
+        from src.l0.eventsourcing import TTLEventStore
+        from src.l0.eventsourcing.types import TokenEvent, now_ms
 
         store = InMemoryEventStore()
         ttl_store = TTLEventStore(store, ttl_ms=1000)  # 1 second TTL
@@ -713,7 +713,7 @@ class TestInMemoryEventStoreTTL:
     @pytest.mark.asyncio
     async def test_exists_respects_ttl(self):
         """InMemoryEventStore.exists() should return False when all events have expired."""
-        from l0.eventsourcing.types import TokenEvent
+        from src.l0.eventsourcing.types import TokenEvent
 
         store = InMemoryEventStore(ttl=1000)  # 1 second TTL
 
@@ -727,7 +727,7 @@ class TestInMemoryEventStoreTTL:
     @pytest.mark.asyncio
     async def test_exists_true_with_unexpired_events(self):
         """InMemoryEventStore.exists() should return True when there are unexpired events."""
-        from l0.eventsourcing.types import TokenEvent, now_ms
+        from src.l0.eventsourcing.types import TokenEvent, now_ms
 
         store = InMemoryEventStore(ttl=1000)  # 1 second TTL
 
@@ -740,7 +740,7 @@ class TestInMemoryEventStoreTTL:
     @pytest.mark.asyncio
     async def test_exists_without_ttl(self):
         """InMemoryEventStore.exists() should work normally without TTL."""
-        from l0.eventsourcing.types import TokenEvent
+        from src.l0.eventsourcing.types import TokenEvent
 
         store = InMemoryEventStore()  # No TTL
 
@@ -755,14 +755,14 @@ class TestInMemoryEventStoreTTL:
 class TestStorageAdapters:
     @pytest.mark.asyncio
     async def test_create_memory_store(self):
-        from l0.eventsourcing import StorageAdapterConfig, create_event_store
+        from src.l0.eventsourcing import StorageAdapterConfig, create_event_store
 
         store = await create_event_store(StorageAdapterConfig(type="memory"))
         assert isinstance(store, InMemoryEventStore)
 
     @pytest.mark.asyncio
     async def test_create_file_store(self):
-        from l0.eventsourcing import StorageAdapterConfig, create_event_store
+        from src.l0.eventsourcing import StorageAdapterConfig, create_event_store
 
         with tempfile.TemporaryDirectory() as temp_dir:
             store = await create_event_store(
@@ -772,13 +772,13 @@ class TestStorageAdapters:
 
     @pytest.mark.asyncio
     async def test_unknown_adapter_raises(self):
-        from l0.eventsourcing import StorageAdapterConfig, create_event_store
+        from src.l0.eventsourcing import StorageAdapterConfig, create_event_store
 
         with pytest.raises(ValueError, match="Unknown storage adapter"):
             await create_event_store(StorageAdapterConfig(type="unknown"))
 
     def test_register_custom_adapter(self):
-        from l0.eventsourcing import (
+        from src.l0.eventsourcing import (
             get_registered_adapters,
             register_storage_adapter,
             unregister_storage_adapter,
