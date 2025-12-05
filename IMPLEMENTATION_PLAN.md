@@ -502,48 +502,9 @@ on_event = exclude_events(
 
 ---
 
-## Phase 10: Interceptors
+## Phase 10: Adapters
 
-### 10.1 Interceptor System
-
-**Priority: Medium**
-
-#### Missing Features
-
-```python
-@dataclass
-class Interceptor:
-    name: str | None = None
-    before: Callable[[L0Options], L0Options | Awaitable[L0Options]] | None = None
-    after: Callable[[L0Result], L0Result | Awaitable[L0Result]] | None = None
-    on_error: Callable[[Error, L0Options], None | Awaitable[None]] | None = None
-```
-
-#### Built-in Interceptors
-
-- `logging_interceptor(logger)`
-- `metadata_interceptor(metadata)`
-- `auth_interceptor(get_auth)`
-- `timing_interceptor()`
-- `validation_interceptor(validate, on_invalid)`
-- `rate_limit_interceptor(max_requests, window_seconds)`
-- `caching_interceptor(cache, get_cache_key)`
-- `transform_interceptor(transform)`
-- `analytics_interceptor(track)`
-
-#### Implementation Tasks
-
-- [ ] Create `Interceptor` dataclass
-- [ ] Create `InterceptorManager` class
-- [ ] Add `interceptors` parameter to `l0.run()`
-- [ ] Implement all built-in interceptors
-- [ ] Add tests for interceptor execution order
-
----
-
-## Phase 11: Adapters
-
-### 11.1 Mastra Adapter
+### 10.1 Mastra Adapter
 
 **Priority: Low**
 
@@ -552,7 +513,7 @@ class Interceptor:
 - [ ] Create Mastra adapter (if Mastra has Python SDK)
 - [ ] Add tests for Mastra integration
 
-### 11.2 Anthropic Adapter
+### 10.2 Anthropic Adapter
 
 **Priority: Medium**
 
@@ -561,7 +522,7 @@ class Interceptor:
 - [ ] Create Anthropic adapter for direct SDK usage
 - [ ] Add tests for Anthropic integration
 
-### 11.3 Helper Functions
+### 10.3 Helper Functions
 
 **Priority: Medium**
 
@@ -592,9 +553,9 @@ async for event in to_multimodal_l0_events(stream, {
 
 ---
 
-## Phase 12: Error Handling Enhancements
+## Phase 11: Error Handling Enhancements
 
-### 12.1 Error Events
+### 11.1 Error Events
 
 **Priority: Medium**
 
@@ -612,7 +573,7 @@ Error events should include:
 - [ ] Add `policy` object to error events
 - [ ] Add tests for error event contents
 
-### 12.2 Error Utilities
+### 11.2 Error Utilities
 
 **Priority: Low**
 
@@ -626,9 +587,9 @@ Error events should include:
 
 ---
 
-## Phase 13: State Enhancements
+## Phase 12: State Enhancements
 
-### 13.1 Complete State Properties
+### 12.1 Complete State Properties
 
 **Priority: Medium**
 
@@ -665,9 +626,9 @@ class State:
 
 ---
 
-## Phase 14: Documentation & Testing
+## Phase 13: Documentation & Testing
 
-### 14.1 Documentation
+### 13.1 Documentation
 
 **Priority: Medium**
 
@@ -679,7 +640,7 @@ class State:
 - [ ] Add docstrings to all public functions/classes
 - [ ] Add type hints to all parameters
 
-### 14.2 Test Coverage
+### 13.2 Test Coverage
 
 **Priority: High**
 
