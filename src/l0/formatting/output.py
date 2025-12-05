@@ -56,7 +56,7 @@ class OutputFormatSectionOptions:
     schema: str | None = None
     example: str | None = None
     constraints: OutputConstraints | dict[str, Any] | None = None
-    wrap: bool = False
+    wrap: bool = True  # Default to True to match TypeScript
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -71,16 +71,20 @@ def format_json_output(
 
     Args:
         options: Options for JSON formatting (strict mode, schema, example).
+            - strict: Require JSON-only response (default: False)
+            - schema: JSON schema to include (optional)
+            - example: Example output to include (optional)
+            - include_instructions: Whether to include instructions (default: True)
 
     Returns:
         Instructions string for the model.
 
     Example:
         >>> format_json_output({"strict": True})
-        'Respond with valid JSON only. Do not include any text before or after the JSON. Do not wrap in code blocks.'
+        'Respond with valid JSON only. Do not include any text before or after the JSON object.\\nDo not wrap the JSON in markdown code blocks or backticks.\\nStart your response with { and end with }.'
 
         >>> format_json_output({"strict": True, "schema": '{ "name": "string" }'})
-        'Respond with valid JSON only...\\n\\nUse this JSON schema:\\n{ "name": "string" }'
+        'Respond with valid JSON only...\\n\\nExpected JSON schema:\\n{ "name": "string" }'
     """
     if options is None:
         opts = JsonOutputOptions()
@@ -90,25 +94,32 @@ def format_json_output(
             schema=options.get("schema"),
             example=options.get("example"),
         )
+        include_instructions = options.get("include_instructions", True)
     else:
         opts = options
+        include_instructions = True
 
     parts = []
 
-    if opts.strict:
-        parts.append(
-            "Respond with valid JSON only. "
-            "Do not include any text before or after the JSON. "
-            "Do not wrap in code blocks."
-        )
-    else:
-        parts.append("Respond with JSON.")
+    if include_instructions:
+        if opts.strict:
+            parts.append(
+                "Respond with valid JSON only. Do not include any text before or after the JSON object."
+            )
+            parts.append("Do not wrap the JSON in markdown code blocks or backticks.")
+            parts.append("Start your response with { and end with }.")
+        else:
+            parts.append("Respond with valid JSON.")
 
     if opts.schema:
-        parts.append(f"\nUse this JSON schema:\n{opts.schema}")
+        if parts:
+            parts.append("")
+        parts.append(f"Expected JSON schema:\n{opts.schema}")
 
     if opts.example:
-        parts.append(f"\nExample:\n{opts.example}")
+        if parts:
+            parts.append("")
+        parts.append(f"Example output:\n{opts.example}")
 
     return "\n".join(parts)
 
@@ -184,44 +195,59 @@ def format_output_constraints(
         ...     "language": "Spanish",
         ...     "tone": "professional",
         ... })
-        'Output constraints:\\n- Maximum length: 500 characters...'
+        'Keep your response under 500 characters.\\nProvide at least 100 characters in your response.\\nDo not use code blocks or backticks.\\nRespond in Spanish.\\nUse a professional tone.'
     """
     if isinstance(constraints, dict):
         c = OutputConstraints(
-            max_length=constraints.get("max_length"),
-            min_length=constraints.get("min_length"),
-            no_code_blocks=constraints.get("no_code_blocks", False),
-            no_markdown=constraints.get("no_markdown", False),
+            max_length=constraints.get("max_length") or constraints.get("maxLength"),
+            min_length=constraints.get("min_length") or constraints.get("minLength"),
+            no_code_blocks=constraints.get("no_code_blocks")
+            or constraints.get("noCodeBlocks", False),
+            no_markdown=constraints.get("no_markdown")
+            or constraints.get("noMarkdown", False),
             language=constraints.get("language"),
             tone=constraints.get("tone"),
         )
     else:
         c = constraints
 
-    lines = ["Output constraints:"]
+    lines = []
 
     if c.max_length is not None:
-        lines.append(f"- Maximum length: {c.max_length} characters")
+        lines.append(f"Keep your response under {c.max_length} characters.")
 
     if c.min_length is not None:
-        lines.append(f"- Minimum length: {c.min_length} characters")
+        lines.append(f"Provide at least {c.min_length} characters in your response.")
 
     if c.no_code_blocks:
-        lines.append("- Do not use code blocks")
+        lines.append("Do not use code blocks or backticks.")
 
     if c.no_markdown:
-        lines.append("- Do not use markdown formatting")
+        lines.append("Do not use Markdown formatting.")
 
     if c.language:
-        lines.append(f"- Respond in {c.language}")
+        lines.append(f"Respond in {c.language}.")
 
     if c.tone:
-        lines.append(f"- Use a {c.tone} tone")
-
-    if len(lines) == 1:
-        return ""
+        lines.append(f"Use a {c.tone} tone.")
 
     return "\n".join(lines)
+
+
+def wrap_output_instruction(instruction: str) -> str:
+    """Wrap output instruction in clear delimiter.
+
+    Args:
+        instruction: Instruction text.
+
+    Returns:
+        Wrapped instruction with output_format tags.
+
+    Example:
+        >>> wrap_output_instruction("Respond with JSON only")
+        '<output_format>\\nRespond with JSON only\\n</output_format>'
+    """
+    return f"<output_format>\n{instruction}\n</output_format>"
 
 
 def create_output_format_section(
@@ -242,7 +268,6 @@ def create_output_format_section(
         ...     "strict": True,
         ...     "schema": '{ "result": "string" }',
         ...     "constraints": {"max_length": 1000},
-        ...     "wrap": True,
         ... })
         '<output_format>\\nRespond with valid JSON only...\\n</output_format>'
     """
@@ -254,7 +279,7 @@ def create_output_format_section(
             schema=options.get("schema"),
             example=options.get("example"),
             constraints=options.get("constraints"),
-            wrap=options.get("wrap", False),
+            wrap=options.get("wrap", True),  # Default to True
         )
     else:
         opts = options
@@ -288,12 +313,13 @@ def create_output_format_section(
     if opts.constraints:
         constraint_str = format_output_constraints(opts.constraints)
         if constraint_str:
-            parts.append("\n" + constraint_str)
+            parts.append("")
+            parts.append(constraint_str)
 
     content = "\n".join(parts)
 
     if opts.wrap:
-        return f"<output_format>\n{content}\n</output_format>"
+        return wrap_output_instruction(content)
 
     return content
 

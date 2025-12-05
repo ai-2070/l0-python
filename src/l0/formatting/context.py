@@ -35,15 +35,19 @@ def _sanitize_xml_tag(key: str) -> str:
 # Types
 # ─────────────────────────────────────────────────────────────────────────────
 
-DelimiterType = Literal["xml", "markdown", "brackets"]
+DelimiterType = Literal["xml", "markdown", "brackets", "none"]
 
 
 @dataclass
 class ContextOptions:
     """Options for formatting context."""
 
-    label: str = "context"
+    label: str = "Context"
     delimiter: DelimiterType = "xml"
+    dedent: bool = True
+    normalize: bool = True
+    custom_delimiter_start: str | None = None
+    custom_delimiter_end: str | None = None
 
 
 @dataclass
@@ -139,18 +143,43 @@ def unescape_delimiters(content: str, delimiter: DelimiterType = "xml") -> str:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+def _dedent_content(content: str) -> str:
+    """Remove common leading whitespace from content."""
+    import textwrap
+
+    return textwrap.dedent(content)
+
+
+def _normalize_content(content: str) -> str:
+    """Normalize whitespace in content."""
+    # Normalize line endings and collapse multiple blank lines
+    import re
+
+    content = content.replace("\r\n", "\n").replace("\r", "\n")
+    content = re.sub(r"\n{3,}", "\n\n", content)
+    return content.strip()
+
+
 def format_context(
     content: str,
     *,
-    label: str = "context",
+    label: str = "Context",
     delimiter: DelimiterType = "xml",
+    dedent: bool = True,
+    normalize: bool = True,
+    custom_delimiter_start: str | None = None,
+    custom_delimiter_end: str | None = None,
 ) -> str:
     """Wrap content with proper delimiters.
 
     Args:
         content: The content to wrap.
-        label: The label for the context section.
-        delimiter: The delimiter type - "xml", "markdown", or "brackets".
+        label: The label for the context section (default: "Context").
+        delimiter: The delimiter type - "xml", "markdown", "brackets", or "none".
+        dedent: Whether to remove common leading whitespace (default: True).
+        normalize: Whether to normalize whitespace (default: True).
+        custom_delimiter_start: Custom start delimiter (overrides delimiter style).
+        custom_delimiter_end: Custom end delimiter (overrides delimiter style).
 
     Returns:
         The formatted context string.
@@ -164,22 +193,46 @@ def format_context(
 
         >>> format_context("Content", delimiter="brackets")
         '[CONTEXT]\\n==============================\\nContent\\n=============================='
-    """
-    label_lower = label.lower()
-    label_upper = label.upper()
 
-    # Escape content to prevent delimiter injection
-    escaped_content = escape_delimiters(content, delimiter)
+        >>> format_context("Content", delimiter="none")
+        'Content'
+
+        >>> format_context("Content", custom_delimiter_start="<<<START>>>", custom_delimiter_end="<<<END>>>")
+        '<<<START>>>\\nContent\\n<<<END>>>'
+    """
+    if not content or not content.strip():
+        return ""
+
+    # Process content
+    processed = content
+    if dedent:
+        processed = _dedent_content(processed)
+    if normalize:
+        processed = _normalize_content(processed)
+
+    # Custom delimiters override delimiter style
+    if custom_delimiter_start and custom_delimiter_end:
+        return f"{custom_delimiter_start}\n{processed}\n{custom_delimiter_end}"
+
+    # Escape content to prevent injection attacks
+    escaped = escape_delimiters(processed, delimiter)
+
+    label_lower = label.lower().replace(" ", "_")
+    label_upper = label.upper()
 
     if delimiter == "xml":
         safe_label = _sanitize_xml_tag(label_lower)
-        return f"<{safe_label}>\n{escaped_content}\n</{safe_label}>"
+        return f"<{safe_label}>\n{escaped}\n</{safe_label}>"
     elif delimiter == "markdown":
-        return f"# {label}\n\n{escaped_content}"
+        escaped_label = escape_delimiters(label, delimiter)
+        return f"# {escaped_label}\n\n{escaped}"
     elif delimiter == "brackets":
-        separator = "=" * 30
-        return f"[{label_upper}]\n{separator}\n{escaped_content}\n{separator}"
-    return content
+        separator = "=" * max(20, len(label) + 10)
+        return f"[{label_upper}]\n{separator}\n{escaped}\n{separator}"
+    elif delimiter == "none":
+        return processed  # No escaping for "none" delimiter
+
+    return processed
 
 
 def format_multiple_contexts(
@@ -208,11 +261,19 @@ def format_multiple_contexts(
     for item in items:
         if isinstance(item, dict):
             content = item.get("content", "")
-            label = item.get("label", "context")
+            label = item.get("label", "Context")
         else:
             content = item.content
             label = item.label
-        formatted.append(format_context(content, label=label, delimiter=delimiter))
+
+        # Filter empty items
+        if not content or not content.strip():
+            continue
+
+        result = format_context(content, label=label, delimiter=delimiter)
+        if result:
+            formatted.append(result)
+
     return "\n\n".join(formatted)
 
 
@@ -234,10 +295,13 @@ def format_document(
 
     Example:
         >>> format_document("Report content", {"title": "Q4 Report", "author": "Team"})
-        '<document>\\n<metadata>\\n<title>Q4 Report</title>\\n<author>Team</author>\\n</metadata>\\n<content>\\nReport content\\n</content>\\n</document>'
+        '<q4_report>\\ntitle: Q4 Report\\nauthor: Team\\n\\nReport content\\n</q4_report>'
     """
+    if not content or not content.strip():
+        return ""
+
     if metadata is None:
-        return format_context(content, label="document", delimiter=delimiter)
+        return format_context(content, label="Document", delimiter=delimiter)
 
     if isinstance(metadata, dict):
         meta = DocumentMetadata(
@@ -254,80 +318,30 @@ def format_document(
     else:
         meta = metadata
 
-    if delimiter == "xml":
-        meta_parts = []
-        if meta.title:
-            meta_parts.append(f"<title>{_escape_xml(meta.title)}</title>")
-        if meta.author:
-            meta_parts.append(f"<author>{_escape_xml(meta.author)}</author>")
-        if meta.date:
-            meta_parts.append(f"<date>{_escape_xml(meta.date)}</date>")
-        if meta.source:
-            meta_parts.append(f"<source>{_escape_xml(meta.source)}</source>")
-        for key, value in meta.extra.items():
-            safe_key = _sanitize_xml_tag(key)
-            safe_value = _escape_xml(str(value))
-            meta_parts.append(f"<{safe_key}>{safe_value}</{safe_key}>")
+    # Build metadata lines (filter empty values)
+    meta_lines = []
+    if meta.title and meta.title.strip():
+        meta_lines.append(f"title: {meta.title}")
+    if meta.author and meta.author.strip():
+        meta_lines.append(f"author: {meta.author}")
+    if meta.date and meta.date.strip():
+        meta_lines.append(f"date: {meta.date}")
+    if meta.source and meta.source.strip():
+        meta_lines.append(f"source: {meta.source}")
+    for key, value in meta.extra.items():
+        if value and str(value).strip():
+            meta_lines.append(f"{key}: {value}")
 
-        if meta_parts:
-            meta_section = "<metadata>\n" + "\n".join(meta_parts) + "\n</metadata>"
-            safe_content = _escape_xml(content)
-            return f"<document>\n{meta_section}\n<content>\n{safe_content}\n</content>\n</document>"
-        safe_content = _escape_xml(content)
-        return f"<document>\n<content>\n{safe_content}\n</content>\n</document>"
+    # Use title as label if provided
+    label = meta.title if meta.title else "Document"
 
-    elif delimiter == "markdown":
-        meta_parts = []
-        if meta.title:
-            meta_parts.append(f"**Title:** {escape_delimiters(meta.title, 'markdown')}")
-        if meta.author:
-            meta_parts.append(
-                f"**Author:** {escape_delimiters(meta.author, 'markdown')}"
-            )
-        if meta.date:
-            meta_parts.append(f"**Date:** {escape_delimiters(meta.date, 'markdown')}")
-        if meta.source:
-            meta_parts.append(
-                f"**Source:** {escape_delimiters(meta.source, 'markdown')}"
-            )
-        for key, value in meta.extra.items():
-            meta_parts.append(
-                f"**{key.title()}:** {escape_delimiters(str(value), 'markdown')}"
-            )
+    # Build combined content with metadata at top
+    if meta_lines:
+        combined_content = "\n".join(meta_lines) + "\n\n" + content
+    else:
+        combined_content = content
 
-        escaped_content = escape_delimiters(content, "markdown")
-        if meta_parts:
-            return (
-                "# Document\n\n"
-                + "\n".join(meta_parts)
-                + "\n\n---\n\n"
-                + escaped_content
-            )
-        return "# Document\n\n" + escaped_content
-
-    elif delimiter == "brackets":
-        separator = "=" * 30
-        meta_parts = []
-        if meta.title:
-            meta_parts.append(f"Title: {escape_delimiters(meta.title, 'brackets')}")
-        if meta.author:
-            meta_parts.append(f"Author: {escape_delimiters(meta.author, 'brackets')}")
-        if meta.date:
-            meta_parts.append(f"Date: {escape_delimiters(meta.date, 'brackets')}")
-        if meta.source:
-            meta_parts.append(f"Source: {escape_delimiters(meta.source, 'brackets')}")
-        for key, value in meta.extra.items():
-            meta_parts.append(
-                f"{key.title()}: {escape_delimiters(str(value), 'brackets')}"
-            )
-
-        escaped_content = escape_delimiters(content, "brackets")
-        if meta_parts:
-            meta_section = "\n".join(meta_parts)
-            return f"[DOCUMENT]\n{separator}\n{meta_section}\n{separator}\n{escaped_content}\n{separator}"
-        return f"[DOCUMENT]\n{separator}\n{escaped_content}\n{separator}"
-
-    return content
+    return format_context(combined_content, label=label, delimiter=delimiter)
 
 
 def format_instructions(
@@ -346,16 +360,6 @@ def format_instructions(
 
     Example:
         >>> format_instructions("You are a helpful assistant.")
-        '<system_instructions>\\nYou are a helpful assistant.\\n</system_instructions>'
+        '<instructions>\\nYou are a helpful assistant.\\n</instructions>'
     """
-    # Escape instructions to prevent delimiter injection
-    escaped = escape_delimiters(instructions, delimiter)
-
-    if delimiter == "xml":
-        return f"<system_instructions>\n{escaped}\n</system_instructions>"
-    elif delimiter == "markdown":
-        return f"## System Instructions\n\n{escaped}"
-    elif delimiter == "brackets":
-        separator = "=" * 30
-        return f"[SYSTEM INSTRUCTIONS]\n{separator}\n{escaped}\n{separator}"
-    return instructions
+    return format_context(instructions, label="Instructions", delimiter=delimiter)
