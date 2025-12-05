@@ -35,6 +35,18 @@ Usage:
     otel = OpenTelemetryExporter(otel_config)
     otel.export(telemetry)
 
+    # With event-based OpenTelemetry handler
+    from opentelemetry import trace, metrics
+    from l0.monitoring import create_opentelemetry_handler
+
+    result = await l0.run(
+        stream=lambda: client.chat.completions.create(...),
+        on_event=create_opentelemetry_handler(
+            tracer=trace.get_tracer("my-app"),
+            meter=metrics.get_meter("my-app"),
+        ),
+    )
+
     # With Sentry
     from l0.monitoring import SentryConfig, SentryExporter
 
@@ -44,6 +56,27 @@ Usage:
     )
     sentry = SentryExporter(sentry_config)
     sentry.capture_error(error, telemetry)
+
+    # With event-based Sentry handler
+    import sentry_sdk
+    from l0.monitoring import create_sentry_handler
+
+    result = await l0.run(
+        stream=lambda: client.chat.completions.create(...),
+        on_event=create_sentry_handler(sentry_sdk),
+    )
+
+    # Combine multiple handlers
+    from l0.monitoring import combine_events
+
+    result = await l0.run(
+        stream=lambda: client.chat.completions.create(...),
+        on_event=combine_events(
+            create_opentelemetry_handler(tracer=tracer, meter=meter),
+            create_sentry_handler(sentry_sdk),
+            monitor.handle_event,
+        ),
+    )
     ```
 """
 
@@ -52,6 +85,7 @@ from .config import (
     MonitoringConfig,
     SamplingConfig,
 )
+from .dispatcher import EventDispatcher
 from .exporter import TelemetryExporter
 from .handlers import (
     batch_events,
@@ -63,8 +97,35 @@ from .handlers import (
     tap_events,
 )
 from .monitor import Monitor
-from .otel import OpenTelemetryConfig, OpenTelemetryExporter
-from .sentry import SentryConfig, SentryExporter
+from .normalize import (
+    L0Event,
+    L0EventType,
+    create_complete_event,
+    create_error_event,
+    create_message_event,
+    create_token_event,
+    extract_tokens,
+    normalize_stream_event,
+    reconstruct_text,
+)
+from .otel import (
+    L0OpenTelemetry,
+    L0OpenTelemetryConfig,
+    NoOpSpan,
+    OpenTelemetryConfig,
+    OpenTelemetryExporter,
+    SemanticAttributes,
+    create_opentelemetry_handler,
+    with_opentelemetry,
+)
+from .sentry import (
+    L0Sentry,
+    L0SentryConfig,
+    SentryConfig,
+    SentryExporter,
+    create_sentry_handler,
+    with_sentry,
+)
 from .telemetry import (
     ErrorInfo,
     GuardrailInfo,
@@ -90,6 +151,18 @@ __all__ = [
     "Monitor",
     # Exporter
     "TelemetryExporter",
+    # Event Dispatcher
+    "EventDispatcher",
+    # Event Normalization
+    "L0Event",
+    "L0EventType",
+    "normalize_stream_event",
+    "create_token_event",
+    "create_message_event",
+    "create_complete_event",
+    "create_error_event",
+    "extract_tokens",
+    "reconstruct_text",
     # Event Handlers
     "combine_events",
     "filter_events",
@@ -101,7 +174,17 @@ __all__ = [
     # OpenTelemetry
     "OpenTelemetryConfig",
     "OpenTelemetryExporter",
+    "L0OpenTelemetry",
+    "L0OpenTelemetryConfig",
+    "SemanticAttributes",
+    "NoOpSpan",
+    "create_opentelemetry_handler",
+    "with_opentelemetry",
     # Sentry
     "SentryConfig",
     "SentryExporter",
+    "L0Sentry",
+    "L0SentryConfig",
+    "create_sentry_handler",
+    "with_sentry",
 ]

@@ -1,16 +1,122 @@
-"""OpenTelemetry integration for L0 monitoring."""
+"""OpenTelemetry integration for L0 monitoring.
+
+This module provides OpenTelemetry integration for distributed tracing and metrics.
+It follows the same patterns as the TypeScript implementation for API parity.
+"""
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+import time
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from pydantic import BaseModel, Field
 
+from ..events import ObservabilityEvent, ObservabilityEventType
 from .telemetry import Telemetry
 
 if TYPE_CHECKING:
-    from opentelemetry.metrics import Meter
-    from opentelemetry.trace import Span, Tracer
+    from opentelemetry.metrics import Counter, Histogram, Meter, UpDownCounter
+    from opentelemetry.trace import Span, SpanContext, Tracer
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Semantic Attributes (matches TS SemanticAttributes)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class SemanticAttributes:
+    """Semantic convention attribute names for LLM operations.
+
+    Following OpenTelemetry semantic conventions for GenAI.
+    """
+
+    # General LLM attributes
+    LLM_SYSTEM = "gen_ai.system"
+    LLM_REQUEST_MODEL = "gen_ai.request.model"
+    LLM_RESPONSE_MODEL = "gen_ai.response.model"
+    LLM_REQUEST_MAX_TOKENS = "gen_ai.request.max_tokens"
+    LLM_REQUEST_TEMPERATURE = "gen_ai.request.temperature"
+    LLM_REQUEST_TOP_P = "gen_ai.request.top_p"
+    LLM_RESPONSE_FINISH_REASON = "gen_ai.response.finish_reasons"
+    LLM_USAGE_INPUT_TOKENS = "gen_ai.usage.input_tokens"
+    LLM_USAGE_OUTPUT_TOKENS = "gen_ai.usage.output_tokens"
+
+    # L0-specific attributes
+    L0_SESSION_ID = "l0.session_id"
+    L0_STREAM_COMPLETED = "l0.stream.completed"
+    L0_FALLBACK_INDEX = "l0.fallback.index"
+    L0_RETRY_COUNT = "l0.retry.count"
+    L0_NETWORK_ERROR_COUNT = "l0.network.error_count"
+    L0_GUARDRAIL_VIOLATION_COUNT = "l0.guardrail.violation_count"
+    L0_DRIFT_DETECTED = "l0.drift.detected"
+    L0_TIME_TO_FIRST_TOKEN = "l0.time_to_first_token_ms"
+    L0_TOKENS_PER_SECOND = "l0.tokens_per_second"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Span Protocol and NoOp Span
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@runtime_checkable
+class SpanProtocol(Protocol):
+    """Protocol for OpenTelemetry Span compatibility."""
+
+    def set_attribute(self, key: str, value: Any) -> "SpanProtocol": ...
+    def set_attributes(self, attributes: dict[str, Any]) -> "SpanProtocol": ...
+    def add_event(
+        self, name: str, attributes: dict[str, Any] | None = None
+    ) -> "SpanProtocol": ...
+    def set_status(
+        self, status: Any, description: str | None = None
+    ) -> "SpanProtocol": ...
+    def record_exception(self, exception: BaseException) -> None: ...
+    def end(self) -> None: ...
+    def is_recording(self) -> bool: ...
+
+
+class NoOpSpan:
+    """No-op span for when tracing is disabled."""
+
+    def span_context(self) -> dict[str, Any]:
+        return {"trace_id": "", "span_id": "", "trace_flags": 0}
+
+    def set_attribute(self, key: str, value: Any) -> "NoOpSpan":
+        return self
+
+    def set_attributes(self, attributes: dict[str, Any]) -> "NoOpSpan":
+        return self
+
+    def add_event(
+        self, name: str, attributes: dict[str, Any] | None = None
+    ) -> "NoOpSpan":
+        return self
+
+    def add_link(self, link: Any) -> "NoOpSpan":
+        return self
+
+    def set_status(self, status: Any, description: str | None = None) -> "NoOpSpan":
+        return self
+
+    def update_name(self, name: str) -> "NoOpSpan":
+        return self
+
+    def record_exception(self, exception: BaseException) -> None:
+        pass
+
+    def end(self) -> None:
+        pass
+
+    def is_recording(self) -> bool:
+        return False
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# OpenTelemetry Configuration
+# ─────────────────────────────────────────────────────────────────────────────
 
 
 class OpenTelemetryConfig(BaseModel):
@@ -84,6 +190,621 @@ class OpenTelemetryConfig(BaseModel):
             headers=headers,
             insecure=os.getenv("OTEL_EXPORTER_OTLP_INSECURE", "").lower() == "true",
         )
+
+
+class L0OpenTelemetryConfig(BaseModel):
+    """Configuration for L0OpenTelemetry class.
+
+    This is for runtime configuration, separate from export configuration.
+    """
+
+    service_name: str = "l0"
+    trace_tokens: bool = False
+    """Whether to create span events for individual tokens (can be noisy)."""
+
+    record_token_content: bool = False
+    """Whether to record token content in spans (privacy consideration)."""
+
+    record_guardrail_violations: bool = True
+    """Whether to record guardrail violations as span events."""
+
+    default_attributes: dict[str, Any] = Field(default_factory=dict)
+    """Custom attributes to add to all spans."""
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# L0OpenTelemetry Class (matches TS L0OpenTelemetry)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class L0OpenTelemetry:
+    """L0 OpenTelemetry integration for distributed tracing and metrics.
+
+    This class provides the same API as the TypeScript L0OpenTelemetry class.
+
+    Example:
+        ```python
+        from opentelemetry import trace, metrics
+        from l0.monitoring import L0OpenTelemetry
+
+        otel = L0OpenTelemetry(
+            tracer=trace.get_tracer("l0"),
+            meter=metrics.get_meter("l0"),
+        )
+
+        # Create a traced stream
+        async with otel.trace_stream("chat-completion") as span:
+            result = await l0(stream=lambda: stream_text(model, prompt))
+        ```
+    """
+
+    def __init__(
+        self,
+        tracer: Tracer | None = None,
+        meter: Meter | None = None,
+        config: L0OpenTelemetryConfig | None = None,
+    ) -> None:
+        """Initialize L0OpenTelemetry.
+
+        Args:
+            tracer: OpenTelemetry tracer instance
+            meter: OpenTelemetry meter instance
+            config: Configuration options
+        """
+        self._tracer = tracer
+        self._meter = meter
+        self._config = config or L0OpenTelemetryConfig()
+
+        # Metrics instruments
+        self._request_counter: Counter | None = None
+        self._token_counter: Counter | None = None
+        self._retry_counter: Counter | None = None
+        self._error_counter: Counter | None = None
+        self._duration_histogram: Histogram | None = None
+        self._ttft_histogram: Histogram | None = None
+        self._active_streams_gauge: UpDownCounter | None = None
+
+        self._active_streams = 0
+        self._metrics_initialized = False
+
+        if self._meter:
+            self._initialize_metrics()
+
+    def _initialize_metrics(self) -> None:
+        """Initialize OpenTelemetry metrics instruments."""
+        if not self._meter or self._metrics_initialized:
+            return
+
+        self._request_counter = self._meter.create_counter(
+            "l0.requests",
+            description="Total number of L0 stream requests",
+            unit="1",
+        )
+
+        self._token_counter = self._meter.create_counter(
+            "l0.tokens",
+            description="Total number of tokens processed",
+            unit="1",
+        )
+
+        self._retry_counter = self._meter.create_counter(
+            "l0.retries",
+            description="Total number of retry attempts",
+            unit="1",
+        )
+
+        self._error_counter = self._meter.create_counter(
+            "l0.errors",
+            description="Total number of errors",
+            unit="1",
+        )
+
+        self._duration_histogram = self._meter.create_histogram(
+            "l0.duration",
+            description="Stream duration in milliseconds",
+            unit="ms",
+        )
+
+        self._ttft_histogram = self._meter.create_histogram(
+            "l0.time_to_first_token",
+            description="Time to first token in milliseconds",
+            unit="ms",
+        )
+
+        self._active_streams_gauge = self._meter.create_up_down_counter(
+            "l0.active_streams",
+            description="Number of currently active streams",
+            unit="1",
+        )
+
+        self._metrics_initialized = True
+
+    async def trace_stream(
+        self,
+        name: str,
+        fn: Callable[..., Any],
+        attributes: dict[str, Any] | None = None,
+    ) -> Any:
+        """Trace an L0 stream operation.
+
+        Args:
+            name: Span name
+            fn: Async function that returns an L0 result
+            attributes: Additional span attributes
+
+        Returns:
+            Result from fn
+        """
+        if not self._tracer:
+            return await fn(NoOpSpan())
+
+        from opentelemetry.trace import SpanKind, StatusCode
+
+        span_attributes = {
+            **self._config.default_attributes,
+            **(attributes or {}),
+        }
+
+        span = self._tracer.start_span(
+            f"{self._config.service_name}.{name}",
+            kind=SpanKind.CLIENT,
+            attributes=span_attributes,
+        )
+
+        self._active_streams += 1
+        if self._active_streams_gauge:
+            self._active_streams_gauge.add(1)
+
+        try:
+            result = await fn(span)
+            span.set_status(StatusCode.OK)
+            return result
+        except Exception as error:
+            span.set_status(StatusCode.ERROR, str(error))
+            span.record_exception(error)
+            if self._error_counter:
+                self._error_counter.add(1, {"type": "stream_error"})
+            raise
+        finally:
+            self._active_streams -= 1
+            if self._active_streams_gauge:
+                self._active_streams_gauge.add(-1)
+            span.end()
+
+    def record_telemetry(self, telemetry: Telemetry, span: Any | None = None) -> None:
+        """Record telemetry from a completed L0 operation.
+
+        This is the primary method for recording metrics. All metric counters
+        are updated here using the aggregated data to ensure accurate counting.
+
+        Args:
+            telemetry: L0 telemetry data
+            span: Optional span to add attributes to
+        """
+        attributes: dict[str, Any] = {
+            SemanticAttributes.L0_SESSION_ID: telemetry.session_id
+            or telemetry.stream_id,
+        }
+
+        # Record request completion
+        if self._request_counter:
+            self._request_counter.add(1, {"status": "completed"})
+
+        # Record tokens
+        if self._token_counter and telemetry.metrics.token_count > 0:
+            self._token_counter.add(telemetry.metrics.token_count, attributes)
+
+        # Record retries
+        if self._retry_counter and telemetry.retries.total_retries > 0:
+            self._retry_counter.add(
+                telemetry.retries.total_retries,
+                {**attributes, "type": "total"},
+            )
+
+        # Record network retries separately
+        if self._retry_counter and telemetry.retries.network_retries > 0:
+            self._retry_counter.add(
+                telemetry.retries.network_retries,
+                {**attributes, "type": "network"},
+            )
+
+        # Record model retries separately
+        if self._retry_counter and telemetry.retries.model_retries > 0:
+            self._retry_counter.add(
+                telemetry.retries.model_retries,
+                {**attributes, "type": "model"},
+            )
+
+        # Record errors
+        if self._error_counter and telemetry.error.occurred:
+            error_attrs = {**attributes, "type": "error"}
+            if telemetry.error.category:
+                error_attrs["category"] = telemetry.error.category.value
+            self._error_counter.add(1, error_attrs)
+
+        # Record guardrail violations
+        if self._error_counter and telemetry.guardrails.violations:
+            for violation in telemetry.guardrails.violations:
+                self._error_counter.add(
+                    1,
+                    {
+                        **attributes,
+                        "type": "guardrail_violation",
+                        "rule": violation.get("rule", "unknown"),
+                        "severity": violation.get("severity", "unknown"),
+                    },
+                )
+
+        # Record duration
+        if self._duration_histogram and telemetry.timing.duration is not None:
+            self._duration_histogram.record(
+                telemetry.timing.duration * 1000,  # Convert to ms
+                attributes,
+            )
+
+        # Record time to first token
+        if self._ttft_histogram and telemetry.metrics.time_to_first_token is not None:
+            self._ttft_histogram.record(
+                telemetry.metrics.time_to_first_token * 1000,  # Convert to ms
+                attributes,
+            )
+
+        # Add span attributes if span is recording
+        if span and hasattr(span, "is_recording") and span.is_recording():
+            span.set_attributes(
+                {
+                    SemanticAttributes.L0_SESSION_ID: telemetry.session_id
+                    or telemetry.stream_id,
+                    SemanticAttributes.LLM_USAGE_OUTPUT_TOKENS: telemetry.metrics.token_count,
+                    SemanticAttributes.L0_RETRY_COUNT: telemetry.retries.total_retries,
+                    SemanticAttributes.L0_NETWORK_ERROR_COUNT: telemetry.retries.network_retries,
+                }
+            )
+
+            if telemetry.guardrails.violations:
+                span.set_attribute(
+                    SemanticAttributes.L0_GUARDRAIL_VIOLATION_COUNT,
+                    len(telemetry.guardrails.violations),
+                )
+
+            if not telemetry.guardrails.passed:
+                span.set_attribute(SemanticAttributes.L0_DRIFT_DETECTED, True)
+
+            if telemetry.metrics.time_to_first_token is not None:
+                span.set_attribute(
+                    SemanticAttributes.L0_TIME_TO_FIRST_TOKEN,
+                    telemetry.metrics.time_to_first_token * 1000,
+                )
+
+            if telemetry.metrics.tokens_per_second is not None:
+                span.set_attribute(
+                    SemanticAttributes.L0_TOKENS_PER_SECOND,
+                    telemetry.metrics.tokens_per_second,
+                )
+
+            if telemetry.timing.duration is not None:
+                span.set_attribute("duration_ms", telemetry.timing.duration * 1000)
+
+    def record_token(self, span: Any | None = None, content: str | None = None) -> None:
+        """Record a token event (span event only).
+
+        Note: Metric counters are updated via record_telemetry() to avoid double-counting.
+
+        Args:
+            span: Span to add event to
+            content: Token content (only recorded if record_token_content is True)
+        """
+        if not self._config.trace_tokens:
+            return
+
+        if span and hasattr(span, "is_recording") and span.is_recording():
+            event_attributes: dict[str, Any] = {}
+            if self._config.record_token_content and content:
+                event_attributes["token.content"] = content
+            span.add_event("token", event_attributes)
+
+    def record_retry(
+        self,
+        reason: str,
+        attempt: int,
+        span: Any | None = None,
+    ) -> None:
+        """Record a retry attempt (span event only).
+
+        Note: Metric counters are updated via record_telemetry() to avoid double-counting.
+
+        Args:
+            reason: Reason for retry
+            attempt: Retry attempt number
+            span: Span to add event to
+        """
+        if span and hasattr(span, "is_recording") and span.is_recording():
+            span.add_event(
+                "retry",
+                {
+                    "retry.reason": reason,
+                    "retry.attempt": attempt,
+                },
+            )
+
+    def record_network_error(
+        self,
+        error: Exception,
+        error_type: str,
+        span: Any | None = None,
+    ) -> None:
+        """Record a network error (span event only).
+
+        Note: Metric counters are updated via record_telemetry() to avoid double-counting.
+
+        Args:
+            error: The error that occurred
+            error_type: Type of network error
+            span: Span to add event to
+        """
+        if span and hasattr(span, "is_recording") and span.is_recording():
+            span.add_event(
+                "network_error",
+                {
+                    "error.type": error_type,
+                    "error.message": str(error),
+                },
+            )
+
+    def record_guardrail_violation(
+        self,
+        violation: dict[str, Any],
+        span: Any | None = None,
+    ) -> None:
+        """Record a guardrail violation (span event only).
+
+        Note: Metric counters are updated via record_telemetry() to avoid double-counting.
+
+        Args:
+            violation: Guardrail violation details
+            span: Span to add event to
+        """
+        if not self._config.record_guardrail_violations:
+            return
+
+        if span and hasattr(span, "is_recording") and span.is_recording():
+            span.add_event(
+                "guardrail_violation",
+                {
+                    "guardrail.rule": violation.get("rule", "unknown"),
+                    "guardrail.severity": violation.get("severity", "unknown"),
+                    "guardrail.message": violation.get("message", ""),
+                },
+            )
+
+    def record_drift(
+        self,
+        drift_type: str,
+        confidence: float,
+        span: Any | None = None,
+    ) -> None:
+        """Record drift detection (span event only).
+
+        Note: Metric counters are updated via record_telemetry() to avoid double-counting.
+
+        Args:
+            drift_type: Type of drift detected
+            confidence: Confidence score
+            span: Span to add event to
+        """
+        if span and hasattr(span, "is_recording") and span.is_recording():
+            span.set_attribute(SemanticAttributes.L0_DRIFT_DETECTED, True)
+            span.add_event(
+                "drift_detected",
+                {
+                    "drift.type": drift_type,
+                    "drift.confidence": confidence,
+                },
+            )
+
+    def create_span(
+        self,
+        name: str,
+        attributes: dict[str, Any] | None = None,
+    ) -> Any:
+        """Create a child span for a sub-operation.
+
+        Args:
+            name: Span name
+            attributes: Span attributes
+
+        Returns:
+            Span instance (or NoOpSpan if tracing disabled)
+        """
+        if not self._tracer:
+            return NoOpSpan()
+
+        from opentelemetry.trace import SpanKind
+
+        return self._tracer.start_span(
+            f"{self._config.service_name}.{name}",
+            kind=SpanKind.INTERNAL,
+            attributes={
+                **self._config.default_attributes,
+                **(attributes or {}),
+            },
+        )
+
+    def get_active_streams(self) -> int:
+        """Get current active stream count."""
+        return self._active_streams
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Event Handler Factory (matches TS createOpenTelemetryHandler)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def create_opentelemetry_handler(
+    tracer: Tracer | None = None,
+    meter: Meter | None = None,
+    config: L0OpenTelemetryConfig | None = None,
+) -> Callable[[ObservabilityEvent], None]:
+    """Create an OpenTelemetry event handler for L0 observability.
+
+    This is the recommended way to integrate OpenTelemetry with L0.
+    The handler subscribes to L0 events and records traces/metrics.
+
+    Example:
+        ```python
+        from opentelemetry import trace, metrics
+        from l0 import l0
+        from l0.monitoring import create_opentelemetry_handler, combine_events
+
+        result = await l0(
+            stream=lambda: stream_text(model, prompt),
+            on_event=create_opentelemetry_handler(
+                tracer=trace.get_tracer("my-app"),
+                meter=metrics.get_meter("my-app"),
+            ),
+        )
+
+        # Or combine with other handlers:
+        result = await l0(
+            stream=lambda: stream_text(model, prompt),
+            on_event=combine_events(
+                create_opentelemetry_handler(tracer=tracer, meter=meter),
+                create_sentry_handler(sentry=sentry),
+            ),
+        )
+        ```
+
+    Args:
+        tracer: OpenTelemetry tracer instance
+        meter: OpenTelemetry meter instance
+        config: Configuration options
+
+    Returns:
+        Event handler function
+    """
+    otel = L0OpenTelemetry(tracer=tracer, meter=meter, config=config)
+    current_span: Any = None
+
+    def handler(event: ObservabilityEvent) -> None:
+        nonlocal current_span
+
+        event_type = event.type
+        meta = event.meta
+
+        if event_type == ObservabilityEventType.SESSION_START:
+            # Start a new span for the session
+            current_span = otel.create_span("stream")
+            if hasattr(current_span, "set_attribute"):
+                current_span.set_attribute("l0.attempt", meta.get("attempt", 1))
+                current_span.set_attribute("l0.is_retry", meta.get("is_retry", False))
+                current_span.set_attribute(
+                    "l0.is_fallback", meta.get("is_fallback", False)
+                )
+
+        elif event_type == ObservabilityEventType.RETRY_ATTEMPT:
+            otel.record_retry(
+                reason=meta.get("reason", "unknown"),
+                attempt=meta.get("attempt", 1),
+                span=current_span,
+            )
+
+        elif event_type == ObservabilityEventType.ERROR:
+            error_msg = meta.get("error", "Unknown error")
+            otel.record_network_error(
+                error=Exception(error_msg),
+                error_type=meta.get("failure_type", "unknown"),
+                span=current_span,
+            )
+
+        elif event_type == ObservabilityEventType.NETWORK_ERROR:
+            error_msg = meta.get("error", meta.get("message", "Network error"))
+            otel.record_network_error(
+                error=Exception(error_msg),
+                error_type=meta.get("error_type", "network"),
+                span=current_span,
+            )
+
+        elif event_type == ObservabilityEventType.GUARDRAIL_RULE_RESULT:
+            violation = meta.get("violation")
+            if violation:
+                otel.record_guardrail_violation(violation, span=current_span)
+
+        elif event_type == ObservabilityEventType.DRIFT_CHECK_RESULT:
+            if meta.get("detected"):
+                drift_types = meta.get("types", [])
+                otel.record_drift(
+                    drift_type=",".join(drift_types) if drift_types else "unknown",
+                    confidence=meta.get("confidence", 0.0),
+                    span=current_span,
+                )
+
+        elif event_type == ObservabilityEventType.TOKEN:
+            otel.record_token(
+                span=current_span,
+                content=meta.get("token") or meta.get("content"),
+            )
+
+        elif event_type == ObservabilityEventType.COMPLETE:
+            if current_span and hasattr(current_span, "set_attribute"):
+                current_span.set_attribute("l0.token_count", meta.get("token_count", 0))
+                current_span.set_attribute(
+                    "l0.content_length", meta.get("content_length", 0)
+                )
+                current_span.set_attribute("l0.duration_ms", meta.get("duration_ms", 0))
+
+                from opentelemetry.trace import StatusCode
+
+                current_span.set_status(StatusCode.OK)
+                current_span.end()
+                current_span = None
+
+    return handler
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Async Context Manager for Tracing
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+async def with_opentelemetry(
+    tracer: Tracer | None,
+    meter: Meter | None,
+    fn: Callable[..., Any],
+    name: str = "l0.stream",
+    config: L0OpenTelemetryConfig | None = None,
+) -> Any:
+    """Execute a function with OpenTelemetry tracing.
+
+    Example:
+        ```python
+        from opentelemetry import trace, metrics
+        from l0.monitoring import with_opentelemetry
+
+        result = await with_opentelemetry(
+            tracer=trace.get_tracer("my-app"),
+            meter=metrics.get_meter("my-app"),
+            fn=lambda: l0(stream=lambda: stream_text(model, prompt)),
+            name="chat-completion",
+        )
+        ```
+
+    Args:
+        tracer: OpenTelemetry tracer instance
+        meter: OpenTelemetry meter instance
+        fn: Async function to execute
+        name: Span name
+        config: Configuration options
+
+    Returns:
+        Result from fn
+    """
+    otel = L0OpenTelemetry(tracer=tracer, meter=meter, config=config)
+    return await otel.trace_stream(name, fn)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# OpenTelemetry Exporter (existing implementation)
+# ─────────────────────────────────────────────────────────────────────────────
 
 
 class OpenTelemetryExporter:
@@ -364,7 +1085,7 @@ class OpenTelemetryExporter:
                 len(telemetry.guardrails.violations), labels
             )
 
-    def create_span(self, name: str, **attributes: Any) -> Span | None:
+    def create_span(self, name: str, **attributes: Any) -> Any:
         """Create a custom span for manual instrumentation.
 
         Args:
