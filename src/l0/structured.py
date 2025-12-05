@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import json
 import time
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Generic, TypeVar, cast
+from typing import TYPE_CHECKING, Any, Generic, TypeVar, cast, get_type_hints
 
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, Field, ValidationError, create_model
 
 from ._utils import AutoCorrectResult, auto_correct_json, extract_json_from_markdown
 from .adapters import Adapter
@@ -468,3 +469,324 @@ async def structured_stream(
         result_holder.state = l0_result.state
 
     return collecting_stream(), result_holder
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Helper Functions
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+async def structured_object(
+    shape: dict[str, type | tuple[type, Any]],
+    stream: StreamSource,
+    *,
+    fallbacks: list[StreamSource] | None = None,
+    auto_correct: bool = True,
+    retry: Retry | None = None,
+    on_validation_error: Callable[[ValidationError, int], None] | None = None,
+    on_auto_correct: Callable[[AutoCorrectInfo], None] | None = None,
+    on_event: Callable[[ObservabilityEvent], None] | None = None,
+    adapter: Adapter | str | None = None,
+) -> StructuredResult[Any]:
+    """Helper: Create structured output with a simple object schema.
+
+    This is a convenience wrapper around `structured()` that creates a
+    Pydantic model from a dictionary shape specification.
+
+    Args:
+        shape: Dictionary mapping field names to types or (type, default) tuples
+        stream: Async LLM stream or factory function
+        fallbacks: Optional fallback streams
+        auto_correct: Whether to attempt JSON auto-correction (default: True)
+        retry: Retry configuration for validation failures
+        on_validation_error: Callback when validation fails
+        on_auto_correct: Callback when auto-correction is applied
+        on_event: Optional callback for observability events
+        adapter: Optional adapter hint
+
+    Returns:
+        StructuredResult with validated data
+
+    Example:
+        ```python
+        result = await l0.structured_object(
+            {"name": str, "age": int, "active": (bool, True)},
+            stream=openai_stream,
+        )
+
+        print(result.data.name)
+        print(result.data.age)
+        ```
+    """
+    # Build field definitions for create_model
+    field_definitions: dict[str, Any] = {}
+    for field_name, field_spec in shape.items():
+        if isinstance(field_spec, tuple):
+            # (type, default) format
+            field_type, default = field_spec
+            field_definitions[field_name] = (field_type, default)
+        else:
+            # Just a type, required field
+            field_definitions[field_name] = (field_spec, ...)
+
+    # Create dynamic Pydantic model
+    DynamicModel = create_model("DynamicObject", **field_definitions)
+
+    return await structured(
+        schema=DynamicModel,
+        stream=stream,
+        fallbacks=fallbacks,
+        auto_correct=auto_correct,
+        retry=retry,
+        on_validation_error=on_validation_error,
+        on_auto_correct=on_auto_correct,
+        on_event=on_event,
+        adapter=adapter,
+    )
+
+
+async def structured_array(
+    item_schema: type[T],
+    stream: StreamSource,
+    *,
+    fallbacks: list[StreamSource] | None = None,
+    auto_correct: bool = True,
+    retry: Retry | None = None,
+    on_validation_error: Callable[[ValidationError, int], None] | None = None,
+    on_auto_correct: Callable[[AutoCorrectInfo], None] | None = None,
+    on_event: Callable[[ObservabilityEvent], None] | None = None,
+    adapter: Adapter | str | None = None,
+) -> StructuredResult[list[T]]:
+    """Helper: Create structured output with an array schema.
+
+    This is a convenience wrapper around `structured()` that validates
+    an array of items against a Pydantic model.
+
+    Args:
+        item_schema: Pydantic model class for array items
+        stream: Async LLM stream or factory function
+        fallbacks: Optional fallback streams
+        auto_correct: Whether to attempt JSON auto-correction (default: True)
+        retry: Retry configuration for validation failures
+        on_validation_error: Callback when validation fails
+        on_auto_correct: Callback when auto-correction is applied
+        on_event: Optional callback for observability events
+        adapter: Optional adapter hint
+
+    Returns:
+        StructuredResult with validated list of items
+
+    Example:
+        ```python
+        class User(BaseModel):
+            name: str
+            age: int
+
+        result = await l0.structured_array(
+            User,
+            stream=openai_stream,
+        )
+
+        for user in result.data:
+            print(user.name)
+        ```
+    """
+    # Create a wrapper model for array validation
+    ArrayModel = create_model(
+        "DynamicArray",
+        __root__=(list[item_schema], ...),  # type: ignore
+    )
+
+    # Custom parsing to handle root model
+    event_bus = EventBus(on_event)
+    retry_config = retry or Retry(attempts=1)
+    max_attempts = retry_config.attempts
+
+    def _is_async_iterator(obj: Any) -> bool:
+        return hasattr(obj, "__anext__") and not callable(obj)
+
+    def _make_buffering_factory(iterator: RawStream) -> StreamFactory:
+        buffer: list[Any] = []
+        consumed = False
+
+        async def buffering_iterator() -> RawStream:
+            nonlocal consumed
+            if consumed:
+                for item in buffer:
+                    yield item
+            else:
+                async for item in iterator:
+                    buffer.append(item)
+                    yield item
+                consumed = True
+
+        return buffering_iterator
+
+    if _is_async_iterator(stream):
+        stream = _make_buffering_factory(cast(RawStream, stream))
+
+    all_streams: list[StreamSource] = [stream]
+    if fallbacks:
+        wrapped_fallbacks: list[StreamFactory] = []
+        for fb in fallbacks:
+            if _is_async_iterator(fb):
+                wrapped_fallbacks.append(_make_buffering_factory(cast(RawStream, fb)))
+            else:
+                wrapped_fallbacks.append(cast(StreamFactory, fb))
+        all_streams.extend(wrapped_fallbacks)
+
+    last_error: Exception | None = None
+    fallback_index = 0
+
+    for stream_source in all_streams:
+        for attempt in range(max_attempts):
+            try:
+
+                def make_stream_factory(src: StreamSource) -> StreamFactory:
+                    if callable(src) and not hasattr(src, "__anext__"):
+                        return src
+                    else:
+                        return lambda: cast(RawStream, src)
+
+                stream_factory = make_stream_factory(stream_source)
+
+                result = await _internal_run(
+                    stream=stream_factory,
+                    on_event=on_event,
+                    adapter=adapter,
+                )
+                text = await result.read()
+                state = result.state
+
+                # Parse and validate as array
+                event_bus.emit(
+                    ObservabilityEventType.PARSE_START,
+                    content_length=len(text),
+                )
+                parse_start = time.time()
+
+                original_text = text
+                text = extract_json_from_markdown(text)
+
+                corrected = False
+                corrections: list[str] = []
+
+                if auto_correct:
+                    event_bus.emit(ObservabilityEventType.AUTO_CORRECT_START)
+                    ac_result = auto_correct_json(text, track_corrections=True)
+                    text = ac_result.text
+                    corrected = ac_result.corrected
+                    corrections = ac_result.corrections
+
+                    if corrected and on_auto_correct:
+                        on_auto_correct(
+                            AutoCorrectInfo(
+                                original=original_text,
+                                corrected=text,
+                                corrections=corrections,
+                            )
+                        )
+
+                    event_bus.emit(
+                        ObservabilityEventType.AUTO_CORRECT_END,
+                        corrected=corrected,
+                        corrections=corrections,
+                    )
+
+                # Validate as list of items
+                event_bus.emit(
+                    ObservabilityEventType.SCHEMA_VALIDATION_START,
+                    schema_type="pydantic",
+                    schema_name=f"list[{item_schema.__name__}]",
+                )
+                validation_start = time.time()
+
+                parsed_json = json.loads(text)
+                if not isinstance(parsed_json, list):
+                    raise ValidationError.from_exception_data(
+                        "Expected array",
+                        [{"type": "list_type", "loc": (), "input": parsed_json}],
+                    )
+
+                # Validate each item
+                validated_items: list[T] = []
+                for i, item in enumerate(parsed_json):
+                    validated_items.append(item_schema.model_validate(item))
+
+                validation_duration = (time.time() - validation_start) * 1000
+                event_bus.emit(
+                    ObservabilityEventType.SCHEMA_VALIDATION_END,
+                    valid=True,
+                    duration_ms=validation_duration,
+                )
+                parse_duration = (time.time() - parse_start) * 1000
+                event_bus.emit(
+                    ObservabilityEventType.PARSE_END,
+                    success=True,
+                    duration_ms=parse_duration,
+                )
+
+                return StructuredResult(
+                    data=validated_items,
+                    raw=text,
+                    corrected=corrected,
+                    corrections=corrections,
+                    state=state,
+                )
+
+            except (ValidationError, json.JSONDecodeError) as e:
+                last_error = e
+                if on_validation_error and isinstance(e, ValidationError):
+                    on_validation_error(e, attempt + 1)
+
+                is_last_stream = fallback_index == len(all_streams) - 1
+                is_last_attempt = attempt == max_attempts - 1
+                if is_last_stream and is_last_attempt:
+                    break
+
+                continue
+
+            except Exception as e:
+                last_error = e
+                break
+
+        fallback_index += 1
+
+    if isinstance(last_error, (ValidationError, json.JSONDecodeError)):
+        raise ValueError(
+            f"Array validation failed after all retries: {last_error}"
+        ) from last_error
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError("All attempts exhausted with no error recorded")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Configuration Presets
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@dataclass
+class StructuredConfig:
+    """Configuration presets for structured output.
+
+    Attributes:
+        auto_correct: Whether to attempt JSON auto-correction
+        attempts: Number of validation retry attempts
+        strict_mode: Reject unknown fields (not yet implemented)
+    """
+
+    auto_correct: bool = True
+    attempts: int = 1
+    strict_mode: bool = False
+
+
+# Preset configurations
+MINIMAL_STRUCTURED = StructuredConfig(auto_correct=False, attempts=1)
+"""Minimal config - no auto-correction, single attempt."""
+
+RECOMMENDED_STRUCTURED = StructuredConfig(auto_correct=True, attempts=2)
+"""Recommended config - auto-correction enabled, 2 attempts."""
+
+STRICT_STRUCTURED = StructuredConfig(auto_correct=True, strict_mode=True, attempts=3)
+"""Strict config - auto-correction, strict mode, 3 attempts."""

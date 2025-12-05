@@ -53,6 +53,15 @@ from .config import (
     SamplingConfig,
 )
 from .exporter import TelemetryExporter
+from .handlers import (
+    batch_events,
+    combine_events,
+    debounce_events,
+    exclude_events,
+    filter_events,
+    sample_events,
+    tap_events,
+)
 from .monitor import Monitor
 from .otel import OpenTelemetryConfig, OpenTelemetryExporter
 from .sentry import SentryConfig, SentryExporter
@@ -81,6 +90,14 @@ __all__ = [
     "Monitor",
     # Exporter
     "TelemetryExporter",
+    # Event Handlers
+    "combine_events",
+    "filter_events",
+    "exclude_events",
+    "debounce_events",
+    "batch_events",
+    "sample_events",
+    "tap_events",
     # OpenTelemetry
     "OpenTelemetryConfig",
     "OpenTelemetryExporter",

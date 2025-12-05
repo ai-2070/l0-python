@@ -86,10 +86,16 @@ from .pool import OperationPool, PoolOptions, PoolStats, create_pool
 from .runtime import LifecycleCallbacks, TimeoutError, _internal_run
 from .stream import consume_stream, get_text
 from .structured import (
+    MINIMAL_STRUCTURED,
+    RECOMMENDED_STRUCTURED,
+    STRICT_STRUCTURED,
     AutoCorrectInfo,
+    StructuredConfig,
     StructuredResult,
     StructuredStreamResult,
     structured,
+    structured_array,
+    structured_object,
     structured_stream,
 )
 from .types import (
@@ -415,9 +421,15 @@ __all__ = [
     # Structured
     "structured",
     "structured_stream",
+    "structured_object",
+    "structured_array",
     "StructuredResult",
     "StructuredStreamResult",
+    "StructuredConfig",
     "AutoCorrectInfo",
+    "MINIMAL_STRUCTURED",
+    "RECOMMENDED_STRUCTURED",
+    "STRICT_STRUCTURED",
     # Parallel
     "parallel",
     "race",
