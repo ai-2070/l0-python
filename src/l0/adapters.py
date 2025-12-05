@@ -1,17 +1,36 @@
 """L0 stream adapters.
 
-Two adapters only:
-- OpenAI - Direct OpenAI SDK streams
-- LiteLLM - Unified interface for 100+ providers (Anthropic, Cohere, etc.)
+Adapters convert provider-specific streams into L0's unified event format.
+L0 handles all reliability concerns (retries, timeouts, guardrails),
+so adapters can focus purely on format conversion.
 
-LiteLLM uses OpenAI-compatible format, so the OpenAI adapter handles both.
+Official first-party adapters:
+- OpenAI - Direct OpenAI SDK streams
+- LiteLLM - Unified interface for 100+ providers (uses OpenAI format)
+- Anthropic - Anthropic SDK streams (reference implementation)
+
+Usage:
+    ```python
+    from l0 import Adapters
+
+    # Explicit adapter (recommended)
+    result = await l0.run(stream, adapter=Adapters.openai())
+
+    # Adapter by name
+    result = await l0.run(stream, adapter="openai")
+
+    # Auto-detection
+    result = await l0.run(stream)  # L0 detects the adapter
+    ```
 """
 
 from __future__ import annotations
 
+import os
 import time
+import warnings
 from collections.abc import AsyncIterator, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Generic, Protocol, TypeVar, runtime_checkable
 
 from .logging import logger
@@ -19,6 +38,7 @@ from .types import ContentType, DataPayload, Event, EventType, Progress
 
 # TypeVar for adapter chunk types
 AdapterChunkT = TypeVar("AdapterChunkT")
+AdapterOptionsT = TypeVar("AdapterOptionsT")
 
 
 @dataclass
@@ -33,26 +53,71 @@ class AdaptedEvent(Generic[AdapterChunkT]):
 
 
 @runtime_checkable
-class Adapter(Protocol):
-    """Protocol for stream adapters.
+class Adapter(Protocol[AdapterChunkT, AdapterOptionsT]):
+    """Protocol for stream adapters (L0Adapter interface).
 
-    Adapters convert raw LLM provider streams into AdaptedEvent streams,
-    preserving raw chunks for provider-specific access.
+    Adapters convert raw LLM provider streams into L0 Events.
+    L0 handles all reliability concerns, so adapters focus on format conversion.
+
+    Attributes:
+        name: Unique identifier for this adapter
+
+    Methods:
+        detect: Optional type guard for auto-detection (only needed for registry)
+        wrap: Convert provider stream to L0 Events
     """
 
     name: str
 
     def detect(self, stream: Any) -> bool:
-        """Check if this adapter can handle the given stream."""
+        """Check if this adapter can handle the given stream.
+
+        Optional - only required for registerAdapter() auto-detection.
+        Not needed for explicit `adapter=myAdapter` usage.
+
+        Args:
+            stream: The stream to check
+
+        Returns:
+            True if this adapter can handle the stream
+        """
         ...
 
-    def wrap(self, stream: AsyncIterator[Any]) -> AsyncIterator[AdaptedEvent[Any]]:
+    def wrap(
+        self,
+        stream: AsyncIterator[Any],
+        options: AdapterOptionsT | None = None,
+    ) -> AsyncIterator[AdaptedEvent[Any]]:
         """Wrap raw stream into AdaptedEvent stream.
 
         Yields AdaptedEvent objects containing both the normalized Event
         and the original raw chunk for provider-specific access.
+
+        Args:
+            stream: The raw provider stream
+            options: Optional adapter-specific options
+
+        Yields:
+            AdaptedEvent objects with normalized events and raw chunks
         """
         ...
+
+
+@dataclass
+class OpenAIAdapterOptions:
+    """Options for OpenAI adapter.
+
+    Attributes:
+        include_usage: Include usage in complete event (default: True)
+        include_tool_calls: Include tool calls as events (default: True)
+        emit_function_calls_as_tokens: Emit function args as tokens (default: False)
+        choice_index: Which choice to use when n > 1 (default: 0, or "all")
+    """
+
+    include_usage: bool = True
+    include_tool_calls: bool = True
+    emit_function_calls_as_tokens: bool = False
+    choice_index: int | str = 0  # 0 or "all"
 
 
 class OpenAIAdapter:
@@ -69,48 +134,80 @@ class OpenAIAdapter:
         type_name = type(stream).__module__
         return "openai" in type_name or "litellm" in type_name
 
-    async def wrap(self, stream: Any) -> AsyncIterator[AdaptedEvent[Any]]:
+    async def wrap(
+        self,
+        stream: Any,
+        options: OpenAIAdapterOptions | None = None,
+    ) -> AsyncIterator[AdaptedEvent[Any]]:
         """Wrap OpenAI/LiteLLM stream into AdaptedEvents."""
+        opts = options or OpenAIAdapterOptions()
         usage = None
+
         async for chunk in stream:
             if hasattr(chunk, "choices") and chunk.choices:
-                choice = chunk.choices[0]
-                delta = getattr(choice, "delta", None)
+                # Handle choice_index option
+                if opts.choice_index == "all":
+                    choices = chunk.choices
+                else:
+                    idx = opts.choice_index if isinstance(opts.choice_index, int) else 0
+                    choices = [chunk.choices[idx]] if len(chunk.choices) > idx else []
 
-                if delta:
-                    # Text content
-                    if hasattr(delta, "content") and delta.content:
-                        yield AdaptedEvent(
-                            event=Event(type=EventType.TOKEN, text=delta.content),
-                            raw_chunk=chunk,
-                        )
+                for choice in choices:
+                    delta = getattr(choice, "delta", None)
 
-                    # Tool calls
-                    if hasattr(delta, "tool_calls") and delta.tool_calls:
-                        for tc in delta.tool_calls:
+                    if delta:
+                        # Text content
+                        if hasattr(delta, "content") and delta.content:
                             yield AdaptedEvent(
-                                event=Event(
-                                    type=EventType.TOOL_CALL,
-                                    data={
-                                        "index": getattr(tc, "index", None),
-                                        "id": getattr(tc, "id", None),
-                                        "name": (
-                                            getattr(tc.function, "name", None)
-                                            if hasattr(tc, "function")
-                                            else None
-                                        ),
-                                        "arguments": (
-                                            getattr(tc.function, "arguments", None)
-                                            if hasattr(tc, "function")
-                                            else None
-                                        ),
-                                    },
-                                ),
+                                event=Event(type=EventType.TOKEN, text=delta.content),
                                 raw_chunk=chunk,
                             )
 
+                        # Tool calls
+                        if (
+                            opts.include_tool_calls
+                            and hasattr(delta, "tool_calls")
+                            and delta.tool_calls
+                        ):
+                            for tc in delta.tool_calls:
+                                tool_data = {
+                                    "index": getattr(tc, "index", None),
+                                    "id": getattr(tc, "id", None),
+                                    "name": (
+                                        getattr(tc.function, "name", None)
+                                        if hasattr(tc, "function")
+                                        else None
+                                    ),
+                                    "arguments": (
+                                        getattr(tc.function, "arguments", None)
+                                        if hasattr(tc, "function")
+                                        else None
+                                    ),
+                                }
+
+                                # Optionally emit function args as tokens
+                                if (
+                                    opts.emit_function_calls_as_tokens
+                                    and tool_data["arguments"]
+                                ):
+                                    yield AdaptedEvent(
+                                        event=Event(
+                                            type=EventType.TOKEN,
+                                            text=tool_data["arguments"],
+                                        ),
+                                        raw_chunk=chunk,
+                                    )
+
+                                yield AdaptedEvent(
+                                    event=Event(
+                                        type=EventType.TOOL_CALL,
+                                        data=tool_data,
+                                    ),
+                                    raw_chunk=chunk,
+                                )
+
             # Extract usage if present (typically on last chunk)
-            if hasattr(chunk, "usage") and chunk.usage:
+            if opts.include_usage and hasattr(chunk, "usage") and chunk.usage:
                 usage = {
                     "input_tokens": getattr(chunk.usage, "prompt_tokens", 0),
                     "output_tokens": getattr(chunk.usage, "completion_tokens", 0),
@@ -140,7 +237,11 @@ class EventPassthroughAdapter:
         # This is a fallback - detect any async iterator
         return hasattr(stream, "__aiter__")
 
-    async def wrap(self, stream: Any) -> AsyncIterator[AdaptedEvent[Any]]:
+    async def wrap(
+        self,
+        stream: Any,
+        options: Any = None,
+    ) -> AsyncIterator[AdaptedEvent[Any]]:
         """Wrap raw Event stream into AdaptedEvents."""
         async for event in stream:
             if isinstance(event, Event):
@@ -150,8 +251,11 @@ class EventPassthroughAdapter:
                 pass
 
 
-# Registry - OpenAI adapter first (more specific), passthrough last (fallback)
-_adapters: list[Adapter] = [OpenAIAdapter(), EventPassthroughAdapter()]
+# Registry - OpenAI first (more specific), passthrough last (fallback)
+_adapters: list[Adapter] = [
+    OpenAIAdapter(),
+    EventPassthroughAdapter(),
+]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -222,12 +326,27 @@ class Adapters:
         raise ValueError("No adapter found for stream")
 
     @staticmethod
-    def register(adapter: Adapter) -> None:
+    def register(adapter: Adapter, *, silent: bool = False) -> None:
         """Register a custom adapter (takes priority).
 
         Args:
             adapter: Adapter instance to register
+            silent: If True, suppress warning when adapter lacks detect() method
+
+        Note:
+            In development mode, registering an adapter without detect() logs a warning.
+            Use silent=True to suppress this warning, or set NODE_ENV=production.
         """
+        # Check for detect method and warn if missing (unless silent or production)
+        if not silent and os.environ.get("NODE_ENV") != "production":
+            if not hasattr(adapter, "detect") or adapter.detect is None:
+                warnings.warn(
+                    f'Adapter "{adapter.name}" has no detect() method. '
+                    "It will not be used for auto-detection. "
+                    "Use explicit `adapter=myAdapter` instead, or add a detect() method.",
+                    UserWarning,
+                    stacklevel=2,
+                )
         _adapters.insert(0, adapter)
 
     @staticmethod
@@ -286,6 +405,175 @@ class Adapters:
     def litellm() -> OpenAIAdapter:
         """Get the LiteLLM adapter instance (alias for OpenAI)."""
         return OpenAIAdapter()
+
+    @staticmethod
+    def get(name: str) -> Adapter | None:
+        """Get adapter by name.
+
+        Args:
+            name: Name of the adapter
+
+        Returns:
+            Adapter instance if found, None otherwise
+        """
+        for a in _adapters:
+            if a.name == name:
+                return a
+        return None
+
+    @staticmethod
+    def unregister_all_except(names: list[str] | None = None) -> list[str]:
+        """Remove all adapters except those in the specified list.
+
+        Useful for testing to ensure a clean adapter state.
+
+        Args:
+            names: List of adapter names to keep (default: keep none)
+
+        Returns:
+            List of removed adapter names
+        """
+        global _adapters
+        names = names or []
+        removed = []
+        new_adapters = []
+        for a in _adapters:
+            if a.name in names:
+                new_adapters.append(a)
+            else:
+                removed.append(a.name)
+        _adapters = new_adapters
+        return removed
+
+    @staticmethod
+    def has_matching(stream: Any) -> bool:
+        """Check if exactly one adapter matches the stream.
+
+        Args:
+            stream: The stream to check
+
+        Returns:
+            True if exactly one adapter matches
+        """
+        matches = [a for a in _adapters if a.detect(stream)]
+        return len(matches) == 1
+
+    @staticmethod
+    def detect_adapter(stream: Any) -> Adapter | None:
+        """Auto-detect adapter for stream.
+
+        Unlike detect(), this returns None instead of raising if no adapter found.
+
+        Args:
+            stream: The stream to detect adapter for
+
+        Returns:
+            Adapter instance if found, None otherwise
+        """
+        for a in _adapters:
+            if a.detect(stream):
+                return a
+        return None
+
+    @staticmethod
+    def registered() -> list[str]:
+        """List names of all registered adapters.
+
+        Alias for list() - matches TS getRegisteredStreamAdapters().
+
+        Returns:
+            List of adapter names in priority order
+        """
+        return [a.name for a in _adapters]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Module-level convenience functions (matches TS exports)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def register_adapter(adapter: Adapter, *, silent: bool = False) -> None:
+    """Register a custom adapter (takes priority).
+
+    Args:
+        adapter: Adapter instance to register
+        silent: If True, suppress warning when adapter lacks detect() method
+    """
+    Adapters.register(adapter, silent=silent)
+
+
+def unregister_adapter(name: str) -> bool:
+    """Unregister an adapter by name.
+
+    Args:
+        name: Name of the adapter to remove
+
+    Returns:
+        True if adapter was found and removed, False otherwise
+    """
+    return Adapters.unregister(name)
+
+
+def unregister_all_except(names: list[str] | None = None) -> list[str]:
+    """Remove all adapters except those in the specified list.
+
+    Args:
+        names: List of adapter names to keep (default: keep none)
+
+    Returns:
+        List of removed adapter names
+    """
+    return Adapters.unregister_all_except(names)
+
+
+def get_adapter(name: str) -> Adapter | None:
+    """Get adapter by name.
+
+    Args:
+        name: Name of the adapter
+
+    Returns:
+        Adapter instance if found, None otherwise
+    """
+    return Adapters.get(name)
+
+
+def get_registered_adapters() -> list[str]:
+    """List names of all registered adapters.
+
+    Returns:
+        List of adapter names in priority order
+    """
+    return Adapters.registered()
+
+
+def clear_adapters() -> None:
+    """Clear all registered adapters."""
+    Adapters.clear()
+
+
+def detect_adapter(stream: Any) -> Adapter | None:
+    """Auto-detect adapter for stream.
+
+    Args:
+        stream: The stream to detect adapter for
+
+    Returns:
+        Adapter instance if found, None otherwise
+    """
+    return Adapters.detect_adapter(stream)
+
+
+def has_matching_adapter(stream: Any) -> bool:
+    """Check if exactly one adapter matches the stream.
+
+    Args:
+        stream: The stream to check
+
+    Returns:
+        True if exactly one adapter matches
+    """
+    return Adapters.has_matching(stream)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

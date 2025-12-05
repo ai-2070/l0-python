@@ -9,6 +9,9 @@ from .adapters import (
     Adapters,
     LiteLLMAdapter,
     OpenAIAdapter,
+    OpenAIAdapterOptions,
+    # Registry functions
+    clear_adapters,
     # Helper functions
     create_audio_event,
     create_complete_event,
@@ -17,9 +20,16 @@ from .adapters import (
     create_image_event,
     create_progress_event,
     create_token_event,
+    detect_adapter,
+    get_adapter,
+    get_registered_adapters,
+    has_matching_adapter,
+    register_adapter,
     to_l0_events,
     to_l0_events_with_messages,
     to_multimodal_l0_events,
+    unregister_adapter,
+    unregister_all_except,
 )
 from .client import WrappedClient, wrap_client
 from .consensus import (
@@ -448,10 +458,20 @@ __all__ = [
     "consume_stream",
     "get_text",
     # Adapters (scoped API)
-    "Adapters",  # Class with .detect(), .register(), .openai(), .litellm()
+    "Adapters",  # Class with .detect(), .register(), .openai(), .litellm(), .get(), etc.
     "Adapter",
     "OpenAIAdapter",
+    "OpenAIAdapterOptions",
     "LiteLLMAdapter",
+    # Adapter registry functions
+    "register_adapter",
+    "unregister_adapter",
+    "unregister_all_except",
+    "get_adapter",
+    "get_registered_adapters",
+    "clear_adapters",
+    "detect_adapter",
+    "has_matching_adapter",
     # Adapter helpers
     "to_l0_events",
     "to_l0_events_with_messages",
