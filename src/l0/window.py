@@ -7,8 +7,8 @@ from __future__ import annotations
 
 import asyncio
 import re
-from collections.abc import Awaitable, Callable, Iterator
-from dataclasses import dataclass, field
+from collections.abc import Callable, Iterator
+from dataclasses import dataclass
 from typing import Any, Generic, Literal, TypeVar
 
 from .runtime import _internal_run
@@ -17,6 +17,7 @@ from .types import Retry, Stream, StreamFactory, Timeout
 T = TypeVar("T")
 
 ChunkingStrategy = Literal["token", "char", "paragraph", "sentence"]
+TokenEstimator = Callable[[str], int]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -37,6 +38,7 @@ class DocumentChunk:
     is_first: bool  # Is this the first chunk?
     is_last: bool  # Is this the last chunk?
     total_chunks: int  # Total number of chunks
+    metadata: dict[str, Any] | None = None  # Custom metadata
 
 
 @dataclass
@@ -46,6 +48,21 @@ class WindowConfig:
     size: int = 2000  # Tokens per chunk
     overlap: int = 200  # Overlap between chunks
     strategy: ChunkingStrategy = "token"
+    estimate_tokens: TokenEstimator | None = None  # Custom token estimator
+    metadata: dict[str, Any] | None = None  # Custom metadata for all chunks
+
+
+@dataclass
+class WindowStats:
+    """Statistics about a document window."""
+
+    total_chunks: int  # Total number of chunks
+    total_chars: int  # Total document length (characters)
+    total_tokens: int  # Estimated total tokens
+    avg_chunk_size: int  # Average chunk size (characters)
+    avg_chunk_tokens: int  # Average chunk tokens
+    overlap_size: int  # Overlap size (tokens)
+    strategy: ChunkingStrategy  # Chunking strategy used
 
 
 @dataclass
@@ -80,7 +97,6 @@ def estimate_tokens(text: str) -> int:
     Uses a simple heuristic: ~4 characters per token for English text.
     For more accurate counts, use tiktoken or similar.
     """
-    # Simple estimation: ~4 chars per token for English
     return len(text) // 4
 
 
@@ -98,6 +114,7 @@ def _chunk_by_char(
     document: str,
     size: int,
     overlap: int,
+    token_estimator: TokenEstimator,
 ) -> list[tuple[int, int]]:
     """Chunk document by character count."""
     chunks: list[tuple[int, int]] = []
@@ -130,10 +147,11 @@ def _chunk_by_token(
     document: str,
     size: int,
     overlap: int,
+    token_estimator: TokenEstimator,
 ) -> list[tuple[int, int]]:
     """Chunk document by estimated token count."""
     # For token-based chunking, we convert to character positions
-    return _chunk_by_char(document, size, overlap)
+    return _chunk_by_char(document, size, overlap, token_estimator)
 
 
 def _find_paragraph_boundaries(document: str) -> list[int]:
@@ -236,10 +254,16 @@ def chunk_document(
     config: WindowConfig,
 ) -> list[DocumentChunk]:
     """Chunk a document according to configuration."""
+    token_estimator = config.estimate_tokens or estimate_tokens
+
     if config.strategy == "char":
-        positions = _chunk_by_char(document, config.size, config.overlap)
+        positions = _chunk_by_char(
+            document, config.size, config.overlap, token_estimator
+        )
     elif config.strategy == "token":
-        positions = _chunk_by_token(document, config.size, config.overlap)
+        positions = _chunk_by_token(
+            document, config.size, config.overlap, token_estimator
+        )
     elif config.strategy == "paragraph":
         positions = _chunk_by_paragraph(document, config.size, config.overlap)
     elif config.strategy == "sentence":
@@ -258,11 +282,12 @@ def chunk_document(
                 content=content,
                 start_pos=start,
                 end_pos=end,
-                token_count=estimate_tokens(content),
+                token_count=token_estimator(content),
                 char_count=len(content),
                 is_first=(i == 0),
                 is_last=(i == total - 1),
                 total_chunks=total,
+                metadata=config.metadata.copy() if config.metadata else None,
             )
         )
 
@@ -279,15 +304,21 @@ class DocumentWindow:
 
     Example:
         ```python
-        from l0 import create_window
+        from l0 import Window
 
-        window = create_window(long_document, size=2000, overlap=200)
+        window = Window.create(long_document, size=2000, overlap=200)
 
         # Navigate
         chunk = window.current()
         window.next()
         window.prev()
         window.jump(5)
+
+        # Search
+        matches = window.find_chunks("keyword")
+
+        # Stats
+        stats = window.get_stats()
 
         # Process all chunks
         results = await window.process_all(
@@ -311,6 +342,7 @@ class DocumentWindow:
         """
         self._document = document
         self._config = config
+        self._token_estimator = config.estimate_tokens or estimate_tokens
         self._chunks = chunk_document(document, config)
         self._current_index = 0
 
@@ -334,6 +366,10 @@ class DocumentWindow:
         """Window configuration."""
         return self._config
 
+    # ─────────────────────────────────────────────────────────────────────────
+    # Navigation
+    # ─────────────────────────────────────────────────────────────────────────
+
     def current(self) -> DocumentChunk | None:
         """Get current chunk."""
         if 0 <= self._current_index < len(self._chunks):
@@ -349,6 +385,20 @@ class DocumentWindow:
     def get_all_chunks(self) -> list[DocumentChunk]:
         """Get all chunks."""
         return list(self._chunks)
+
+    def get_range(self, start: int, end: int) -> list[DocumentChunk]:
+        """Get a range of chunks.
+
+        Args:
+            start: Start index (inclusive)
+            end: End index (exclusive)
+
+        Returns:
+            List of chunks in the range
+        """
+        valid_start = max(0, start)
+        valid_end = min(len(self._chunks), end)
+        return self._chunks[valid_start:valid_end]
 
     def next(self) -> DocumentChunk | None:
         """Move to and return next chunk."""
@@ -383,6 +433,70 @@ class DocumentWindow:
     def has_prev(self) -> bool:
         """Check if there's a previous chunk."""
         return self._current_index > 0
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Search
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def find_chunks(
+        self,
+        search_text: str,
+        case_sensitive: bool = False,
+    ) -> list[DocumentChunk]:
+        """Find chunks containing specific text.
+
+        Args:
+            search_text: Text to search for
+            case_sensitive: Whether search is case-sensitive (default False)
+
+        Returns:
+            List of chunks containing the search text
+        """
+        search = search_text if case_sensitive else search_text.lower()
+
+        return [
+            chunk
+            for chunk in self._chunks
+            if search in (chunk.content if case_sensitive else chunk.content.lower())
+        ]
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Statistics
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def get_stats(self) -> WindowStats:
+        """Get statistics about this window.
+
+        Returns:
+            WindowStats with chunk and document statistics
+        """
+        total_chars = len(self._document)
+        total_tokens = self._token_estimator(self._document)
+
+        if self._chunks:
+            avg_chunk_size = sum(c.char_count for c in self._chunks) // len(
+                self._chunks
+            )
+            avg_chunk_tokens = sum(c.token_count for c in self._chunks) // len(
+                self._chunks
+            )
+        else:
+            avg_chunk_size = 0
+            avg_chunk_tokens = 0
+
+        return WindowStats(
+            total_chunks=len(self._chunks),
+            total_chars=total_chars,
+            total_tokens=total_tokens,
+            avg_chunk_size=avg_chunk_size,
+            avg_chunk_tokens=avg_chunk_tokens,
+            overlap_size=self._config.overlap,
+            strategy=self._config.strategy,
+        )
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Processing
+    # ─────────────────────────────────────────────────────────────────────────
 
     async def process_all(
         self,
@@ -477,6 +591,10 @@ class DocumentWindow:
 
         return results
 
+    # ─────────────────────────────────────────────────────────────────────────
+    # Python Special Methods
+    # ─────────────────────────────────────────────────────────────────────────
+
     def __iter__(self) -> Iterator[DocumentChunk]:
         """Iterate over all chunks."""
         return iter(self._chunks)
@@ -526,6 +644,8 @@ class Window:
         size: int = 2000,
         overlap: int = 200,
         strategy: ChunkingStrategy = "token",
+        estimate_tokens: TokenEstimator | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> DocumentWindow:
         """Create a document window for chunking and processing.
 
@@ -535,12 +655,20 @@ class Window:
             size: Tokens per chunk (default 2000)
             overlap: Overlap between chunks (default 200)
             strategy: Chunking strategy (default "token")
+            estimate_tokens: Custom token estimator function
+            metadata: Custom metadata to attach to each chunk
 
         Returns:
             DocumentWindow for navigating and processing chunks
         """
         if config is None:
-            config = WindowConfig(size=size, overlap=overlap, strategy=strategy)
+            config = WindowConfig(
+                size=size,
+                overlap=overlap,
+                strategy=strategy,
+                estimate_tokens=estimate_tokens,
+                metadata=metadata,
+            )
         return DocumentWindow(document, config)
 
     @staticmethod

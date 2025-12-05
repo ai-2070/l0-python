@@ -7,6 +7,7 @@ from src.l0.window import (
     DocumentWindow,
     Window,
     WindowConfig,
+    WindowStats,
 )
 
 
@@ -342,3 +343,221 @@ class TestOverlapGreaterThanSize:
         window = Window.create(doc, size=10, overlap=20, strategy="sentence")
         chunks = window.get_all_chunks()
         assert len(chunks) >= 1
+
+
+class TestGetRange:
+    """Tests for get_range method."""
+
+    def test_get_range_basic(self):
+        """Test basic range retrieval."""
+        doc = "a" * 4000
+        window = Window.create(doc, size=500, overlap=50)
+        chunks = window.get_range(0, 2)
+        assert len(chunks) == 2
+        assert chunks[0].index == 0
+        assert chunks[1].index == 1
+
+    def test_get_range_middle(self):
+        """Test range in the middle."""
+        doc = "a" * 4000
+        window = Window.create(doc, size=500, overlap=50)
+        chunks = window.get_range(1, 3)
+        assert len(chunks) == 2
+        assert chunks[0].index == 1
+        assert chunks[1].index == 2
+
+    def test_get_range_clamps_start(self):
+        """Test that negative start is clamped to 0."""
+        doc = "a" * 4000
+        window = Window.create(doc, size=500, overlap=50)
+        chunks = window.get_range(-5, 2)
+        assert len(chunks) == 2
+        assert chunks[0].index == 0
+
+    def test_get_range_clamps_end(self):
+        """Test that end beyond total_chunks is clamped."""
+        doc = "a" * 4000
+        window = Window.create(doc, size=500, overlap=50)
+        total = window.total_chunks
+        chunks = window.get_range(total - 1, total + 10)
+        assert len(chunks) == 1
+        assert chunks[0].index == total - 1
+
+    def test_get_range_empty(self):
+        """Test empty range when start >= end."""
+        doc = "a" * 4000
+        window = Window.create(doc, size=500, overlap=50)
+        chunks = window.get_range(5, 2)
+        assert len(chunks) == 0
+
+
+class TestFindChunks:
+    """Tests for find_chunks method."""
+
+    def test_find_chunks_basic(self):
+        """Test basic text search."""
+        doc = "Hello world. Goodbye world. Hello again."
+        window = Window.create(doc, size=1000)
+        matches = window.find_chunks("Hello")
+        assert len(matches) == 1
+        assert "Hello" in matches[0].content
+
+    def test_find_chunks_case_insensitive(self):
+        """Test case-insensitive search (default)."""
+        doc = "Hello world. HELLO again. hello there."
+        window = Window.create(doc, size=1000)
+        matches = window.find_chunks("hello")
+        assert len(matches) == 1  # All in one chunk
+        assert "Hello" in matches[0].content
+
+    def test_find_chunks_case_sensitive(self):
+        """Test case-sensitive search."""
+        doc = "Hello world. HELLO again. hello there."
+        window = Window.create(doc, size=1000)
+        matches = window.find_chunks("HELLO", case_sensitive=True)
+        assert len(matches) == 1
+        assert "HELLO" in matches[0].content
+
+    def test_find_chunks_no_match(self):
+        """Test when no chunks match."""
+        doc = "Hello world. Goodbye world."
+        window = Window.create(doc, size=1000)
+        matches = window.find_chunks("Python")
+        assert len(matches) == 0
+
+    def test_find_chunks_multiple_chunks(self):
+        """Test finding across multiple chunks."""
+        # Create doc with keyword in multiple positions
+        doc = "Keyword here. " + "a" * 2000 + " Keyword there."
+        window = Window.create(doc, size=500, overlap=50)
+        matches = window.find_chunks("Keyword")
+        assert len(matches) >= 2
+
+
+class TestGetStats:
+    """Tests for get_stats method."""
+
+    def test_get_stats_basic(self):
+        """Test basic stats retrieval."""
+        doc = "Hello world. This is a test document."
+        window = Window.create(doc, size=1000, overlap=100, strategy="token")
+        stats = window.get_stats()
+
+        assert isinstance(stats, WindowStats)
+        assert stats.total_chunks == 1
+        assert stats.total_chars == len(doc)
+        assert stats.total_tokens > 0
+        assert stats.avg_chunk_size == len(doc)
+        assert stats.overlap_size == 100
+        assert stats.strategy == "token"
+
+    def test_get_stats_multiple_chunks(self):
+        """Test stats with multiple chunks."""
+        doc = "a" * 4000
+        window = Window.create(doc, size=500, overlap=50)
+        stats = window.get_stats()
+
+        assert stats.total_chunks > 1
+        assert stats.total_chars == 4000
+        assert stats.avg_chunk_size > 0
+        assert stats.avg_chunk_tokens > 0
+
+    def test_get_stats_empty_document(self):
+        """Test stats with empty document."""
+        doc = ""
+        window = Window.create(doc, size=1000)
+        stats = window.get_stats()
+
+        assert stats.total_chunks == 0
+        assert stats.total_chars == 0
+        assert stats.avg_chunk_size == 0
+        assert stats.avg_chunk_tokens == 0
+
+
+class TestMetadata:
+    """Tests for metadata field."""
+
+    def test_chunk_metadata_from_config(self):
+        """Test that metadata flows from config to chunks."""
+        doc = "Hello world"
+        metadata = {"source": "test", "priority": 1}
+        window = Window.create(doc, size=1000, metadata=metadata)
+        chunks = window.get_all_chunks()
+
+        assert len(chunks) == 1
+        assert chunks[0].metadata == {"source": "test", "priority": 1}
+
+    def test_chunk_metadata_is_copied(self):
+        """Test that each chunk gets a copy of metadata."""
+        doc = "a" * 4000
+        metadata = {"source": "test"}
+        window = Window.create(doc, size=500, overlap=50, metadata=metadata)
+        chunks = window.get_all_chunks()
+
+        # Modify one chunk's metadata
+        chunks[0].metadata["modified"] = True
+
+        # Other chunks should not be affected
+        assert "modified" not in chunks[1].metadata
+
+    def test_chunk_metadata_none_by_default(self):
+        """Test that metadata is None by default."""
+        doc = "Hello world"
+        window = Window.create(doc, size=1000)
+        chunks = window.get_all_chunks()
+
+        assert chunks[0].metadata is None
+
+
+class TestCustomTokenEstimator:
+    """Tests for custom estimate_tokens callback."""
+
+    def test_custom_estimator_used(self):
+        """Test that custom estimator is used for chunking."""
+        # Custom estimator that returns 1 token per character
+        custom_estimator = lambda text: len(text)
+
+        doc = "a" * 100
+        # With default estimator (4 chars/token): 100 chars = 25 tokens
+        # With custom estimator: 100 chars = 100 tokens
+        window = Window.create(
+            doc, size=50, overlap=5, estimate_tokens=custom_estimator
+        )
+        chunks = window.get_all_chunks()
+
+        # Custom estimator means we need more chunks
+        # 100 tokens with size=50 should give multiple chunks
+        assert len(chunks) >= 2
+
+    def test_custom_estimator_in_stats(self):
+        """Test that custom estimator is used in get_stats."""
+        custom_estimator = lambda text: len(text) * 2  # 2 tokens per char
+
+        doc = "Hello"  # 5 chars
+        window = Window.create(doc, size=1000, estimate_tokens=custom_estimator)
+        stats = window.get_stats()
+
+        # 5 chars * 2 = 10 tokens
+        assert stats.total_tokens == 10
+
+    def test_custom_estimator_in_chunk_token_count(self):
+        """Test that custom estimator is used in chunk token_count."""
+        custom_estimator = lambda text: len(text)  # 1 token per char
+
+        doc = "Hello"  # 5 chars
+        window = Window.create(doc, size=1000, estimate_tokens=custom_estimator)
+        chunks = window.get_all_chunks()
+
+        assert chunks[0].token_count == 5
+
+    def test_config_with_custom_estimator(self):
+        """Test WindowConfig with custom estimator."""
+        custom_estimator = lambda text: len(text)
+        config = WindowConfig(size=100, overlap=10, estimate_tokens=custom_estimator)
+
+        doc = "a" * 200
+        window = Window.create(doc, config=config)
+        chunks = window.get_all_chunks()
+
+        # With 1 token per char, 200 chars with size 100 = multiple chunks
+        assert len(chunks) >= 2
