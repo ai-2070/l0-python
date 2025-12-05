@@ -113,6 +113,13 @@ from .json_schema import (
     wrap_json_schema,
 )
 from .logging import enable_debug
+from .metrics import (
+    Metrics,
+    MetricsSnapshot,
+    create_metrics,
+    get_global_metrics,
+    reset_global_metrics,
+)
 from .multimodal import Multimodal
 from .normalize import (
     NormalizeOptions,
@@ -161,6 +168,13 @@ from .pipeline import (
 )
 from .pool import OperationPool, PoolOptions, PoolStats, create_pool
 from .runtime import LifecycleCallbacks, TimeoutError, _internal_run
+from .state_machine import (
+    RuntimeState,
+    RuntimeStates,
+    StateMachine,
+    StateTransition,
+    create_state_machine,
+)
 from .stream import consume_stream, get_text
 from .structured import (
     MINIMAL_STRUCTURED,
@@ -641,6 +655,18 @@ __all__ = [
     "DriftResult",
     "check_drift",
     "create_drift_detector",
+    # State machine
+    "StateMachine",
+    "RuntimeState",
+    "RuntimeStates",
+    "StateTransition",
+    "create_state_machine",
+    # Metrics
+    "Metrics",
+    "MetricsSnapshot",
+    "create_metrics",
+    "get_global_metrics",
+    "reset_global_metrics",
     # Text normalization utilities
     "NormalizeOptions",
     "WhitespaceOptions",
