@@ -9,12 +9,13 @@ LiteLLM uses OpenAI-compatible format, so the OpenAI adapter handles both.
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+import time
+from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
 from typing import Any, Generic, Protocol, TypeVar, runtime_checkable
 
 from .logging import logger
-from .types import Event, EventType
+from .types import ContentType, DataPayload, Event, EventType, Progress
 
 # TypeVar for adapter chunk types
 AdapterChunkT = TypeVar("AdapterChunkT")
@@ -285,3 +286,315 @@ class Adapters:
     def litellm() -> OpenAIAdapter:
         """Get the LiteLLM adapter instance (alias for OpenAI)."""
         return OpenAIAdapter()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Adapter Helper Functions
+# ─────────────────────────────────────────────────────────────────────────────
+
+T = TypeVar("T")
+
+
+async def to_l0_events(
+    stream: AsyncIterator[T],
+    extract_text: Callable[[T], str | None],
+) -> AsyncIterator[Event]:
+    """Convert any async iterable stream to L0 Events.
+
+    This helper makes it easier to build custom adapters by handling:
+    - Error conversion to L0 error events
+    - Automatic complete event emission
+    - Timestamp generation
+
+    You only need to provide an extraction function that pulls text from chunks.
+
+    Args:
+        stream: The source async iterable stream
+        extract_text: Function to extract text from a chunk (return None to skip)
+
+    Yields:
+        L0 Event objects
+
+    Example:
+        ```python
+        from l0.adapters import to_l0_events
+
+        async def my_adapter(stream):
+            async for event in to_l0_events(stream, lambda chunk: chunk.text):
+                yield event
+        ```
+    """
+    try:
+        async for chunk in stream:
+            text = extract_text(chunk)
+            if text is not None:
+                yield Event(type=EventType.TOKEN, text=text)
+        yield Event(type=EventType.COMPLETE)
+    except Exception as e:
+        yield Event(type=EventType.ERROR, error=e)
+
+
+async def to_l0_events_with_messages(
+    stream: AsyncIterator[T],
+    extract_text: Callable[[T], str | None],
+    extract_message: Callable[[T], dict[str, Any] | None] | None = None,
+) -> AsyncIterator[Event]:
+    """Convert a stream with message events to L0 Events.
+
+    Use this when your stream emits both text tokens and structured messages
+    (e.g., tool calls, function calls).
+
+    Args:
+        stream: The source async iterable stream
+        extract_text: Function to extract text from a chunk (return None to skip)
+        extract_message: Function to extract message from a chunk (return None to skip)
+
+    Yields:
+        L0 Event objects
+
+    Example:
+        ```python
+        from l0.adapters import to_l0_events_with_messages
+
+        async def tool_adapter(stream):
+            async for event in to_l0_events_with_messages(
+                stream,
+                extract_text=lambda c: c.text if c.type == "text" else None,
+                extract_message=lambda c: {"value": c.tool_call} if c.type == "tool" else None,
+            ):
+                yield event
+        ```
+    """
+    try:
+        async for chunk in stream:
+            # Check for text content
+            text = extract_text(chunk)
+            if text is not None:
+                yield Event(type=EventType.TOKEN, text=text)
+                continue
+
+            # Check for message content
+            if extract_message:
+                message = extract_message(chunk)
+                if message is not None:
+                    yield Event(
+                        type=EventType.MESSAGE,
+                        data=message,
+                    )
+        yield Event(type=EventType.COMPLETE)
+    except Exception as e:
+        yield Event(type=EventType.ERROR, error=e)
+
+
+async def to_multimodal_l0_events(
+    stream: AsyncIterator[T],
+    extract_text: Callable[[T], str | None] | None = None,
+    extract_data: Callable[[T], DataPayload | None] | None = None,
+    extract_progress: Callable[[T], Progress | None] | None = None,
+    extract_message: Callable[[T], dict[str, Any] | None] | None = None,
+) -> AsyncIterator[Event]:
+    """Convert multimodal stream to L0 Events with support for text and data.
+
+    Args:
+        stream: The source async iterable stream
+        extract_text: Function to extract text from a chunk
+        extract_data: Function to extract multimodal data from a chunk
+        extract_progress: Function to extract progress from a chunk
+        extract_message: Function to extract message from a chunk
+
+    Yields:
+        L0 Event objects
+
+    Example:
+        ```python
+        from l0.adapters import to_multimodal_l0_events
+        from l0 import DataPayload
+
+        async def image_adapter(stream):
+            async for event in to_multimodal_l0_events(
+                stream,
+                extract_data=lambda c: DataPayload(
+                    content_type="image",
+                    mime_type="image/png",
+                    base64=c.image,
+                ) if c.type == "image" else None,
+                extract_progress=lambda c: Progress(
+                    percent=c.percent,
+                    message=c.status,
+                ) if c.type == "progress" else None,
+            ):
+                yield event
+        ```
+    """
+    try:
+        async for chunk in stream:
+            # Try each extractor in order
+
+            # Text tokens
+            if extract_text:
+                text = extract_text(chunk)
+                if text is not None:
+                    yield Event(type=EventType.TOKEN, text=text)
+                    continue
+
+            # Multimodal data
+            if extract_data:
+                data = extract_data(chunk)
+                if data is not None:
+                    yield Event(type=EventType.DATA, data=data)
+                    continue
+
+            # Progress updates
+            if extract_progress:
+                progress = extract_progress(chunk)
+                if progress is not None:
+                    yield Event(type=EventType.PROGRESS, progress=progress)
+                    continue
+
+            # Messages
+            if extract_message:
+                message = extract_message(chunk)
+                if message is not None:
+                    yield Event(type=EventType.MESSAGE, data=message)
+                    continue
+
+        yield Event(type=EventType.COMPLETE)
+    except Exception as e:
+        yield Event(type=EventType.ERROR, error=e)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Event Creation Helpers
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def create_token_event(value: str) -> Event:
+    """Create an L0 token event.
+
+    Args:
+        value: The token text
+
+    Returns:
+        Event of type TOKEN
+    """
+    return Event(type=EventType.TOKEN, text=value)
+
+
+def create_complete_event(usage: dict[str, int] | None = None) -> Event:
+    """Create an L0 complete event.
+
+    Args:
+        usage: Optional usage information
+
+    Returns:
+        Event of type COMPLETE
+    """
+    return Event(type=EventType.COMPLETE, usage=usage)
+
+
+def create_error_event(error: Exception | str) -> Event:
+    """Create an L0 error event.
+
+    Args:
+        error: The error (will be wrapped if string)
+
+    Returns:
+        Event of type ERROR
+    """
+    if isinstance(error, str):
+        error = Exception(error)
+    return Event(type=EventType.ERROR, error=error)
+
+
+def create_data_event(payload: DataPayload) -> Event:
+    """Create an L0 data event for multimodal content.
+
+    Args:
+        payload: The data payload
+
+    Returns:
+        Event of type DATA
+    """
+    return Event(type=EventType.DATA, data=payload)
+
+
+def create_progress_event(progress: Progress) -> Event:
+    """Create an L0 progress event.
+
+    Args:
+        progress: Progress information
+
+    Returns:
+        Event of type PROGRESS
+    """
+    return Event(type=EventType.PROGRESS, progress=progress)
+
+
+def create_image_event(
+    url: str | None = None,
+    base64: str | None = None,
+    mime_type: str = "image/png",
+    width: int | None = None,
+    height: int | None = None,
+    **metadata: Any,
+) -> Event:
+    """Create an image data event with convenience parameters.
+
+    Args:
+        url: Image URL
+        base64: Base64-encoded image data
+        mime_type: MIME type (default: image/png)
+        width: Image width
+        height: Image height
+        **metadata: Additional metadata
+
+    Returns:
+        Event of type DATA with image content
+    """
+    meta = {k: v for k, v in metadata.items() if v is not None}
+    if width is not None:
+        meta["width"] = width
+    if height is not None:
+        meta["height"] = height
+
+    payload = DataPayload(
+        content_type="image",
+        mime_type=mime_type,
+        url=url,
+        base64=base64,
+        metadata=meta if meta else None,
+    )
+    return Event(type=EventType.DATA, data=payload)
+
+
+def create_audio_event(
+    url: str | None = None,
+    base64: str | None = None,
+    mime_type: str = "audio/mp3",
+    duration: float | None = None,
+    **metadata: Any,
+) -> Event:
+    """Create an audio data event with convenience parameters.
+
+    Args:
+        url: Audio URL
+        base64: Base64-encoded audio data
+        mime_type: MIME type (default: audio/mp3)
+        duration: Audio duration in seconds
+        **metadata: Additional metadata
+
+    Returns:
+        Event of type DATA with audio content
+    """
+    meta = {k: v for k, v in metadata.items() if v is not None}
+    if duration is not None:
+        meta["duration"] = duration
+
+    payload = DataPayload(
+        content_type="audio",
+        mime_type=mime_type,
+        url=url,
+        base64=base64,
+        metadata=meta if meta else None,
+    )
+    return Event(type=EventType.DATA, data=payload)

@@ -9,6 +9,17 @@ from .adapters import (
     Adapters,
     LiteLLMAdapter,
     OpenAIAdapter,
+    # Helper functions
+    create_audio_event,
+    create_complete_event,
+    create_data_event,
+    create_error_event,
+    create_image_event,
+    create_progress_event,
+    create_token_event,
+    to_l0_events,
+    to_l0_events_with_messages,
+    to_multimodal_l0_events,
 )
 from .client import WrappedClient, wrap_client
 from .consensus import (
@@ -30,6 +41,13 @@ from .continuation import (
     OverlapResult,
     deduplicate_continuation,
     detect_overlap,
+)
+from .drift import (
+    DriftConfig,
+    DriftDetector,
+    DriftResult,
+    check_drift,
+    create_drift_detector,
 )
 from .errors import (
     # L0 Error (with .categorize() and .is_retryable() static methods)
@@ -411,6 +429,17 @@ __all__ = [
     "Adapter",
     "OpenAIAdapter",
     "LiteLLMAdapter",
+    # Adapter helpers
+    "to_l0_events",
+    "to_l0_events_with_messages",
+    "to_multimodal_l0_events",
+    "create_token_event",
+    "create_complete_event",
+    "create_error_event",
+    "create_data_event",
+    "create_progress_event",
+    "create_image_event",
+    "create_audio_event",
     # Guardrails (scoped API)
     "Guardrails",  # Class with .recommended(), .strict(), .json(), .check(), .analyze_json(), etc.
     "GuardrailRule",
@@ -492,4 +521,10 @@ __all__ = [
     "OverlapResult",
     "detect_overlap",
     "deduplicate_continuation",
+    # Drift detection
+    "DriftDetector",
+    "DriftConfig",
+    "DriftResult",
+    "check_drift",
+    "create_drift_detector",
 ]
