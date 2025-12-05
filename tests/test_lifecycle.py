@@ -47,7 +47,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from src.l0 import Retry, run, wrap
+from src.l0 import CheckIntervals, Retry, run, wrap
 from src.l0.adapters import AdaptedEvent, Adapters
 from src.l0.events import EventBus, ObservabilityEvent, ObservabilityEventType
 from src.l0.guardrails import GuardrailRule, GuardrailViolation
@@ -198,7 +198,7 @@ class TestLifecycleNormalFlow:
             on_event=collector.handler,
         )
 
-        async for _ in result.stream:
+        async for _ in result:
             pass
 
         types = collector.get_event_types()
@@ -226,7 +226,7 @@ class TestLifecycleNormalFlow:
             on_event=collector.handler,
         )
 
-        async for _ in result.stream:
+        async for _ in result:
             pass
 
         session_starts = collector.get_events_of_type(
@@ -253,7 +253,7 @@ class TestLifecycleNormalFlow:
             on_event=collector.handler,
         )
 
-        async for _ in result.stream:
+        async for _ in result:
             pass
 
         complete_events = collector.get_events_of_type(
@@ -280,7 +280,7 @@ class TestLifecycleNormalFlow:
             on_start=on_start,
         )
 
-        async for _ in result.stream:
+        async for _ in result:
             pass
 
         on_start.assert_called_once()
@@ -304,7 +304,7 @@ class TestLifecycleNormalFlow:
             on_complete=on_complete,
         )
 
-        async for _ in result.stream:
+        async for _ in result:
             pass
 
         on_complete.assert_called_once()
@@ -332,7 +332,7 @@ class TestLifecycleNormalFlow:
             on_stream_event=on_event,
         )
 
-        async for _ in result.stream:
+        async for _ in result:
             pass
 
         assert received_tokens == ["A", "B", "C", "D", "E"]
@@ -381,7 +381,7 @@ class TestLifecycleRetryFlow:
             on_event=collector.handler,
         )
 
-        async for _ in result.stream:
+        async for _ in result:
             pass
 
         types = collector.get_event_types()
@@ -441,7 +441,7 @@ class TestLifecycleRetryFlow:
             on_event=collector.handler,
         )
 
-        async for _ in result.stream:
+        async for _ in result:
             pass
 
         session_starts = collector.get_events_of_type(
@@ -494,7 +494,7 @@ class TestLifecycleRetryFlow:
             on_retry=on_retry,
         )
 
-        async for _ in result.stream:
+        async for _ in result:
             pass
 
         on_retry.assert_called_once()
@@ -538,7 +538,7 @@ class TestLifecycleRetryFlow:
             on_event=collector.handler,
         )
 
-        async for _ in result.stream:
+        async for _ in result:
             pass
 
         retry_attempts = collector.get_events_of_type(
@@ -586,7 +586,7 @@ class TestLifecycleRetryFlow:
             on_event=collector.handler,
         )
 
-        async for _ in result.stream:
+        async for _ in result:
             pass
 
         session_starts = collector.get_events_of_type(
@@ -638,13 +638,13 @@ class TestLifecycleFallbackFlow:
 
         result = await _internal_run(
             stream=primary_stream(),
-            fallback_streams=[fallback_stream],
+            fallbacks=[fallback_stream],
             guardrails=[GuardrailRule(name="fail-primary", check=fail_rule)],
             retry=Retry(attempts=1),
             on_event=collector.handler,
         )
 
-        async for _ in result.stream:
+        async for _ in result:
             pass
 
         fallback_starts = collector.get_events_of_type(
@@ -679,13 +679,13 @@ class TestLifecycleFallbackFlow:
 
         result = await _internal_run(
             stream=primary_stream(),
-            fallback_streams=[fallback_stream],
+            fallbacks=[fallback_stream],
             guardrails=[GuardrailRule(name="fail-primary", check=fail_rule)],
             retry=Retry(attempts=1),
             on_event=collector.handler,
         )
 
-        async for _ in result.stream:
+        async for _ in result:
             pass
 
         session_starts = collector.get_events_of_type(
@@ -726,13 +726,13 @@ class TestLifecycleFallbackFlow:
 
         result = await _internal_run(
             stream=primary_stream(),
-            fallback_streams=[fallback_stream],
+            fallbacks=[fallback_stream],
             guardrails=[GuardrailRule(name="fail-primary", check=fail_rule)],
             retry=Retry(attempts=1),
             on_fallback=on_fallback,
         )
 
-        async for _ in result.stream:
+        async for _ in result:
             pass
 
         on_fallback.assert_called_once()
@@ -771,13 +771,13 @@ class TestLifecycleFallbackFlow:
 
         result = await _internal_run(
             stream=primary_stream(),
-            fallback_streams=[fallback1_stream, fallback2_stream],
+            fallbacks=[fallback1_stream, fallback2_stream],
             guardrails=[GuardrailRule(name="fail", check=fail_rule)],
             retry=Retry(attempts=1),
             on_event=collector.handler,
         )
 
-        async for _ in result.stream:
+        async for _ in result:
             pass
 
         fallback_starts = collector.get_events_of_type(
@@ -817,12 +817,12 @@ class TestLifecycleErrorFlow:
 
         result = await _internal_run(
             stream=primary_stream(),
-            fallback_streams=[fallback_stream],
+            fallbacks=[fallback_stream],
             retry=Retry(attempts=1),
             on_event=collector.handler,
         )
 
-        async for _ in result.stream:
+        async for _ in result:
             pass
 
         errors = collector.get_events_of_type(ObservabilityEventType.ERROR.value)
@@ -851,12 +851,12 @@ class TestLifecycleErrorFlow:
 
         result = await _internal_run(
             stream=primary_stream(),
-            fallback_streams=[fallback_stream],
+            fallbacks=[fallback_stream],
             retry=Retry(attempts=1),
             on_error=on_error,
         )
 
-        async for _ in result.stream:
+        async for _ in result:
             pass
 
         on_error.assert_called()
@@ -880,12 +880,12 @@ class TestLifecycleErrorFlow:
 
         result = await _internal_run(
             stream=primary_stream(),
-            fallback_streams=[fallback_stream],
+            fallbacks=[fallback_stream],
             retry=Retry(attempts=0),  # No retries
             on_error=on_error,
         )
 
-        async for _ in result.stream:
+        async for _ in result:
             pass
 
         on_error.assert_called()
@@ -916,12 +916,12 @@ class TestLifecycleCheckpointFlow:
 
         result = await _internal_run(
             stream=stream(),
-            continue_from_checkpoint=True,
-            check_intervals={"checkpoint": 5},
+            continue_from_last_good_token=True,
+            check_intervals=CheckIntervals(checkpoint=5),
             on_event=collector.handler,
         )
 
-        async for _ in result.stream:
+        async for _ in result:
             pass
 
         checkpoints = collector.get_events_of_type(
@@ -942,12 +942,12 @@ class TestLifecycleCheckpointFlow:
 
         result = await _internal_run(
             stream=stream(),
-            continue_from_checkpoint=False,
-            check_intervals={"checkpoint": 5},
+            continue_from_last_good_token=False,
+            check_intervals=CheckIntervals(checkpoint=5),
             on_event=collector.handler,
         )
 
-        async for _ in result.stream:
+        async for _ in result:
             pass
 
         checkpoints = collector.get_events_of_type(
@@ -990,11 +990,11 @@ class TestLifecycleGuardrailViolation:
         result = await _internal_run(
             stream=stream(),
             guardrails=[GuardrailRule(name="no-bad", check=bad_word_rule)],
-            check_intervals={"guardrails": 1},
+            check_intervals=CheckIntervals(guardrails=1),
             on_event=collector.handler,
         )
 
-        async for _ in result.stream:
+        async for _ in result:
             pass
 
         violations = collector.get_events_of_type(
@@ -1033,7 +1033,7 @@ class TestLifecycleGuardrailViolation:
             on_violation=on_violation,
         )
 
-        async for _ in result.stream:
+        async for _ in result:
             pass
 
         on_violation.assert_called()
@@ -1089,15 +1089,15 @@ class TestLifecycleCombinedFlows:
 
         result = await _internal_run(
             stream=primary_factory,
-            fallback_streams=[fallback_stream],
+            fallbacks=[fallback_stream],
             guardrails=[GuardrailRule(name="force-retry", check=force_retry_rule)],
             retry=Retry(attempts=2),
-            continue_from_checkpoint=True,
-            check_intervals={"checkpoint": 2},
+            continue_from_last_good_token=True,
+            check_intervals=CheckIntervals(checkpoint=2),
             on_event=collector.handler,
         )
 
-        async for _ in result.stream:
+        async for _ in result:
             pass
 
         types = collector.get_event_types()
@@ -1136,17 +1136,17 @@ class TestLifecycleCombinedFlows:
 
         result = await _internal_run(
             stream=primary_stream(),
-            fallback_streams=[fallback_stream],
+            fallbacks=[fallback_stream],
             retry=Retry(attempts=1),
-            continue_from_checkpoint=True,
-            check_intervals={"checkpoint": 3},
+            continue_from_last_good_token=True,
+            check_intervals=CheckIntervals(checkpoint=3),
             on_start=on_start,
             on_complete=on_complete,
             on_retry=on_retry,
             on_fallback=on_fallback,
         )
 
-        async for _ in result.stream:
+        async for _ in result:
             pass
 
         # onStart should be called first (for each attempt)
@@ -1188,7 +1188,7 @@ class TestLifecycleCombinedFlows:
             retry=Retry(attempts=2),
         )
 
-        async for _ in result.stream:
+        async for _ in result:
             pass
 
         # State should reflect final successful attempt
@@ -1219,7 +1219,7 @@ class TestLifecycleTimestampOrdering:
             on_event=collector.handler,
         )
 
-        async for _ in result.stream:
+        async for _ in result:
             pass
 
         events = collector.events
@@ -1240,7 +1240,7 @@ class TestLifecycleTimestampOrdering:
             on_event=collector.handler,
         )
 
-        async for _ in result.stream:
+        async for _ in result:
             pass
 
         # Get all observability events (those with stream_id)
@@ -1266,7 +1266,7 @@ class TestLifecycleTimestampOrdering:
             on_event=collector.handler,
         )
 
-        async for _ in result.stream:
+        async for _ in result:
             pass
 
         # Get all observability events (those with meta)
