@@ -304,6 +304,32 @@ class ErrorTypeDelays:
     unknown: float = 1.0
 
 
+class RetryableErrorType(str, Enum):
+    """Error types that can be retried."""
+
+    ZERO_OUTPUT = "zero_output"
+    GUARDRAIL_VIOLATION = "guardrail_violation"
+    DRIFT = "drift"
+    INCOMPLETE = "incomplete"
+    NETWORK_ERROR = "network_error"
+    TIMEOUT = "timeout"
+    RATE_LIMIT = "rate_limit"
+    SERVER_ERROR = "server_error"
+
+
+# Default retryable error types
+DEFAULT_RETRY_ON: list[RetryableErrorType] = [
+    RetryableErrorType.ZERO_OUTPUT,
+    RetryableErrorType.GUARDRAIL_VIOLATION,
+    RetryableErrorType.DRIFT,
+    RetryableErrorType.INCOMPLETE,
+    RetryableErrorType.NETWORK_ERROR,
+    RetryableErrorType.TIMEOUT,
+    RetryableErrorType.RATE_LIMIT,
+    RetryableErrorType.SERVER_ERROR,
+]
+
+
 @dataclass
 class Retry:
     """Retry configuration.
@@ -312,7 +338,7 @@ class Retry:
     like asyncio.sleep(), time.sleep(), etc.
 
     Usage:
-        from l0 import Retry
+        from l0 import Retry, RetryableErrorType
 
         # Use presets
         retry = Retry.recommended()
@@ -328,6 +354,35 @@ class Retry:
                 connection_dropped=2.0,
             ),
         )
+
+        # Only retry on specific error types
+        retry = Retry(
+            attempts=3,
+            retry_on=[
+                RetryableErrorType.NETWORK_ERROR,
+                RetryableErrorType.TIMEOUT,
+            ],
+        )
+
+        # Custom retry veto callback
+        async def should_retry(error, state, attempt, category):
+            # Return False to skip retry
+            return attempt < 3 and not is_auth_error(error)
+
+        retry = Retry(
+            attempts=3,
+            should_retry=should_retry,
+        )
+
+        # Custom delay calculation
+        def custom_delay(context):
+            # Return delay in seconds
+            return min(context.attempt * 2.0, 30.0)
+
+        retry = Retry(
+            attempts=3,
+            calculate_delay=custom_delay,
+        )
     """
 
     attempts: int = 3  # Model errors only
@@ -336,6 +391,9 @@ class Retry:
     max_delay: float = 10.0  # Maximum delay (seconds)
     strategy: BackoffStrategy = BackoffStrategy.FIXED_JITTER
     error_type_delays: ErrorTypeDelays | None = None  # Per-error-type delays
+    retry_on: list[RetryableErrorType] | None = None  # Which error types to retry
+    should_retry: Callable[..., bool] | None = None  # Veto callback (sync or async)
+    calculate_delay: Callable[..., float] | None = None  # Custom delay calculation
 
     @classmethod
     def recommended(cls) -> Retry:
@@ -407,6 +465,33 @@ class Timeout:
 
     initial_token: float = 5.0  # Seconds to first token
     inter_token: float = 10.0  # Seconds between tokens
+
+
+@dataclass
+class CheckIntervals:
+    """Configuration for check frequencies during streaming.
+
+    Controls how often guardrails, drift detection, and checkpoints
+    are evaluated during streaming. Lower values = more frequent checks
+    (more CPU, better responsiveness). Higher values = less frequent
+    (better performance for long outputs).
+
+    Usage:
+        from l0 import CheckIntervals
+
+        # Default intervals
+        intervals = CheckIntervals()
+
+        # More frequent checks (for short, critical outputs)
+        intervals = CheckIntervals(guardrails=2, drift=5, checkpoint=5)
+
+        # Less frequent checks (for long outputs, better performance)
+        intervals = CheckIntervals(guardrails=50, drift=100, checkpoint=50)
+    """
+
+    guardrails: int = 5  # Check guardrails every N tokens
+    drift: int = 10  # Check drift every N tokens
+    checkpoint: int = 10  # Save checkpoint every N tokens
 
 
 # ─────────────────────────────────────────────────────────────────────────────

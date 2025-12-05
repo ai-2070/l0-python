@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import time
 from collections.abc import AsyncIterator, Callable
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from .adapters import AdaptedEvent, Adapter, Adapters
@@ -13,7 +15,16 @@ from .events import EventBus, ObservabilityEventType
 from .logging import logger
 from .retry import RetryManager
 from .state import append_token, create_state, mark_completed, update_checkpoint
-from .types import Event, EventType, Retry, State, Stream, StreamFactory, Timeout
+from .types import (
+    CheckIntervals,
+    Event,
+    EventType,
+    Retry,
+    State,
+    Stream,
+    StreamFactory,
+    Timeout,
+)
 
 
 class TimeoutError(Exception):
@@ -27,7 +38,96 @@ class TimeoutError(Exception):
 
 if TYPE_CHECKING:
     from .events import ObservabilityEvent
-    from .guardrails import GuardrailRule
+    from .guardrails import GuardrailRule, GuardrailViolation
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Lifecycle Callbacks Type
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@dataclass
+class LifecycleCallbacks:
+    """All lifecycle callbacks for L0 runtime.
+
+    All callbacks are fire-and-forget - they never block the stream
+    and errors in callbacks are silently caught.
+    """
+
+    on_start: Callable[[int, bool, bool], None] | None = None
+    """Called when a new execution attempt begins.
+    Args: (attempt: int, is_retry: bool, is_fallback: bool)
+    """
+
+    on_complete: Callable[[State], None] | None = None
+    """Called when stream completes successfully.
+    Args: (state: State)
+    """
+
+    on_error: Callable[[Exception, bool, bool], None] | None = None
+    """Called when an error occurs (before retry/fallback decision).
+    Args: (error: Exception, will_retry: bool, will_fallback: bool)
+    """
+
+    on_event: Callable[[Event], None] | None = None
+    """Called for every L0 event emitted.
+    Args: (event: Event)
+    """
+
+    on_violation: Callable[["GuardrailViolation"], None] | None = None
+    """Called when a guardrail violation is detected.
+    Args: (violation: GuardrailViolation)
+    """
+
+    on_retry: Callable[[int, str], None] | None = None
+    """Called when a retry is triggered.
+    Args: (attempt: int, reason: str)
+    """
+
+    on_fallback: Callable[[int, str], None] | None = None
+    """Called when switching to a fallback model.
+    Args: (index: int, reason: str)
+    """
+
+    on_resume: Callable[[str, int], None] | None = None
+    """Called when resuming from a checkpoint.
+    Args: (checkpoint: str, token_count: int)
+    """
+
+    on_checkpoint: Callable[[str, int], None] | None = None
+    """Called when a checkpoint is saved.
+    Args: (checkpoint: str, token_count: int)
+    """
+
+    on_timeout: Callable[[str, float], None] | None = None
+    """Called when a timeout occurs.
+    Args: (timeout_type: str, elapsed_seconds: float)
+    """
+
+    on_abort: Callable[[int, int], None] | None = None
+    """Called when the stream is aborted.
+    Args: (token_count: int, content_length: int)
+    """
+
+    on_drift: Callable[[list[str], float | None], None] | None = None
+    """Called when drift is detected.
+    Args: (drift_types: list[str], confidence: float | None)
+    """
+
+    on_tool_call: Callable[[str, str, dict[str, Any]], None] | None = None
+    """Called when a tool call is detected.
+    Args: (tool_name: str, tool_call_id: str, args: dict)
+    """
+
+
+def _fire_callback(callback: Callable[..., Any] | None, *args: Any) -> None:
+    """Fire a callback without blocking or raising errors."""
+    if callback is None:
+        return
+    try:
+        callback(*args)
+    except Exception as e:
+        logger.debug(f"Callback error (silently caught): {e}")
 
 
 def _validate_checkpoint(
@@ -83,12 +183,28 @@ async def _internal_run(
     guardrails: list[GuardrailRule] | None = None,
     retry: Retry | None = None,
     timeout: Timeout | None = None,
+    check_intervals: CheckIntervals | None = None,
     adapter: Adapter | str | None = None,
     on_event: Callable[[ObservabilityEvent], None] | None = None,
     meta: dict[str, Any] | None = None,
     buffer_tool_calls: bool = False,
     continue_from_last_good_token: ContinuationConfig | bool = False,
     build_continuation_prompt: Callable[[str], str] | None = None,
+    # Lifecycle callbacks
+    callbacks: LifecycleCallbacks | None = None,
+    on_start: Callable[[int, bool, bool], None] | None = None,
+    on_complete: Callable[[State], None] | None = None,
+    on_error: Callable[[Exception, bool, bool], None] | None = None,
+    on_stream_event: Callable[[Event], None] | None = None,
+    on_violation: Callable[..., None] | None = None,
+    on_retry: Callable[[int, str], None] | None = None,
+    on_fallback: Callable[[int, str], None] | None = None,
+    on_resume: Callable[[str, int], None] | None = None,
+    on_checkpoint: Callable[[str, int], None] | None = None,
+    on_timeout: Callable[[str, float], None] | None = None,
+    on_abort: Callable[[int, int], None] | None = None,
+    on_drift: Callable[[list[str], float | None], None] | None = None,
+    on_tool_call: Callable[[str, str, dict[str, Any]], None] | None = None,
 ) -> "Stream[Any]":
     """Internal implementation of the L0 runtime.
 
@@ -98,18 +214,52 @@ async def _internal_run(
         guardrails: Optional list of guardrail rules to apply
         retry: Optional retry configuration
         timeout: Optional timeout configuration
+        check_intervals: Optional check intervals for guardrails/drift/checkpoint
         adapter: Optional adapter hint ("openai", "litellm", or Adapter instance)
         on_event: Optional callback for observability events
         meta: Optional metadata attached to all events
         buffer_tool_calls: Buffer tool call arguments until complete (default: False)
         continue_from_last_good_token: Resume from checkpoint on retry (default: False)
         build_continuation_prompt: Callback to modify prompt for continuation
+        callbacks: Optional LifecycleCallbacks object with all callbacks
+        on_start: Called when execution attempt begins
+        on_complete: Called when stream completes
+        on_error: Called when error occurs
+        on_stream_event: Called for every L0 event
+        on_violation: Called when guardrail violation detected
+        on_retry: Called when retry triggered
+        on_fallback: Called when switching to fallback
+        on_resume: Called when resuming from checkpoint
+        on_checkpoint: Called when checkpoint saved
+        on_timeout: Called when timeout occurs
+        on_abort: Called when stream aborted
+        on_drift: Called when drift detected
+        on_tool_call: Called when tool call detected
 
     Returns:
         Stream - async iterator with .state, .abort(), and .read()
     """
     fallbacks = fallbacks or []
     guardrails = guardrails or []
+    intervals = check_intervals or CheckIntervals()
+
+    # Merge callbacks from LifecycleCallbacks object and individual params
+    # Individual params take precedence
+    cb = LifecycleCallbacks(
+        on_start=on_start or (callbacks.on_start if callbacks else None),
+        on_complete=on_complete or (callbacks.on_complete if callbacks else None),
+        on_error=on_error or (callbacks.on_error if callbacks else None),
+        on_event=on_stream_event or (callbacks.on_event if callbacks else None),
+        on_violation=on_violation or (callbacks.on_violation if callbacks else None),
+        on_retry=on_retry or (callbacks.on_retry if callbacks else None),
+        on_fallback=on_fallback or (callbacks.on_fallback if callbacks else None),
+        on_resume=on_resume or (callbacks.on_resume if callbacks else None),
+        on_checkpoint=on_checkpoint or (callbacks.on_checkpoint if callbacks else None),
+        on_timeout=on_timeout or (callbacks.on_timeout if callbacks else None),
+        on_abort=on_abort or (callbacks.on_abort if callbacks else None),
+        on_drift=on_drift or (callbacks.on_drift if callbacks else None),
+        on_tool_call=on_tool_call or (callbacks.on_tool_call if callbacks else None),
+    )
 
     # Normalize continuation config
     continuation_config: ContinuationConfig | None = None
@@ -130,6 +280,7 @@ async def _internal_run(
     errors: list[Exception] = []
     aborted = False
     raw_chunks: list[Any] = []  # Collect raw chunks from provider
+    attempt_number = 0  # Track attempt number for callbacks (1-based)
 
     # Track if we should use continuation on next retry
     use_continuation_on_retry = False
@@ -144,35 +295,55 @@ async def _internal_run(
         state.aborted = True
         logger.debug("Abort requested")
         event_bus.emit(ObservabilityEventType.ABORT_REQUESTED, source="user")
+        _fire_callback(cb.on_abort, state.token_count, len(state.content))
 
     async def run_stream() -> AsyncIterator[Event]:
-        nonlocal state, use_continuation_on_retry, pending_checkpoint, raw_chunks
+        nonlocal \
+            state, \
+            use_continuation_on_retry, \
+            pending_checkpoint, \
+            raw_chunks, \
+            attempt_number
 
         streams = [stream] + fallbacks
 
-        # Determine checkpoint interval
-        checkpoint_interval = 5
-        if continuation_config:
+        # Use check intervals from config, with continuation override for checkpoint
+        checkpoint_interval = intervals.checkpoint
+        guardrail_interval = intervals.guardrails
+        drift_interval = intervals.drift
+
+        # Continuation config can override checkpoint interval
+        if continuation_config and continuation_config.checkpoint_interval:
             checkpoint_interval = continuation_config.checkpoint_interval
 
         for fallback_idx, stream_fn in enumerate(streams):
             state.fallback_index = fallback_idx
+            is_fallback = fallback_idx > 0
 
-            if fallback_idx > 0:
+            if is_fallback:
                 logger.debug(f"Trying fallback {fallback_idx}")
+                reason = "previous_failed"
                 event_bus.emit(
                     ObservabilityEventType.FALLBACK_START,
                     index=fallback_idx,
                     from_index=fallback_idx - 1,
-                    reason="previous_failed",
+                    reason=reason,
                 )
                 event_bus.emit(
                     ObservabilityEventType.FALLBACK_MODEL_SELECTED, index=fallback_idx
                 )
+                _fire_callback(cb.on_fallback, fallback_idx, reason)
 
             while True:
                 if aborted:
                     return
+
+                # Increment attempt number (1-based for callbacks)
+                attempt_number += 1
+                is_retry = attempt_number > 1 and not is_fallback
+
+                # Fire on_start callback
+                _fire_callback(cb.on_start, attempt_number, is_retry, is_fallback)
 
                 # Check if we should emit continuation from checkpoint
                 should_continue_from_checkpoint = (
@@ -197,6 +368,11 @@ async def _internal_run(
                         event_bus.emit(
                             ObservabilityEventType.CONTINUATION_START,
                             checkpoint_length=len(pending_checkpoint),
+                        )
+
+                        # Fire on_resume callback
+                        _fire_callback(
+                            cb.on_resume, pending_checkpoint, state.token_count
                         )
 
                         # Emit checkpoint content as tokens first
@@ -272,7 +448,7 @@ async def _internal_run(
                         """Emit all buffered tool calls."""
                         for idx in sorted(tool_call_buffers.keys()):
                             buffered = tool_call_buffers[idx]
-                            yield Event(
+                            tool_event = Event(
                                 type=EventType.TOOL_CALL,
                                 data={
                                     "id": buffered.get("id"),
@@ -280,6 +456,14 @@ async def _internal_run(
                                     "arguments": buffered.get("arguments", ""),
                                 },
                             )
+                            # Fire on_tool_call callback
+                            _fire_callback(
+                                cb.on_tool_call,
+                                buffered.get("name", ""),
+                                buffered.get("id", ""),
+                                {"arguments": buffered.get("arguments", "")},
+                            )
+                            yield tool_event
                         tool_call_buffers.clear()
 
                     while True:
@@ -319,6 +503,8 @@ async def _internal_run(
                                 timeout_type=timeout_type,
                                 elapsed_seconds=current_timeout,
                             )
+                            # Fire on_timeout callback
+                            _fire_callback(cb.on_timeout, timeout_type, current_timeout)
                             token_desc = "next" if first_token_received else "first"
                             raise TimeoutError(
                                 f"Timeout waiting for {token_desc} token "
@@ -389,10 +575,19 @@ async def _internal_run(
                             # Save checkpoint periodically
                             if state.token_count % checkpoint_interval == 0:
                                 update_checkpoint(state)
+                                # Fire on_checkpoint callback
+                                _fire_callback(
+                                    cb.on_checkpoint,
+                                    state.checkpoint,
+                                    state.token_count,
+                                )
+
+                            # Fire on_event callback for token events
+                            _fire_callback(cb.on_event, event)
 
                             # Check guardrails periodically
                             if (
-                                state.token_count % checkpoint_interval == 0
+                                state.token_count % guardrail_interval == 0
                                 and guardrails
                             ):
                                 event_bus.emit(
@@ -427,6 +622,9 @@ async def _internal_run(
 
                                 if all_violations:
                                     state.violations.extend(all_violations)
+                                    # Fire on_violation callback for each violation
+                                    for v in all_violations:
+                                        _fire_callback(cb.on_violation, v)
 
                                 event_bus.emit(
                                     ObservabilityEventType.GUARDRAIL_PHASE_END,
@@ -506,6 +704,9 @@ async def _internal_run(
 
                         if all_violations:
                             state.violations.extend(all_violations)
+                            # Fire on_violation callback for final violations
+                            for v in all_violations:
+                                _fire_callback(cb.on_violation, v)
 
                         event_bus.emit(
                             ObservabilityEventType.GUARDRAIL_PHASE_END,
@@ -531,6 +732,10 @@ async def _internal_run(
                         retry_count=state.model_retry_count + state.network_retry_count,
                     )
                     event_bus.emit(ObservabilityEventType.SESSION_END)
+
+                    # Fire on_complete callback
+                    _fire_callback(cb.on_complete, state)
+
                     logger.debug(f"Stream complete: {state.token_count} tokens")
                     return
 
@@ -545,11 +750,18 @@ async def _internal_run(
                     error_category = categorize_error(e)
                     is_network = error_category == ErrorCategory.NETWORK
 
+                    # Determine if we will retry or fallback
+                    will_retry = retry_mgr.should_retry(e)
+                    will_fallback = not will_retry and fallback_idx < len(streams) - 1
+
+                    # Fire on_error callback BEFORE retry/fallback decision
+                    _fire_callback(cb.on_error, e, will_retry, will_fallback)
+
                     if is_network:
                         event_bus.emit(
                             ObservabilityEventType.NETWORK_ERROR,
                             error=str(e),
-                            retryable=retry_mgr.should_retry(e),
+                            retryable=will_retry,
                         )
                     else:
                         event_bus.emit(
@@ -558,7 +770,7 @@ async def _internal_run(
                             category=error_category.value,
                         )
 
-                    if retry_mgr.should_retry(e):
+                    if will_retry:
                         event_bus.emit(
                             ObservabilityEventType.RETRY_START,
                             attempt=retry_mgr.total_retries + 1,
@@ -567,6 +779,10 @@ async def _internal_run(
                         retry_mgr.record_attempt(e)
                         state.model_retry_count = retry_mgr.model_retry_count
                         state.network_retry_count = retry_mgr.network_retry_count
+
+                        # Fire on_retry callback
+                        _fire_callback(cb.on_retry, retry_mgr.total_retries, str(e))
+
                         event_bus.emit(
                             ObservabilityEventType.RETRY_ATTEMPT,
                             attempt=retry_mgr.total_retries,
@@ -581,6 +797,10 @@ async def _internal_run(
                             ObservabilityEventType.CHECKPOINT_SAVED,
                             checkpoint=state.checkpoint,
                             token_count=state.token_count,
+                        )
+                        # Fire on_checkpoint callback
+                        _fire_callback(
+                            cb.on_checkpoint, state.checkpoint, state.token_count
                         )
 
                         # Enable continuation on next retry if configured

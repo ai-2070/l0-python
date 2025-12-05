@@ -65,7 +65,25 @@ from .parallel import (
     race,
     sequential,
 )
-from .runtime import TimeoutError, _internal_run
+from .pipeline import (
+    FAST_PIPELINE,
+    PRODUCTION_PIPELINE,
+    RELIABLE_PIPELINE,
+    Pipeline,
+    PipelineOptions,
+    PipelineResult,
+    PipelineStep,
+    StepContext,
+    StepResult,
+    chain_pipelines,
+    create_branch_step,
+    create_pipeline,
+    create_step,
+    parallel_pipelines,
+    pipe,
+)
+from .pool import OperationPool, PoolOptions, PoolStats, create_pool
+from .runtime import LifecycleCallbacks, TimeoutError, _internal_run
 from .stream import consume_stream, get_text
 from .structured import (
     AutoCorrectInfo,
@@ -76,6 +94,7 @@ from .structured import (
 )
 from .types import (
     BackoffStrategy,
+    CheckIntervals,
     ContentType,
     DataPayload,
     ErrorCategory,
@@ -86,6 +105,7 @@ from .types import (
     Progress,
     RawStream,
     Retry,
+    RetryableErrorType,
     State,
     Stream,
     StreamFactory,
@@ -210,12 +230,28 @@ async def run(
     guardrails: list[GuardrailRule] | None = None,
     retry: Retry | None = None,
     timeout: Timeout | None = None,
+    check_intervals: "CheckIntervals | None" = None,
     adapter: Adapter | str | None = None,
     on_event: Callable[[ObservabilityEvent], None] | None = None,
     meta: dict[str, Any] | None = None,
     buffer_tool_calls: bool = False,
     continue_from_last_good_token: "ContinuationConfig | bool" = False,
     build_continuation_prompt: Callable[[str], str] | None = None,
+    # Lifecycle callbacks
+    callbacks: "LifecycleCallbacks | None" = None,
+    on_start: Callable[[int, bool, bool], None] | None = None,
+    on_complete: Callable[[State], None] | None = None,
+    on_error: Callable[[Exception, bool, bool], None] | None = None,
+    on_stream_event: Callable[[Event], None] | None = None,
+    on_violation: Callable[..., None] | None = None,
+    on_retry: Callable[[int, str], None] | None = None,
+    on_fallback: Callable[[int, str], None] | None = None,
+    on_resume: Callable[[str, int], None] | None = None,
+    on_checkpoint: Callable[[str, int], None] | None = None,
+    on_timeout: Callable[[str, float], None] | None = None,
+    on_abort: Callable[[int, int], None] | None = None,
+    on_drift: Callable[[list[str], float | None], None] | None = None,
+    on_tool_call: Callable[[str, str, dict[str, Any]], None] | None = None,
 ) -> "Stream[Any]":
     """Run L0 with a stream factory (supports retries and fallbacks).
 
@@ -228,12 +264,27 @@ async def run(
         guardrails: Optional list of guardrail rules to apply
         retry: Optional retry configuration
         timeout: Optional timeout configuration
+        check_intervals: Optional check intervals for guardrails/drift/checkpoint
         adapter: Optional adapter hint ("openai", "litellm", or Adapter instance)
         on_event: Optional callback for observability events
         meta: Optional metadata attached to all events
         buffer_tool_calls: Buffer tool call arguments until complete (default: False)
         continue_from_last_good_token: Resume from checkpoint on retry (default: False)
         build_continuation_prompt: Callback to modify prompt for continuation
+        callbacks: Optional LifecycleCallbacks object with all callbacks
+        on_start: Called when execution attempt begins (attempt, is_retry, is_fallback)
+        on_complete: Called when stream completes (state)
+        on_error: Called when error occurs (error, will_retry, will_fallback)
+        on_stream_event: Called for every L0 event (event)
+        on_violation: Called when guardrail violation detected (violation)
+        on_retry: Called when retry triggered (attempt, reason)
+        on_fallback: Called when switching to fallback (index, reason)
+        on_resume: Called when resuming from checkpoint (checkpoint, token_count)
+        on_checkpoint: Called when checkpoint saved (checkpoint, token_count)
+        on_timeout: Called when timeout occurs (type, elapsed_seconds)
+        on_abort: Called when stream aborted (token_count, content_length)
+        on_drift: Called when drift detected (drift_types, confidence)
+        on_tool_call: Called when tool call detected (name, id, args)
 
     Returns:
         Stream - async iterator with .state, .abort(), and .read()
@@ -259,8 +310,12 @@ async def run(
                 ),
             ],
             guardrails=l0.Guardrails.recommended(),
-            retry=l0.Retry(max_attempts=3),
-            continue_from_last_good_token=True,  # Resume from checkpoint on retry
+            retry=l0.Retry(attempts=3),
+            check_intervals=l0.CheckIntervals(guardrails=5, checkpoint=10),
+            continue_from_last_good_token=True,
+            on_start=lambda attempt, is_retry, is_fallback: print(f"Starting attempt {attempt}"),
+            on_complete=lambda state: print(f"Done: {state.token_count} tokens"),
+            on_error=lambda e, will_retry, will_fallback: print(f"Error: {e}"),
         )
 
         async for event in result:
@@ -274,12 +329,27 @@ async def run(
         guardrails=guardrails,
         retry=retry,
         timeout=timeout,
+        check_intervals=check_intervals,
         adapter=adapter,
         on_event=on_event,
         meta=meta,
         buffer_tool_calls=buffer_tool_calls,
         continue_from_last_good_token=continue_from_last_good_token,
         build_continuation_prompt=build_continuation_prompt,
+        callbacks=callbacks,
+        on_start=on_start,
+        on_complete=on_complete,
+        on_error=on_error,
+        on_stream_event=on_stream_event,
+        on_violation=on_violation,
+        on_retry=on_retry,
+        on_fallback=on_fallback,
+        on_resume=on_resume,
+        on_checkpoint=on_checkpoint,
+        on_timeout=on_timeout,
+        on_abort=on_abort,
+        on_drift=on_drift,
+        on_tool_call=on_tool_call,
     )
 
 
@@ -303,11 +373,14 @@ __all__ = [
     "EventType",
     # Config
     "Retry",
+    "RetryableErrorType",
     "Timeout",
     "TimeoutError",
+    "CheckIntervals",
     "BackoffStrategy",
     "ErrorCategory",
     "ErrorTypeDelays",
+    "LifecycleCallbacks",
     # Errors
     "Error",  # L0 error with code, context, checkpoint
     "ErrorCode",  # ZERO_OUTPUT, GUARDRAIL_VIOLATION, etc.
@@ -352,6 +425,27 @@ __all__ = [
     "batched",
     "ParallelResult",
     "ParallelOptions",
+    # Pool (dynamic workload)
+    "OperationPool",
+    "PoolOptions",
+    "PoolStats",
+    "create_pool",
+    # Pipeline (multi-step workflows)
+    "pipe",
+    "Pipeline",
+    "PipelineStep",
+    "PipelineOptions",
+    "PipelineResult",
+    "StepContext",
+    "StepResult",
+    "create_pipeline",
+    "create_step",
+    "chain_pipelines",
+    "parallel_pipelines",
+    "create_branch_step",
+    "FAST_PIPELINE",
+    "RELIABLE_PIPELINE",
+    "PRODUCTION_PIPELINE",
     # Consensus (scoped API)
     "Consensus",  # Class with .run(), .strict(), .standard(), .lenient(), .best(), .quick(), .get_value(), .validate()
     "consensus",  # Convenience alias for Consensus.run()
