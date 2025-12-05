@@ -5,7 +5,10 @@ import pytest
 from src.l0._utils import (
     AutoCorrectResult,
     auto_correct_json,
+    extract_json,
     extract_json_from_markdown,
+    is_valid_json,
+    safe_json_parse,
 )
 
 
@@ -188,3 +191,155 @@ Done."""
         result = extract_json_from_markdown(text)
         assert '"key": "value"' in result
         assert '"nested"' in result
+
+
+class TestExtractJson:
+    """Test extract_json function (string-aware JSON extraction)."""
+
+    def test_extracts_json_object_from_text(self):
+        """Test extraction of JSON object from surrounding text."""
+        text = 'Here is the result: {"name": "Alice", "age": 30} Hope this helps!'
+        result = extract_json(text)
+        assert result == '{"name": "Alice", "age": 30}'
+
+    def test_extracts_json_array_from_text(self):
+        """Test extraction of JSON array from surrounding text."""
+        text = "The items are: [1, 2, 3] as you can see."
+        result = extract_json(text)
+        assert result == "[1, 2, 3]"
+
+    def test_returns_original_if_no_json(self):
+        """Test returns original text when no JSON found."""
+        text = "This is just plain text without JSON."
+        result = extract_json(text)
+        assert result == text
+
+    def test_ignores_braces_in_quoted_strings(self):
+        """Test that braces inside quoted strings in prose are ignored."""
+        text = (
+            'The format uses "{key}" syntax. Here is the actual JSON: {"name": "Bob"}'
+        )
+        result = extract_json(text)
+        assert result == '{"name": "Bob"}'
+
+    def test_ignores_brackets_in_quoted_strings(self):
+        """Test that brackets inside quoted strings in prose are ignored."""
+        text = 'Use "[index]" notation. The data: [1, 2, 3]'
+        result = extract_json(text)
+        assert result == "[1, 2, 3]"
+
+    def test_handles_nested_objects(self):
+        """Test extraction of deeply nested JSON."""
+        text = 'Result: {"a": {"b": {"c": 1}}} end'
+        result = extract_json(text)
+        assert result == '{"a": {"b": {"c": 1}}}'
+
+    def test_handles_nested_arrays(self):
+        """Test extraction of nested arrays."""
+        text = "Data: [[1, 2], [3, 4]] done"
+        result = extract_json(text)
+        assert result == "[[1, 2], [3, 4]]"
+
+    def test_handles_mixed_nested_structures(self):
+        """Test extraction of mixed nested objects and arrays."""
+        text = 'Output: {"items": [{"id": 1}, {"id": 2}]} finished'
+        result = extract_json(text)
+        assert result == '{"items": [{"id": 1}, {"id": 2}]}'
+
+    def test_handles_escaped_quotes_in_json_strings(self):
+        """Test handling of escaped quotes inside JSON strings."""
+        text = 'Message: {"text": "He said \\"hello\\""} end'
+        result = extract_json(text)
+        assert result == '{"text": "He said \\"hello\\""}'
+
+    def test_prefers_first_json_structure(self):
+        """Test that the first JSON structure is extracted."""
+        text = 'First: {"a": 1} Second: {"b": 2}'
+        result = extract_json(text)
+        assert result == '{"a": 1}'
+
+    def test_handles_empty_object(self):
+        """Test extraction of empty objects."""
+        text = "Empty: {} done"
+        result = extract_json(text)
+        assert result == "{}"
+
+    def test_handles_empty_array(self):
+        """Test extraction of empty arrays."""
+        text = "Empty: [] done"
+        result = extract_json(text)
+        assert result == "[]"
+
+
+class TestIsValidJson:
+    """Test is_valid_json function."""
+
+    def test_valid_object(self):
+        """Test valid JSON object."""
+        assert is_valid_json('{"key": "value"}') is True
+
+    def test_valid_array(self):
+        """Test valid JSON array."""
+        assert is_valid_json("[1, 2, 3]") is True
+
+    def test_valid_primitives(self):
+        """Test valid JSON primitives."""
+        assert is_valid_json('"string"') is True
+        assert is_valid_json("123") is True
+        assert is_valid_json("true") is True
+        assert is_valid_json("false") is True
+        assert is_valid_json("null") is True
+
+    def test_invalid_json(self):
+        """Test invalid JSON."""
+        assert is_valid_json("{invalid}") is False
+        assert is_valid_json('{"key": }') is False
+        assert is_valid_json("[1, 2,]") is False
+
+    def test_empty_string(self):
+        """Test empty string."""
+        assert is_valid_json("") is False
+
+    def test_whitespace_only(self):
+        """Test whitespace-only string."""
+        assert is_valid_json("   ") is False
+
+
+class TestSafeJsonParse:
+    """Test safe_json_parse function."""
+
+    def test_parses_valid_json(self):
+        """Test parsing valid JSON without correction."""
+        result = safe_json_parse('{"name": "Alice"}')
+        assert result["data"] == {"name": "Alice"}
+        assert result["corrected"] is False
+        assert result["corrections"] == []
+
+    def test_parses_and_corrects_invalid_json(self):
+        """Test parsing and correcting invalid JSON."""
+        result = safe_json_parse('{"name": "Alice",}')
+        assert result["data"] == {"name": "Alice"}
+        assert result["corrected"] is True
+        assert len(result["corrections"]) > 0
+
+    def test_extracts_json_from_text(self):
+        """Test extraction of JSON from surrounding text."""
+        result = safe_json_parse('Here is the JSON: {"value": 42} done')
+        assert result["data"] == {"value": 42}
+        assert result["corrected"] is True
+
+    def test_raises_on_unparseable_json(self):
+        """Test raising error for unparseable JSON."""
+        with pytest.raises(ValueError, match="Failed to parse JSON"):
+            safe_json_parse("this is not json at all")
+
+    def test_raises_without_auto_correct(self):
+        """Test raising error when auto_correct is disabled."""
+        with pytest.raises(ValueError):
+            safe_json_parse('{"key": "value",}', auto_correct=False)
+
+    def test_corrects_missing_brace(self):
+        """Test correcting missing closing brace."""
+        result = safe_json_parse('{"key": "value"')
+        assert result["data"] == {"key": "value"}
+        assert result["corrected"] is True

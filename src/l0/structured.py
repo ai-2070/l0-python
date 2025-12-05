@@ -6,15 +6,22 @@ import json
 import time
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Generic, TypeVar, cast, get_type_hints
+from typing import TYPE_CHECKING, Any, Generic, Literal, TypeVar, cast
 
-from pydantic import BaseModel, Field, ValidationError, create_model
+from pydantic import BaseModel, ValidationError, create_model
 
-from ._utils import AutoCorrectResult, auto_correct_json, extract_json_from_markdown
+from ._utils import (
+    AutoCorrectResult,
+    CorrectionType,
+    auto_correct_json,
+    extract_json,
+    extract_json_from_markdown,
+    is_valid_json,
+)
 from .adapters import Adapter
 from .events import EventBus, ObservabilityEvent, ObservabilityEventType
 from .runtime import _internal_run
-from .types import Event, RawStream, Retry, State, StreamFactory, StreamSource
+from .types import Event, RawStream, Retry, State, StreamFactory, StreamSource, Timeout
 
 if TYPE_CHECKING:
     pass
@@ -28,6 +35,48 @@ T = TypeVar("T", bound=BaseModel)
 
 
 @dataclass
+class StructuredState:
+    """Extended state for structured output with validation metrics.
+
+    Attributes:
+        validation_failures: Number of validation failures
+        auto_corrections: Number of auto-corrections applied
+        validation_errors: List of validation errors encountered
+        correction_types: Types of corrections applied
+        validation_time_ms: Time spent on validation (milliseconds)
+    """
+
+    validation_failures: int = 0
+    auto_corrections: int = 0
+    validation_errors: list[ValidationError] = field(default_factory=list)
+    correction_types: list[str] = field(default_factory=list)
+    validation_time_ms: float | None = None
+
+
+@dataclass
+class StructuredTelemetry:
+    """Telemetry data for structured output.
+
+    Attributes:
+        schema_name: Name of the schema used
+        validation_attempts: Number of validation attempts
+        validation_failures: Number of validation failures
+        auto_corrections: Number of auto-corrections applied
+        correction_types: Types of corrections applied
+        validation_success: Whether validation ultimately succeeded
+        validation_time_ms: Time spent on validation (milliseconds)
+    """
+
+    schema_name: str | None = None
+    validation_attempts: int = 0
+    validation_failures: int = 0
+    auto_corrections: int = 0
+    correction_types: list[str] = field(default_factory=list)
+    validation_success: bool = False
+    validation_time_ms: float | None = None
+
+
+@dataclass
 class StructuredResult(Generic[T]):
     """Result of structured output extraction.
 
@@ -37,6 +86,9 @@ class StructuredResult(Generic[T]):
         corrected: Whether auto-correction was applied
         corrections: List of corrections applied
         state: L0 runtime state (token counts, retries, etc.)
+        structured_state: Structured-specific state with validation metrics
+        telemetry: Telemetry data (if monitoring enabled)
+        errors: List of errors encountered during retries
     """
 
     data: T
@@ -44,6 +96,9 @@ class StructuredResult(Generic[T]):
     corrected: bool = False
     corrections: list[str] = field(default_factory=list)
     state: State | None = None
+    structured_state: StructuredState | None = None
+    telemetry: StructuredTelemetry | None = None
+    errors: list[Exception] = field(default_factory=list)
 
 
 @dataclass
@@ -53,6 +108,7 @@ class AutoCorrectInfo:
     original: str
     corrected: str
     corrections: list[str]
+    success: bool = True
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -66,9 +122,14 @@ async def structured(
     *,
     fallbacks: list[StreamSource] | None = None,
     auto_correct: bool = True,
+    strict_mode: bool = False,
     retry: Retry | None = None,
+    timeout: Timeout | None = None,
+    detect_zero_tokens: bool = False,
+    monitoring: bool = False,
     on_validation_error: Callable[[ValidationError, int], None] | None = None,
     on_auto_correct: Callable[[AutoCorrectInfo], None] | None = None,
+    on_retry: Callable[[int, str], None] | None = None,
     on_event: Callable[[ObservabilityEvent], None] | None = None,
     adapter: Adapter | str | None = None,
 ) -> StructuredResult[T]:
@@ -79,9 +140,14 @@ async def structured(
         stream: Async LLM stream or factory function that returns one
         fallbacks: Optional fallback streams to try if primary fails
         auto_correct: Whether to attempt JSON auto-correction (default: True)
+        strict_mode: Reject unknown fields in output (default: False)
         retry: Retry configuration for validation failures
+        timeout: Timeout configuration (initial_token, inter_token)
+        detect_zero_tokens: Detect zero-token outputs (default: False for structured)
+        monitoring: Enable telemetry collection (default: False)
         on_validation_error: Callback when validation fails (error, attempt)
         on_auto_correct: Callback when auto-correction is applied
+        on_retry: Callback when retry occurs (attempt, reason)
         on_event: Optional callback for observability events
         adapter: Optional adapter hint ("openai", "litellm", or Adapter instance)
 
@@ -114,6 +180,16 @@ async def structured(
     event_bus = EventBus(on_event)
     retry_config = retry or Retry(attempts=1)
     max_attempts = retry_config.attempts
+
+    # Track structured-specific state
+    validation_attempts = 0
+    validation_failures = 0
+    auto_corrections = 0
+    correction_types: list[str] = []
+    validation_errors: list[ValidationError] = []
+    errors: list[Exception] = []
+    validation_start_time = 0.0
+    validation_end_time = 0.0
 
     # Helper to check if something is a direct async iterator (not a factory)
     def _is_async_iterator(obj: Any) -> bool:
@@ -183,18 +259,58 @@ async def structured(
                     stream=stream_factory,
                     on_event=on_event,
                     adapter=adapter,
+                    timeout=timeout,
                 )
                 text = await result.read()
                 state = result.state
 
+                # Check for zero-token output
+                if detect_zero_tokens and (not text or text.strip() == ""):
+                    raise ValueError("Zero-token output detected")
+
                 # Extract and validate
+                validation_start_time = time.time()
+                validation_attempts += 1
+
                 validated = _parse_and_validate(
                     text=text,
                     schema=schema,
                     auto_correct=auto_correct,
+                    strict_mode=strict_mode,
                     on_auto_correct=on_auto_correct,
                     event_bus=event_bus,
                 )
+
+                validation_end_time = time.time()
+                validation_time_ms = (
+                    validation_end_time - validation_start_time
+                ) * 1000
+
+                if validated.corrected:
+                    auto_corrections += 1
+                    correction_types.extend(validated.corrections)
+
+                # Build structured state
+                structured_state = StructuredState(
+                    validation_failures=validation_failures,
+                    auto_corrections=auto_corrections,
+                    validation_errors=validation_errors,
+                    correction_types=list(set(correction_types)),
+                    validation_time_ms=validation_time_ms,
+                )
+
+                # Build telemetry if monitoring enabled
+                telemetry = None
+                if monitoring:
+                    telemetry = StructuredTelemetry(
+                        schema_name=schema.__name__,
+                        validation_attempts=validation_attempts,
+                        validation_failures=validation_failures,
+                        auto_corrections=auto_corrections,
+                        correction_types=list(set(correction_types)),
+                        validation_success=True,
+                        validation_time_ms=validation_time_ms,
+                    )
 
                 return StructuredResult(
                     data=validated.data,
@@ -202,10 +318,17 @@ async def structured(
                     corrected=validated.corrected,
                     corrections=validated.corrections,
                     state=state,
+                    structured_state=structured_state,
+                    telemetry=telemetry,
+                    errors=errors,
                 )
 
             except ValidationError as e:
                 last_error = e
+                validation_failures += 1
+                validation_errors.append(e)
+                errors.append(e)
+
                 if on_validation_error:
                     on_validation_error(e, attempt + 1)
 
@@ -215,11 +338,19 @@ async def structured(
                 if is_last_stream and is_last_attempt:
                     break
 
+                if on_retry:
+                    on_retry(
+                        attempt + 1, f"Validation failed: {e.error_count()} errors"
+                    )
+
                 continue
 
             except Exception as e:
                 last_error = e
+                errors.append(e)
                 # Non-validation errors - try next fallback
+                if on_retry and attempt < max_attempts - 1:
+                    on_retry(attempt + 1, str(e))
                 break
 
         fallback_index += 1
@@ -248,6 +379,7 @@ def _parse_and_validate(
     text: str,
     schema: type[T],
     auto_correct: bool,
+    strict_mode: bool,
     on_auto_correct: Callable[[AutoCorrectInfo], None] | None,
     event_bus: EventBus,
 ) -> _ParseResult[T]:
@@ -273,12 +405,25 @@ def _parse_and_validate(
         corrected = result.corrected
         corrections = result.corrections
 
+        # If auto-correction failed, try extract_json as fallback
+        if not result.success:
+            extracted = extract_json(original_text)
+            if extracted != original_text:
+                result = auto_correct_json(extracted, track_corrections=True)
+                if result.success:
+                    text = result.text
+                    corrected = True
+                    if "extract_json" not in corrections:
+                        corrections.insert(0, "extract_json")
+                    corrections.extend(result.corrections)
+
         if corrected and on_auto_correct:
             on_auto_correct(
                 AutoCorrectInfo(
                     original=original_text,
                     corrected=text,
                     corrections=corrections,
+                    success=result.success,
                 )
             )
 
@@ -297,7 +442,14 @@ def _parse_and_validate(
     validation_start = time.time()
 
     try:
-        parsed = schema.model_validate_json(text)
+        # Use strict mode if requested (forbid extra fields)
+        if strict_mode:
+            # Parse JSON first, then validate with strict settings
+            parsed_json = json.loads(text)
+            parsed = schema.model_validate(parsed_json, strict=True)
+        else:
+            parsed = schema.model_validate_json(text)
+
         validation_duration = (time.time() - validation_start) * 1000
         event_bus.emit(
             ObservabilityEventType.SCHEMA_VALIDATION_END,
@@ -350,6 +502,7 @@ class StructuredStreamResult(Generic[T]):
     _text: str = ""
     _schema: type[T] | None = None
     _auto_correct: bool = True
+    _strict_mode: bool = False
     _on_auto_correct: Callable[[AutoCorrectInfo], None] | None = None
     _on_event: Callable[[ObservabilityEvent], None] | None = None
     _validated: StructuredResult[T] | None = None
@@ -378,6 +531,7 @@ class StructuredStreamResult(Generic[T]):
                 text=self._text,
                 schema=self._schema,
                 auto_correct=self._auto_correct,
+                strict_mode=self._strict_mode,
                 on_auto_correct=self._on_auto_correct,
                 event_bus=event_bus,
             )
@@ -399,6 +553,8 @@ async def structured_stream(
     stream: StreamSource,
     *,
     auto_correct: bool = True,
+    strict_mode: bool = False,
+    timeout: Timeout | None = None,
     on_auto_correct: Callable[[AutoCorrectInfo], None] | None = None,
     on_event: Callable[[ObservabilityEvent], None] | None = None,
     adapter: Adapter | str | None = None,
@@ -409,6 +565,8 @@ async def structured_stream(
         schema: Pydantic model class to validate against
         stream: Async LLM stream or factory function
         auto_correct: Whether to attempt JSON auto-correction
+        strict_mode: Reject unknown fields in output (default: False)
+        timeout: Timeout configuration (initial_token, inter_token)
         on_auto_correct: Callback when auto-correction is applied
         on_event: Optional callback for observability events
         adapter: Optional adapter hint
@@ -448,6 +606,7 @@ async def structured_stream(
     result_holder = StructuredStreamResult[T]()
     result_holder._schema = schema
     result_holder._auto_correct = auto_correct
+    result_holder._strict_mode = strict_mode
     result_holder._on_auto_correct = on_auto_correct
     result_holder._on_event = on_event
 
@@ -456,6 +615,7 @@ async def structured_stream(
         stream=stream_factory,
         on_event=on_event,
         adapter=adapter,
+        timeout=timeout,
     )
 
     async def collecting_stream() -> AsyncIterator[Event]:
@@ -482,9 +642,14 @@ async def structured_object(
     *,
     fallbacks: list[StreamSource] | None = None,
     auto_correct: bool = True,
+    strict_mode: bool = False,
     retry: Retry | None = None,
+    timeout: Timeout | None = None,
+    detect_zero_tokens: bool = False,
+    monitoring: bool = False,
     on_validation_error: Callable[[ValidationError, int], None] | None = None,
     on_auto_correct: Callable[[AutoCorrectInfo], None] | None = None,
+    on_retry: Callable[[int, str], None] | None = None,
     on_event: Callable[[ObservabilityEvent], None] | None = None,
     adapter: Adapter | str | None = None,
 ) -> StructuredResult[Any]:
@@ -498,9 +663,14 @@ async def structured_object(
         stream: Async LLM stream or factory function
         fallbacks: Optional fallback streams
         auto_correct: Whether to attempt JSON auto-correction (default: True)
+        strict_mode: Reject unknown fields in output (default: False)
         retry: Retry configuration for validation failures
+        timeout: Timeout configuration (initial_token, inter_token)
+        detect_zero_tokens: Detect zero-token outputs (default: False)
+        monitoring: Enable telemetry collection (default: False)
         on_validation_error: Callback when validation fails
         on_auto_correct: Callback when auto-correction is applied
+        on_retry: Callback when retry occurs (attempt, reason)
         on_event: Optional callback for observability events
         adapter: Optional adapter hint
 
@@ -537,9 +707,14 @@ async def structured_object(
         stream=stream,
         fallbacks=fallbacks,
         auto_correct=auto_correct,
+        strict_mode=strict_mode,
         retry=retry,
+        timeout=timeout,
+        detect_zero_tokens=detect_zero_tokens,
+        monitoring=monitoring,
         on_validation_error=on_validation_error,
         on_auto_correct=on_auto_correct,
+        on_retry=on_retry,
         on_event=on_event,
         adapter=adapter,
     )
@@ -551,9 +726,14 @@ async def structured_array(
     *,
     fallbacks: list[StreamSource] | None = None,
     auto_correct: bool = True,
+    strict_mode: bool = False,
     retry: Retry | None = None,
+    timeout: Timeout | None = None,
+    detect_zero_tokens: bool = False,
+    monitoring: bool = False,
     on_validation_error: Callable[[ValidationError, int], None] | None = None,
     on_auto_correct: Callable[[AutoCorrectInfo], None] | None = None,
+    on_retry: Callable[[int, str], None] | None = None,
     on_event: Callable[[ObservabilityEvent], None] | None = None,
     adapter: Adapter | str | None = None,
 ) -> StructuredResult[list[T]]:
@@ -567,9 +747,14 @@ async def structured_array(
         stream: Async LLM stream or factory function
         fallbacks: Optional fallback streams
         auto_correct: Whether to attempt JSON auto-correction (default: True)
+        strict_mode: Reject unknown fields in output (default: False)
         retry: Retry configuration for validation failures
+        timeout: Timeout configuration (initial_token, inter_token)
+        detect_zero_tokens: Detect zero-token outputs (default: False)
+        monitoring: Enable telemetry collection (default: False)
         on_validation_error: Callback when validation fails
         on_auto_correct: Callback when auto-correction is applied
+        on_retry: Callback when retry occurs (attempt, reason)
         on_event: Optional callback for observability events
         adapter: Optional adapter hint
 
@@ -591,16 +776,19 @@ async def structured_array(
             print(user.name)
         ```
     """
-    # Create a wrapper model for array validation
-    ArrayModel = create_model(
-        "DynamicArray",
-        __root__=(list[item_schema], ...),  # type: ignore
-    )
-
-    # Custom parsing to handle root model
+    # Custom parsing to handle array validation
     event_bus = EventBus(on_event)
     retry_config = retry or Retry(attempts=1)
     max_attempts = retry_config.attempts
+
+    # Track structured-specific state
+    validation_attempts = 0
+    validation_failures = 0
+    auto_corrections_count = 0
+    correction_types: list[str] = []
+    validation_errors: list[ValidationError] = []
+    errors: list[Exception] = []
+    validation_start_time = 0.0
 
     def _is_async_iterator(obj: Any) -> bool:
         return hasattr(obj, "__anext__") and not callable(obj)
@@ -654,9 +842,14 @@ async def structured_array(
                     stream=stream_factory,
                     on_event=on_event,
                     adapter=adapter,
+                    timeout=timeout,
                 )
                 text = await result.read()
                 state = result.state
+
+                # Check for zero-token output
+                if detect_zero_tokens and (not text or text.strip() == ""):
+                    raise ValueError("Zero-token output detected")
 
                 # Parse and validate as array
                 event_bus.emit(
@@ -664,6 +857,8 @@ async def structured_array(
                     content_length=len(text),
                 )
                 parse_start = time.time()
+                validation_start_time = time.time()
+                validation_attempts += 1
 
                 original_text = text
                 text = extract_json_from_markdown(text)
@@ -678,12 +873,27 @@ async def structured_array(
                     corrected = ac_result.corrected
                     corrections = ac_result.corrections
 
+                    # If auto-correction failed, try extract_json as fallback
+                    if not ac_result.success:
+                        extracted = extract_json(original_text)
+                        if extracted != original_text:
+                            ac_result = auto_correct_json(
+                                extracted, track_corrections=True
+                            )
+                            if ac_result.success:
+                                text = ac_result.text
+                                corrected = True
+                                if "extract_json" not in corrections:
+                                    corrections.insert(0, "extract_json")
+                                corrections.extend(ac_result.corrections)
+
                     if corrected and on_auto_correct:
                         on_auto_correct(
                             AutoCorrectInfo(
                                 original=original_text,
                                 corrected=text,
                                 corrections=corrections,
+                                success=ac_result.success,
                             )
                         )
 
@@ -711,7 +921,12 @@ async def structured_array(
                 # Validate each item
                 validated_items: list[T] = []
                 for i, item in enumerate(parsed_json):
-                    validated_items.append(item_schema.model_validate(item))
+                    if strict_mode:
+                        validated_items.append(
+                            item_schema.model_validate(item, strict=True)
+                        )
+                    else:
+                        validated_items.append(item_schema.model_validate(item))
 
                 validation_duration = (time.time() - validation_start) * 1000
                 event_bus.emit(
@@ -726,16 +941,50 @@ async def structured_array(
                     duration_ms=parse_duration,
                 )
 
+                if corrected:
+                    auto_corrections_count += 1
+                    correction_types.extend(corrections)
+
+                # Build structured state
+                structured_state = StructuredState(
+                    validation_failures=validation_failures,
+                    auto_corrections=auto_corrections_count,
+                    validation_errors=validation_errors,
+                    correction_types=list(set(correction_types)),
+                    validation_time_ms=validation_duration,
+                )
+
+                # Build telemetry if monitoring enabled
+                telemetry = None
+                if monitoring:
+                    telemetry = StructuredTelemetry(
+                        schema_name=f"list[{item_schema.__name__}]",
+                        validation_attempts=validation_attempts,
+                        validation_failures=validation_failures,
+                        auto_corrections=auto_corrections_count,
+                        correction_types=list(set(correction_types)),
+                        validation_success=True,
+                        validation_time_ms=validation_duration,
+                    )
+
                 return StructuredResult(
                     data=validated_items,
                     raw=text,
                     corrected=corrected,
                     corrections=corrections,
                     state=state,
+                    structured_state=structured_state,
+                    telemetry=telemetry,
+                    errors=errors,
                 )
 
             except (ValidationError, json.JSONDecodeError) as e:
                 last_error = e
+                if isinstance(e, ValidationError):
+                    validation_failures += 1
+                    validation_errors.append(e)
+                errors.append(e)
+
                 if on_validation_error and isinstance(e, ValidationError):
                     on_validation_error(e, attempt + 1)
 
@@ -744,10 +993,16 @@ async def structured_array(
                 if is_last_stream and is_last_attempt:
                     break
 
+                if on_retry:
+                    on_retry(attempt + 1, str(e))
+
                 continue
 
             except Exception as e:
                 last_error = e
+                errors.append(e)
+                if on_retry and attempt < max_attempts - 1:
+                    on_retry(attempt + 1, str(e))
                 break
 
         fallback_index += 1

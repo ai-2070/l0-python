@@ -3,6 +3,12 @@
 from collections.abc import AsyncIterator, Callable
 from typing import Any
 
+from ._utils import (
+    CorrectionType,
+    extract_json,
+    is_valid_json,
+    safe_json_parse,
+)
 from .adapters import (
     # Types for custom adapters
     AdaptedEvent,
@@ -125,7 +131,9 @@ from .structured import (
     AutoCorrectInfo,
     StructuredConfig,
     StructuredResult,
+    StructuredState,
     StructuredStreamResult,
+    StructuredTelemetry,
     structured,
     structured_array,
     structured_object,
@@ -465,11 +473,18 @@ __all__ = [
     "structured_array",
     "StructuredResult",
     "StructuredStreamResult",
+    "StructuredState",
+    "StructuredTelemetry",
     "StructuredConfig",
     "AutoCorrectInfo",
     "MINIMAL_STRUCTURED",
     "RECOMMENDED_STRUCTURED",
     "STRICT_STRUCTURED",
+    # JSON utilities
+    "CorrectionType",
+    "extract_json",
+    "is_valid_json",
+    "safe_json_parse",
     # Parallel
     "parallel",
     "race",

@@ -11,10 +11,14 @@ from src.l0.events import ObservabilityEventType
 from src.l0.structured import (
     AutoCorrectInfo,
     StructuredResult,
+    StructuredState,
+    StructuredTelemetry,
     structured,
+    structured_array,
+    structured_object,
     structured_stream,
 )
-from src.l0.types import Event, EventType, Retry
+from src.l0.types import Event, EventType, Retry, Timeout
 
 
 # Test adapter that passes through Event objects
@@ -452,3 +456,223 @@ class TestStructuredIteratorValidation:
         )
 
         assert result.data.value == "from_fallback"
+
+
+class TestStructuredState:
+    """Test StructuredState tracking."""
+
+    @pytest.mark.asyncio
+    async def test_structured_state_on_success(self):
+        """Test that structured_state is populated on success."""
+
+        async def json_stream():
+            yield Event(type=EventType.TOKEN, text='{"value": "test"}')
+            yield Event(type=EventType.COMPLETE)
+
+        result = await structured(
+            schema=SimpleModel,
+            stream=json_stream,
+        )
+
+        assert result.structured_state is not None
+        assert result.structured_state.validation_failures == 0
+        assert result.structured_state.validation_time_ms is not None
+        assert result.structured_state.validation_time_ms >= 0
+
+    @pytest.mark.asyncio
+    async def test_structured_state_tracks_corrections(self):
+        """Test that corrections are tracked in structured_state."""
+
+        async def json_stream():
+            yield Event(type=EventType.TOKEN, text='{"value": "test",}')
+            yield Event(type=EventType.COMPLETE)
+
+        result = await structured(
+            schema=SimpleModel,
+            stream=json_stream,
+            auto_correct=True,
+        )
+
+        assert result.structured_state is not None
+        assert result.structured_state.auto_corrections >= 1
+        assert len(result.structured_state.correction_types) > 0
+
+
+class TestStructuredTelemetry:
+    """Test StructuredTelemetry when monitoring is enabled."""
+
+    @pytest.mark.asyncio
+    async def test_telemetry_when_monitoring_enabled(self):
+        """Test that telemetry is populated when monitoring is enabled."""
+
+        async def json_stream():
+            yield Event(type=EventType.TOKEN, text='{"value": "test"}')
+            yield Event(type=EventType.COMPLETE)
+
+        result = await structured(
+            schema=SimpleModel,
+            stream=json_stream,
+            monitoring=True,
+        )
+
+        assert result.telemetry is not None
+        assert result.telemetry.schema_name == "SimpleModel"
+        assert result.telemetry.validation_attempts >= 1
+        assert result.telemetry.validation_success is True
+        assert result.telemetry.validation_time_ms is not None
+
+    @pytest.mark.asyncio
+    async def test_telemetry_not_present_when_monitoring_disabled(self):
+        """Test that telemetry is None when monitoring is disabled."""
+
+        async def json_stream():
+            yield Event(type=EventType.TOKEN, text='{"value": "test"}')
+            yield Event(type=EventType.COMPLETE)
+
+        result = await structured(
+            schema=SimpleModel,
+            stream=json_stream,
+            monitoring=False,
+        )
+
+        assert result.telemetry is None
+
+
+class TestStructuredOnRetryCallback:
+    """Test on_retry callback."""
+
+    @pytest.mark.asyncio
+    async def test_on_retry_called_on_validation_failure(self):
+        """Test that on_retry is called when validation fails."""
+        retry_calls = []
+
+        def on_retry(attempt: int, reason: str):
+            retry_calls.append((attempt, reason))
+
+        async def invalid_stream():
+            yield Event(type=EventType.TOKEN, text='{"wrong": "field"}')
+            yield Event(type=EventType.COMPLETE)
+
+        with pytest.raises(ValueError):
+            await structured(
+                schema=SimpleModel,
+                stream=invalid_stream,
+                retry=Retry(attempts=2),
+                on_retry=on_retry,
+            )
+
+        # Should have been called once (after first failure, before second attempt)
+        assert len(retry_calls) >= 1
+        assert retry_calls[0][0] == 1  # First retry attempt
+
+
+class TestStructuredDetectZeroTokens:
+    """Test detect_zero_tokens option."""
+
+    @pytest.mark.asyncio
+    async def test_detect_zero_tokens_raises_on_empty(self):
+        """Test that zero-token detection raises error on empty output."""
+
+        async def empty_stream():
+            yield Event(type=EventType.TOKEN, text="")
+            yield Event(type=EventType.COMPLETE)
+
+        with pytest.raises(ValueError, match="Zero-token output"):
+            await structured(
+                schema=SimpleModel,
+                stream=empty_stream,
+                detect_zero_tokens=True,
+            )
+
+    @pytest.mark.asyncio
+    async def test_detect_zero_tokens_disabled_by_default(self):
+        """Test that zero-token detection is disabled by default."""
+
+        async def whitespace_stream():
+            yield Event(type=EventType.TOKEN, text="   ")
+            yield Event(type=EventType.COMPLETE)
+
+        # Should not raise for zero tokens, but will fail validation
+        with pytest.raises(ValueError, match="Schema validation failed"):
+            await structured(
+                schema=SimpleModel,
+                stream=whitespace_stream,
+                detect_zero_tokens=False,
+            )
+
+
+class TestStructuredObject:
+    """Test structured_object helper."""
+
+    @pytest.mark.asyncio
+    async def test_structured_object_basic(self):
+        """Test basic structured_object usage."""
+
+        async def json_stream():
+            yield Event(type=EventType.TOKEN, text='{"name": "Alice", "age": 30}')
+            yield Event(type=EventType.COMPLETE)
+
+        result = await structured_object(
+            {"name": str, "age": int},
+            stream=json_stream,
+        )
+
+        assert result.data.name == "Alice"
+        assert result.data.age == 30
+
+    @pytest.mark.asyncio
+    async def test_structured_object_with_defaults(self):
+        """Test structured_object with default values."""
+
+        async def json_stream():
+            yield Event(type=EventType.TOKEN, text='{"name": "Bob"}')
+            yield Event(type=EventType.COMPLETE)
+
+        result = await structured_object(
+            {"name": str, "active": (bool, True)},
+            stream=json_stream,
+        )
+
+        assert result.data.name == "Bob"
+        assert result.data.active is True
+
+
+class TestStructuredArray:
+    """Test structured_array helper."""
+
+    @pytest.mark.asyncio
+    async def test_structured_array_basic(self):
+        """Test basic structured_array usage."""
+
+        async def json_stream():
+            yield Event(
+                type=EventType.TOKEN,
+                text='[{"value": "a"}, {"value": "b"}]',
+            )
+            yield Event(type=EventType.COMPLETE)
+
+        result = await structured_array(
+            SimpleModel,
+            stream=json_stream,
+        )
+
+        assert len(result.data) == 2
+        assert result.data[0].value == "a"
+        assert result.data[1].value == "b"
+
+    @pytest.mark.asyncio
+    async def test_structured_array_with_telemetry(self):
+        """Test structured_array with monitoring enabled."""
+
+        async def json_stream():
+            yield Event(type=EventType.TOKEN, text='[{"value": "test"}]')
+            yield Event(type=EventType.COMPLETE)
+
+        result = await structured_array(
+            SimpleModel,
+            stream=json_stream,
+            monitoring=True,
+        )
+
+        assert result.telemetry is not None
+        assert "list[SimpleModel]" in result.telemetry.schema_name
