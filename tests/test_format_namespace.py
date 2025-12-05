@@ -21,7 +21,10 @@ class TestFormatNamespace:
 
     def test_document(self):
         result = Format.document("Content", {"title": "Test"})
-        assert "<title>Test</title>" in result
+        # Document uses title as XML tag label and includes metadata as key-value
+        assert "<test>" in result
+        assert "title: Test" in result
+        assert "Content" in result
 
     def test_instructions(self):
         result = Format.instructions("Be helpful")
