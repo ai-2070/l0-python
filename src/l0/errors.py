@@ -787,6 +787,28 @@ def _categorize_error(error: Exception) -> ErrorCategory:
     """Categorize error for retry decisions (internal)."""
     msg = str(error).lower()
 
+    # Check for L0 Error class with specific error codes
+    if isinstance(error, Error):
+        if error.code == ErrorCode.GUARDRAIL_VIOLATION:
+            # Recoverable guardrail violation - should retry
+            return ErrorCategory.CONTENT
+        if error.code == ErrorCode.FATAL_GUARDRAIL_VIOLATION:
+            # Non-recoverable guardrail violation - halt
+            return ErrorCategory.FATAL
+        if error.code == ErrorCode.DRIFT_DETECTED:
+            return ErrorCategory.CONTENT
+        if error.code == ErrorCode.ZERO_OUTPUT:
+            return ErrorCategory.CONTENT
+        if error.code in (
+            ErrorCode.INITIAL_TOKEN_TIMEOUT,
+            ErrorCode.INTER_TOKEN_TIMEOUT,
+        ):
+            return ErrorCategory.TRANSIENT
+        if error.code == ErrorCode.STREAM_ABORTED:
+            return ErrorCategory.FATAL
+        if error.code == ErrorCode.NETWORK_ERROR:
+            return ErrorCategory.NETWORK
+
     # Check for L0 TimeoutError (inter-token timeout is transient, can retry with continuation)
     # Import here to avoid circular import
     from .runtime import TimeoutError as L0TimeoutError

@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any
 from .adapters import AdaptedEvent, Adapter, Adapters
 from .continuation import ContinuationConfig, deduplicate_continuation, detect_overlap
 from .drift import DriftDetector
+from .errors import Error, ErrorCode
 from .events import EventBus, ObservabilityEventType
 from .logging import logger
 from .retry import RetryManager
@@ -591,9 +592,18 @@ async def _internal_run(
                             first_token_received = True
                             append_token(state, token_text)
 
-                            # Save checkpoint periodically
-                            if state.token_count % checkpoint_interval == 0:
+                            # Save checkpoint periodically (only when continuation is enabled)
+                            if (
+                                state.token_count % checkpoint_interval == 0
+                                and continuation_config is not None
+                            ):
                                 update_checkpoint(state)
+                                # Emit CHECKPOINT_SAVED event
+                                event_bus.emit(
+                                    ObservabilityEventType.CHECKPOINT_SAVED,
+                                    checkpoint=state.checkpoint,
+                                    token_count=state.token_count,
+                                )
                                 # Fire on_checkpoint callback
                                 _fire_callback(
                                     cb.on_checkpoint,
@@ -771,6 +781,33 @@ async def _internal_run(
                             violation_count=len(all_violations),
                         )
 
+                        # Check for violations that should trigger retry
+                        # Error-severity violations with recoverable=True trigger retry
+                        error_violations = [
+                            v
+                            for v in all_violations
+                            if v.severity == "error" and v.recoverable
+                        ]
+                        if error_violations:
+                            first_violation = error_violations[0]
+                            raise Error(
+                                f"Guardrail violation: {first_violation.message}",
+                                code=ErrorCode.GUARDRAIL_VIOLATION,
+                            )
+
+                        # Fatal violations (non-recoverable errors) halt completely
+                        fatal_violations = [
+                            v
+                            for v in all_violations
+                            if v.severity == "error" and not v.recoverable
+                        ]
+                        if fatal_violations:
+                            first_violation = fatal_violations[0]
+                            raise Error(
+                                f"Fatal guardrail violation: {first_violation.message}",
+                                code=ErrorCode.FATAL_GUARDRAIL_VIOLATION,
+                            )
+
                     if fallback_idx > 0:
                         event_bus.emit(
                             ObservabilityEventType.FALLBACK_END, index=fallback_idx
@@ -864,6 +901,13 @@ async def _internal_run(
                         if continuation_config and state.checkpoint:
                             use_continuation_on_retry = True
                             pending_checkpoint = state.checkpoint
+                        else:
+                            # Reset state for fresh retry (no continuation)
+                            state.content = ""
+                            state.token_count = 0
+                            state.checkpoint = ""
+                            state.completed = False
+                            state.violations = []
 
                         state.resumed = True
                         event_bus.emit(ObservabilityEventType.RETRY_END, success=False)

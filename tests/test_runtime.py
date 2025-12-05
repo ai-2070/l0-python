@@ -133,22 +133,28 @@ class TestCompletionGuardrails:
             yield Event(type=EventType.TOKEN, text="Hi")
             yield Event(type=EventType.COMPLETE)
 
+        from src.l0.errors import Error, ErrorCode
+
         result = await _internal_run(
             stream=short_stream,
             guardrails=[completion_rule],
         )
 
-        async for _ in result:
-            pass
+        # Fatal guardrail violation (recoverable=False) should raise error
+        with pytest.raises(Error) as exc_info:
+            async for _ in result:
+                pass
+
+        assert exc_info.value.code == ErrorCode.FATAL_GUARDRAIL_VIOLATION
 
         # Should have been called with completed=True at least once
         completed_calls = [c for c in check_calls if c["completed"]]
         assert len(completed_calls) > 0, "Guardrail should run after completion"
-        assert result.state.violations, "Should have violation for short output"
 
     @pytest.mark.asyncio
     async def test_zero_output_rule_detects_empty(self):
         """Test that zero_output_rule works on completion."""
+        from src.l0.errors import Error, ErrorCode
         from src.l0.guardrails import zero_output_rule
 
         async def empty_stream():
@@ -159,18 +165,19 @@ class TestCompletionGuardrails:
             guardrails=[zero_output_rule()],
         )
 
-        async for _ in result:
-            pass
+        # Recoverable guardrail violation should raise error (triggers retry attempt)
+        with pytest.raises(Error) as exc_info:
+            async for _ in result:
+                pass
 
-        # Should detect zero output
-        zero_violations = [
-            v for v in result.state.violations if v.rule == "zero_output"
-        ]
-        assert len(zero_violations) > 0, "Should detect zero output"
+        # Zero output is a recoverable error that triggers retry
+        assert exc_info.value.code == ErrorCode.GUARDRAIL_VIOLATION
+        assert "Empty or whitespace-only output" in str(exc_info.value)
 
     @pytest.mark.asyncio
     async def test_strict_json_rule_validates_on_completion(self):
         """Test that strict_json_rule validates complete JSON."""
+        from src.l0.errors import Error, ErrorCode
         from src.l0.guardrails import strict_json_rule
 
         async def invalid_json_stream():
@@ -184,14 +191,14 @@ class TestCompletionGuardrails:
             guardrails=[strict_json_rule()],
         )
 
-        async for _ in result:
-            pass
+        # Recoverable guardrail violation should raise error (triggers retry attempt)
+        with pytest.raises(Error) as exc_info:
+            async for _ in result:
+                pass
 
-        # Should detect invalid JSON
-        json_violations = [
-            v for v in result.state.violations if v.rule == "strict_json"
-        ]
-        assert len(json_violations) > 0, "Should detect invalid JSON on completion"
+        # Invalid JSON is a recoverable error that triggers retry
+        assert exc_info.value.code == ErrorCode.GUARDRAIL_VIOLATION
+        assert "Invalid JSON" in str(exc_info.value)
 
     @pytest.mark.asyncio
     async def test_valid_json_passes_strict_rule(self):
