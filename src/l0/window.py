@@ -7,8 +7,9 @@ from __future__ import annotations
 
 import asyncio
 import re
+import time
 from collections.abc import Callable, Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Generic, Literal, TypeVar
 
 from .runtime import _internal_run
@@ -18,6 +19,7 @@ T = TypeVar("T")
 
 ChunkingStrategy = Literal["token", "char", "paragraph", "sentence"]
 TokenEstimator = Callable[[str], int]
+ContextRestorationStrategy = Literal["adjacent", "overlap", "full"]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -49,7 +51,19 @@ class WindowConfig:
     overlap: int = 200  # Overlap between chunks
     strategy: ChunkingStrategy = "token"
     estimate_tokens: TokenEstimator | None = None  # Custom token estimator
+    preserve_paragraphs: bool = True  # Preserve paragraph boundaries
+    preserve_sentences: bool = False  # Preserve sentence boundaries
     metadata: dict[str, Any] | None = None  # Custom metadata for all chunks
+
+
+@dataclass
+class ContextRestorationOptions:
+    """Options for context restoration on drift detection."""
+
+    enabled: bool = True  # Enable automatic context restoration
+    strategy: ContextRestorationStrategy = "adjacent"  # Restoration strategy
+    max_attempts: int = 2  # Maximum restoration attempts
+    on_restore: Callable[[int, int], None] | None = None  # Callback (from, to)
 
 
 @dataclass
@@ -84,11 +98,29 @@ class ChunkResult(Generic[T]):
     result: "Stream[Any]" | None = None
     content: str = ""
     error: str | None = None
+    duration: float = 0.0  # Duration in milliseconds
+
+
+@dataclass
+class ProcessingStats:
+    """Statistics from processing results."""
+
+    total: int  # Total chunks processed
+    successful: int  # Successfully processed
+    failed: int  # Failed to process
+    success_rate: float  # Success percentage (0-100)
+    avg_duration: float  # Average duration in ms
+    total_duration: float  # Total duration in ms
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Token Estimation
 # ─────────────────────────────────────────────────────────────────────────────
+
+
+def _get_time_ms() -> float:
+    """Get current time in milliseconds."""
+    return time.time() * 1000
 
 
 def estimate_tokens(text: str) -> int:
@@ -294,6 +326,46 @@ def chunk_document(
     return chunks
 
 
+def merge_chunks(
+    chunks: list[DocumentChunk],
+    preserve_overlap: bool = False,
+) -> str:
+    """Merge chunks back into a single string.
+
+    Args:
+        chunks: List of document chunks to merge
+        preserve_overlap: If True, preserves overlap; if False, removes it
+
+    Returns:
+        Merged content string
+    """
+    if not chunks:
+        return ""
+
+    if len(chunks) == 1:
+        return chunks[0].content
+
+    if preserve_overlap:
+        return "".join(chunk.content for chunk in chunks)
+
+    # Remove overlap by using position info
+    result_parts: list[str] = []
+    last_end = 0
+
+    for chunk in sorted(chunks, key=lambda c: c.start_pos):
+        if chunk.start_pos >= last_end:
+            # No overlap with previous
+            result_parts.append(chunk.content)
+        else:
+            # Overlap - take only the new part
+            overlap_chars = last_end - chunk.start_pos
+            if overlap_chars < len(chunk.content):
+                result_parts.append(chunk.content[overlap_chars:])
+        last_end = chunk.end_pos
+
+    return "".join(result_parts)
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Document Window Class
 # ─────────────────────────────────────────────────────────────────────────────
@@ -460,6 +532,58 @@ class DocumentWindow:
             if search in (chunk.content if case_sensitive else chunk.content.lower())
         ]
 
+    def get_context(
+        self,
+        index: int,
+        *,
+        before: int = 0,
+        after: int = 0,
+    ) -> str:
+        """Get surrounding context for a chunk.
+
+        Merges the content of adjacent chunks to provide context.
+
+        Args:
+            index: Index of the center chunk
+            before: Number of chunks before to include
+            after: Number of chunks after to include
+
+        Returns:
+            Merged content of the context chunks
+        """
+        start = max(0, index - before)
+        end = min(len(self._chunks), index + after + 1)
+
+        context_chunks = self._chunks[start:end]
+        return merge_chunks(context_chunks)
+
+    def get_chunks_in_range(
+        self,
+        start_pos: int,
+        end_pos: int,
+    ) -> list[DocumentChunk]:
+        """Get chunks that overlap with a character position range.
+
+        Args:
+            start_pos: Start position in original document (characters)
+            end_pos: End position in original document (characters)
+
+        Returns:
+            List of chunks that overlap with the specified range
+        """
+        return [
+            chunk
+            for chunk in self._chunks
+            if (
+                # Chunk starts within range
+                (chunk.start_pos >= start_pos and chunk.start_pos < end_pos)
+                # Chunk ends within range
+                or (chunk.end_pos > start_pos and chunk.end_pos <= end_pos)
+                # Chunk fully contains range
+                or (chunk.start_pos <= start_pos and chunk.end_pos >= end_pos)
+            )
+        ]
+
     # ─────────────────────────────────────────────────────────────────────────
     # Statistics
     # ─────────────────────────────────────────────────────────────────────────
@@ -522,6 +646,7 @@ class DocumentWindow:
 
         async def process_chunk(chunk: DocumentChunk) -> ChunkResult[Any]:
             async with semaphore:
+                start_time = _get_time_ms()
                 try:
                     config = processor(chunk)
                     result = await _internal_run(
@@ -536,12 +661,14 @@ class DocumentWindow:
                         status="success",
                         result=result,
                         content=content,
+                        duration=_get_time_ms() - start_time,
                     )
                 except Exception as e:
                     return ChunkResult(
                         chunk=chunk,
                         status="error",
                         error=str(e),
+                        duration=_get_time_ms() - start_time,
                     )
 
         tasks = [process_chunk(chunk) for chunk in self._chunks]
@@ -563,6 +690,7 @@ class DocumentWindow:
         results: list[ChunkResult[Any]] = []
 
         for chunk in self._chunks:
+            start_time = _get_time_ms()
             try:
                 config = processor(chunk)
                 result = await _internal_run(
@@ -578,6 +706,7 @@ class DocumentWindow:
                         status="success",
                         result=result,
                         content=content,
+                        duration=_get_time_ms() - start_time,
                     )
                 )
             except Exception as e:
@@ -586,6 +715,7 @@ class DocumentWindow:
                         chunk=chunk,
                         status="error",
                         error=str(e),
+                        duration=_get_time_ms() - start_time,
                     )
                 )
 
@@ -718,3 +848,260 @@ class Window:
         Uses a simple heuristic: ~4 characters per token for English text.
         """
         return estimate_tokens(text)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Helper Functions
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+async def process_with_window(
+    document: str,
+    processor: Callable[[DocumentChunk], ChunkProcessConfig],
+    config: WindowConfig | None = None,
+    *,
+    size: int = 2000,
+    overlap: int = 200,
+    strategy: ChunkingStrategy = "token",
+    concurrency: int = 5,
+) -> list[ChunkResult[Any]]:
+    """Process a document with L0 using a sliding window.
+
+    Convenience function that creates a window and processes all chunks.
+
+    Args:
+        document: Document to process
+        processor: Function to process each chunk
+        config: Optional WindowConfig (overrides other args if provided)
+        size: Tokens per chunk (default 2000)
+        overlap: Overlap between chunks (default 200)
+        strategy: Chunking strategy (default "token")
+        concurrency: Maximum concurrent processing (default 5)
+
+    Returns:
+        List of ChunkResult for each chunk
+
+    Example:
+        ```python
+        results = await process_with_window(
+            document,
+            lambda chunk: ChunkProcessConfig(
+                stream=lambda: client.chat.completions.create(
+                    model="gpt-4o",
+                    messages=[{"role": "user", "content": f"Summarize: {chunk.content}"}],
+                    stream=True,
+                )
+            ),
+            size=2000,
+            overlap=200,
+        )
+        ```
+    """
+    if config is None:
+        config = WindowConfig(
+            size=size,
+            overlap=overlap,
+            strategy=strategy,
+        )
+    window = DocumentWindow(document, config)
+    return await window.process_all(processor, concurrency=concurrency)
+
+
+def merge_results(
+    results: list[ChunkResult[Any]],
+    separator: str = "\n\n",
+) -> str:
+    """Merge results from multiple chunk processing into a single text.
+
+    Args:
+        results: List of ChunkResult from processing
+        separator: Separator between chunks (default "\\n\\n")
+
+    Returns:
+        Merged text from all successful results
+    """
+    return separator.join(
+        r.content for r in results if r.status == "success" and r.content
+    )
+
+
+def get_processing_stats(results: list[ChunkResult[Any]]) -> ProcessingStats:
+    """Get processing statistics from results.
+
+    Args:
+        results: List of ChunkResult from processing
+
+    Returns:
+        ProcessingStats with success/failure counts and timing info
+    """
+    total = len(results)
+    successful = sum(1 for r in results if r.status == "success")
+    failed = sum(1 for r in results if r.status == "error")
+    success_rate = (successful / total * 100) if total > 0 else 0.0
+    total_duration = sum(r.duration for r in results)
+    avg_duration = (total_duration / total) if total > 0 else 0.0
+
+    return ProcessingStats(
+        total=total,
+        successful=successful,
+        failed=failed,
+        success_rate=round(success_rate, 2),
+        avg_duration=round(avg_duration, 2),
+        total_duration=round(total_duration, 2),
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Context Restoration
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+async def l0_with_window(
+    window: DocumentWindow,
+    chunk_index: int,
+    stream: StreamFactory,
+    *,
+    context_restoration: ContextRestorationOptions | None = None,
+    retry: Retry | None = None,
+    timeout: Timeout | None = None,
+    fallbacks: list[StreamFactory] | None = None,
+) -> ChunkResult[Any]:
+    """Process a chunk with context restoration on drift detection.
+
+    If drift is detected during processing, automatically retries with
+    adjacent chunks to restore context.
+
+    Args:
+        window: Document window containing chunks
+        chunk_index: Index of chunk to process
+        stream: Stream factory for processing
+        context_restoration: Options for context restoration
+        retry: Retry configuration
+        timeout: Timeout configuration
+        fallbacks: Fallback stream factories
+
+    Returns:
+        ChunkResult from processing
+
+    Example:
+        ```python
+        window = Window.create(document, size=2000)
+        result = await l0_with_window(
+            window,
+            chunk_index=0,
+            stream=lambda: client.chat.completions.create(
+                model="gpt-4o",
+                messages=[{"role": "user", "content": window.get(0).content}],
+                stream=True,
+            ),
+            context_restoration=ContextRestorationOptions(
+                enabled=True,
+                strategy="adjacent",
+                max_attempts=2,
+            ),
+        )
+        ```
+    """
+    chunk = window.get(chunk_index)
+    if chunk is None:
+        raise ValueError(f"Invalid chunk index: {chunk_index}")
+
+    restoration = context_restoration or ContextRestorationOptions()
+    current_chunk_index = chunk_index
+    attempts = 0
+
+    while attempts <= restoration.max_attempts:
+        current_chunk = window.get(current_chunk_index)
+        if current_chunk is None:
+            break
+
+        start_time = _get_time_ms()
+        try:
+            result = await _internal_run(
+                stream=stream,
+                fallbacks=fallbacks,
+                retry=retry,
+                timeout=timeout,
+            )
+            content = await result.read()
+
+            # Check for drift (if result has drift detection)
+            drift_detected = getattr(result, "drift_detected", False)
+
+            if (
+                drift_detected
+                and restoration.enabled
+                and attempts < restoration.max_attempts
+            ):
+                # Try context restoration
+                next_chunk_index = _get_restoration_chunk(
+                    window, current_chunk_index, restoration.strategy
+                )
+
+                if next_chunk_index is not None:
+                    if restoration.on_restore:
+                        restoration.on_restore(current_chunk_index, next_chunk_index)
+                    current_chunk_index = next_chunk_index
+                    attempts += 1
+                    continue
+
+            return ChunkResult(
+                chunk=current_chunk,
+                status="success",
+                result=result,
+                content=content,
+                duration=_get_time_ms() - start_time,
+            )
+
+        except Exception as e:
+            if attempts >= restoration.max_attempts:
+                return ChunkResult(
+                    chunk=current_chunk,
+                    status="error",
+                    error=str(e),
+                    duration=_get_time_ms() - start_time,
+                )
+            attempts += 1
+
+    # Should not reach here, but return error if we do
+    return ChunkResult(
+        chunk=chunk,
+        status="error",
+        error="Context restoration failed after max attempts",
+        duration=0.0,
+    )
+
+
+def _get_restoration_chunk(
+    window: DocumentWindow,
+    current_index: int,
+    strategy: ContextRestorationStrategy,
+) -> int | None:
+    """Get the next chunk index for context restoration.
+
+    Args:
+        window: Document window
+        current_index: Current chunk index
+        strategy: Restoration strategy
+
+    Returns:
+        Next chunk index to try, or None if no more options
+    """
+    if strategy == "adjacent":
+        # Try next chunk first, then previous
+        if window.has_next() and current_index < window.total_chunks - 1:
+            return current_index + 1
+        elif current_index > 0:
+            return current_index - 1
+    elif strategy == "overlap":
+        # Try chunk with more overlap (next chunk)
+        if current_index < window.total_chunks - 1:
+            return current_index + 1
+    elif strategy == "full":
+        # Try adjacent chunks for full context
+        if current_index < window.total_chunks - 1:
+            return current_index + 1
+        elif current_index > 0:
+            return current_index - 1
+
+    return None

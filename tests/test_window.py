@@ -3,11 +3,18 @@
 import pytest
 
 from src.l0.window import (
+    ChunkResult,
+    ContextRestorationOptions,
+    ContextRestorationStrategy,
     DocumentChunk,
     DocumentWindow,
+    ProcessingStats,
     Window,
     WindowConfig,
     WindowStats,
+    get_processing_stats,
+    merge_chunks,
+    merge_results,
 )
 
 
@@ -561,3 +568,490 @@ class TestCustomTokenEstimator:
 
         # With 1 token per char, 200 chars with size 100 = multiple chunks
         assert len(chunks) >= 2
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# New Feature Tests - TypeScript Parity
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestGetContext:
+    """Tests for get_context method."""
+
+    def test_get_context_single_chunk(self):
+        """Test getting context with no surrounding chunks."""
+        doc = "a" * 4000
+        window = Window.create(doc, size=500, overlap=50)
+        # Get context for chunk 2 with no surrounding chunks
+        context = window.get_context(2, before=0, after=0)
+        chunk = window.get(2)
+        assert context == chunk.content
+
+    def test_get_context_with_before(self):
+        """Test getting context with chunks before."""
+        doc = "a" * 4000
+        window = Window.create(doc, size=500, overlap=50)
+        context = window.get_context(2, before=1, after=0)
+        # Should include chunks 1 and 2
+        chunk1 = window.get(1)
+        chunk2 = window.get(2)
+        assert len(context) > len(chunk2.content)
+
+    def test_get_context_with_after(self):
+        """Test getting context with chunks after."""
+        doc = "a" * 4000
+        window = Window.create(doc, size=500, overlap=50)
+        # Use chunk 1 which has chunks after it with content
+        context = window.get_context(1, before=0, after=1)
+        # Should include chunks 1 and 2 (with overlap removed)
+        chunk1 = window.get(1)
+        # Context should be at least as long as the single chunk
+        assert len(context) >= len(chunk1.content)
+
+    def test_get_context_with_before_and_after(self):
+        """Test getting context with surrounding chunks."""
+        doc = "a" * 4000
+        window = Window.create(doc, size=500, overlap=50)
+        context = window.get_context(2, before=1, after=1)
+        # Should include chunks 1, 2, and 3
+        chunk2 = window.get(2)
+        assert len(context) > len(chunk2.content)
+
+    def test_get_context_clamps_to_bounds(self):
+        """Test that context is clamped to document bounds."""
+        doc = "a" * 4000
+        window = Window.create(doc, size=500, overlap=50)
+        # Request more context than available at start
+        context = window.get_context(0, before=5, after=1)
+        # Should not fail, just clamp
+        assert len(context) > 0
+
+    def test_get_context_at_end(self):
+        """Test getting context at end of document."""
+        doc = "a" * 4000
+        window = Window.create(doc, size=500, overlap=50)
+        last_idx = window.total_chunks - 1
+        context = window.get_context(last_idx, before=1, after=5)
+        # Should not fail
+        assert len(context) > 0
+
+
+class TestGetChunksInRange:
+    """Tests for get_chunks_in_range method."""
+
+    def test_get_chunks_in_range_basic(self):
+        """Test basic range retrieval."""
+        doc = "a" * 4000
+        window = Window.create(doc, size=500, overlap=50)
+        chunks = window.get_chunks_in_range(0, 500)
+        # Should get first chunk at minimum
+        assert len(chunks) >= 1
+        assert chunks[0].index == 0
+
+    def test_get_chunks_in_range_middle(self):
+        """Test range in middle of document."""
+        doc = "a" * 4000
+        window = Window.create(doc, size=500, overlap=50)
+        # Get chunks overlapping with middle portion
+        chunks = window.get_chunks_in_range(1000, 2000)
+        assert len(chunks) >= 1
+
+    def test_get_chunks_in_range_overlapping(self):
+        """Test that overlapping chunks are included."""
+        doc = "a" * 4000
+        window = Window.create(doc, size=500, overlap=50)
+        all_chunks = window.get_all_chunks()
+
+        # Get chunks in a range that spans multiple chunks
+        if len(all_chunks) >= 3:
+            # Get range that should include middle chunks
+            start = all_chunks[1].start_pos
+            end = all_chunks[2].end_pos
+            chunks = window.get_chunks_in_range(start, end)
+            assert len(chunks) >= 2
+
+    def test_get_chunks_in_range_no_match(self):
+        """Test when no chunks are in range."""
+        doc = "a" * 100  # Small doc, one chunk
+        window = Window.create(doc, size=1000)
+        chunks = window.get_chunks_in_range(5000, 6000)
+        assert len(chunks) == 0
+
+    def test_get_chunks_in_range_full_doc(self):
+        """Test range covering entire document."""
+        doc = "a" * 4000
+        window = Window.create(doc, size=500, overlap=50)
+        chunks = window.get_chunks_in_range(0, 4000)
+        assert len(chunks) == window.total_chunks
+
+
+class TestMergeChunks:
+    """Tests for merge_chunks function."""
+
+    def test_merge_chunks_empty(self):
+        """Test merging empty list."""
+        result = merge_chunks([])
+        assert result == ""
+
+    def test_merge_chunks_single(self):
+        """Test merging single chunk."""
+        chunk = DocumentChunk(
+            index=0,
+            content="Hello world",
+            start_pos=0,
+            end_pos=11,
+            token_count=2,
+            char_count=11,
+            is_first=True,
+            is_last=True,
+            total_chunks=1,
+        )
+        result = merge_chunks([chunk])
+        assert result == "Hello world"
+
+    def test_merge_chunks_no_overlap(self):
+        """Test merging chunks without overlap."""
+        chunk1 = DocumentChunk(
+            index=0,
+            content="Hello",
+            start_pos=0,
+            end_pos=5,
+            token_count=1,
+            char_count=5,
+            is_first=True,
+            is_last=False,
+            total_chunks=2,
+        )
+        chunk2 = DocumentChunk(
+            index=1,
+            content=" world",
+            start_pos=5,
+            end_pos=11,
+            token_count=1,
+            char_count=6,
+            is_first=False,
+            is_last=True,
+            total_chunks=2,
+        )
+        result = merge_chunks([chunk1, chunk2])
+        assert result == "Hello world"
+
+    def test_merge_chunks_with_overlap_removed(self):
+        """Test merging chunks with overlap removed."""
+        # Simulating overlap where chunk2 starts at position 3
+        chunk1 = DocumentChunk(
+            index=0,
+            content="Hello",
+            start_pos=0,
+            end_pos=5,
+            token_count=1,
+            char_count=5,
+            is_first=True,
+            is_last=False,
+            total_chunks=2,
+        )
+        chunk2 = DocumentChunk(
+            index=1,
+            content="lo world",  # Overlaps with "lo" from chunk1
+            start_pos=3,
+            end_pos=11,
+            token_count=2,
+            char_count=8,
+            is_first=False,
+            is_last=True,
+            total_chunks=2,
+        )
+        result = merge_chunks([chunk1, chunk2], preserve_overlap=False)
+        # Should remove the overlap and produce clean merge
+        assert result == "Hello world"
+
+    def test_merge_chunks_preserve_overlap(self):
+        """Test merging chunks with overlap preserved."""
+        chunk1 = DocumentChunk(
+            index=0,
+            content="Hello",
+            start_pos=0,
+            end_pos=5,
+            token_count=1,
+            char_count=5,
+            is_first=True,
+            is_last=False,
+            total_chunks=2,
+        )
+        chunk2 = DocumentChunk(
+            index=1,
+            content="lo world",
+            start_pos=3,
+            end_pos=11,
+            token_count=2,
+            char_count=8,
+            is_first=False,
+            is_last=True,
+            total_chunks=2,
+        )
+        result = merge_chunks([chunk1, chunk2], preserve_overlap=True)
+        # Should concatenate directly
+        assert result == "Hellolo world"
+
+
+class TestMergeResults:
+    """Tests for merge_results function."""
+
+    def test_merge_results_empty(self):
+        """Test merging empty results."""
+        result = merge_results([])
+        assert result == ""
+
+    def test_merge_results_success_only(self):
+        """Test that only successful results are merged."""
+        chunk = DocumentChunk(
+            index=0,
+            content="test",
+            start_pos=0,
+            end_pos=4,
+            token_count=1,
+            char_count=4,
+            is_first=True,
+            is_last=True,
+            total_chunks=1,
+        )
+        results = [
+            ChunkResult(chunk=chunk, status="success", content="Result 1"),
+            ChunkResult(chunk=chunk, status="error", content="", error="Failed"),
+            ChunkResult(chunk=chunk, status="success", content="Result 2"),
+        ]
+        merged = merge_results(results)
+        assert merged == "Result 1\n\nResult 2"
+
+    def test_merge_results_custom_separator(self):
+        """Test custom separator."""
+        chunk = DocumentChunk(
+            index=0,
+            content="test",
+            start_pos=0,
+            end_pos=4,
+            token_count=1,
+            char_count=4,
+            is_first=True,
+            is_last=True,
+            total_chunks=1,
+        )
+        results = [
+            ChunkResult(chunk=chunk, status="success", content="A"),
+            ChunkResult(chunk=chunk, status="success", content="B"),
+        ]
+        merged = merge_results(results, separator="\n---\n")
+        assert merged == "A\n---\nB"
+
+    def test_merge_results_skips_empty_content(self):
+        """Test that empty content is skipped."""
+        chunk = DocumentChunk(
+            index=0,
+            content="test",
+            start_pos=0,
+            end_pos=4,
+            token_count=1,
+            char_count=4,
+            is_first=True,
+            is_last=True,
+            total_chunks=1,
+        )
+        results = [
+            ChunkResult(chunk=chunk, status="success", content="A"),
+            ChunkResult(chunk=chunk, status="success", content=""),
+            ChunkResult(chunk=chunk, status="success", content="B"),
+        ]
+        merged = merge_results(results)
+        assert merged == "A\n\nB"
+
+
+class TestGetProcessingStats:
+    """Tests for get_processing_stats function."""
+
+    def test_get_processing_stats_empty(self):
+        """Test stats from empty results."""
+        stats = get_processing_stats([])
+        assert stats.total == 0
+        assert stats.successful == 0
+        assert stats.failed == 0
+        assert stats.success_rate == 0.0
+        assert stats.avg_duration == 0.0
+        assert stats.total_duration == 0.0
+
+    def test_get_processing_stats_all_success(self):
+        """Test stats when all succeed."""
+        chunk = DocumentChunk(
+            index=0,
+            content="test",
+            start_pos=0,
+            end_pos=4,
+            token_count=1,
+            char_count=4,
+            is_first=True,
+            is_last=True,
+            total_chunks=1,
+        )
+        results = [
+            ChunkResult(chunk=chunk, status="success", content="A", duration=100.0),
+            ChunkResult(chunk=chunk, status="success", content="B", duration=200.0),
+        ]
+        stats = get_processing_stats(results)
+        assert stats.total == 2
+        assert stats.successful == 2
+        assert stats.failed == 0
+        assert stats.success_rate == 100.0
+        assert stats.avg_duration == 150.0
+        assert stats.total_duration == 300.0
+
+    def test_get_processing_stats_mixed(self):
+        """Test stats with mixed success/failure."""
+        chunk = DocumentChunk(
+            index=0,
+            content="test",
+            start_pos=0,
+            end_pos=4,
+            token_count=1,
+            char_count=4,
+            is_first=True,
+            is_last=True,
+            total_chunks=1,
+        )
+        results = [
+            ChunkResult(chunk=chunk, status="success", content="A", duration=100.0),
+            ChunkResult(chunk=chunk, status="error", error="Failed", duration=50.0),
+            ChunkResult(chunk=chunk, status="success", content="B", duration=200.0),
+            ChunkResult(chunk=chunk, status="error", error="Failed", duration=50.0),
+        ]
+        stats = get_processing_stats(results)
+        assert stats.total == 4
+        assert stats.successful == 2
+        assert stats.failed == 2
+        assert stats.success_rate == 50.0
+        assert stats.total_duration == 400.0
+        assert stats.avg_duration == 100.0
+
+
+class TestChunkResultDuration:
+    """Tests for duration field in ChunkResult."""
+
+    def test_chunk_result_has_duration(self):
+        """Test that ChunkResult has duration field."""
+        chunk = DocumentChunk(
+            index=0,
+            content="test",
+            start_pos=0,
+            end_pos=4,
+            token_count=1,
+            char_count=4,
+            is_first=True,
+            is_last=True,
+            total_chunks=1,
+        )
+        result = ChunkResult(
+            chunk=chunk,
+            status="success",
+            content="Result",
+            duration=150.5,
+        )
+        assert result.duration == 150.5
+
+    def test_chunk_result_duration_default(self):
+        """Test that duration defaults to 0."""
+        chunk = DocumentChunk(
+            index=0,
+            content="test",
+            start_pos=0,
+            end_pos=4,
+            token_count=1,
+            char_count=4,
+            is_first=True,
+            is_last=True,
+            total_chunks=1,
+        )
+        result = ChunkResult(chunk=chunk, status="success", content="Result")
+        assert result.duration == 0.0
+
+
+class TestContextRestorationOptions:
+    """Tests for ContextRestorationOptions."""
+
+    def test_default_options(self):
+        """Test default context restoration options."""
+        options = ContextRestorationOptions()
+        assert options.enabled is True
+        assert options.strategy == "adjacent"
+        assert options.max_attempts == 2
+        assert options.on_restore is None
+
+    def test_custom_options(self):
+        """Test custom context restoration options."""
+        callback_called = []
+
+        def on_restore(from_idx: int, to_idx: int):
+            callback_called.append((from_idx, to_idx))
+
+        options = ContextRestorationOptions(
+            enabled=False,
+            strategy="full",
+            max_attempts=5,
+            on_restore=on_restore,
+        )
+        assert options.enabled is False
+        assert options.strategy == "full"
+        assert options.max_attempts == 5
+
+        # Test callback
+        options.on_restore(1, 2)
+        assert callback_called == [(1, 2)]
+
+
+class TestWindowConfigPreserveOptions:
+    """Tests for preserve_paragraphs and preserve_sentences options."""
+
+    def test_default_preserve_options(self):
+        """Test default preserve options."""
+        config = WindowConfig()
+        assert config.preserve_paragraphs is True
+        assert config.preserve_sentences is False
+
+    def test_custom_preserve_options(self):
+        """Test custom preserve options."""
+        config = WindowConfig(
+            preserve_paragraphs=False,
+            preserve_sentences=True,
+        )
+        assert config.preserve_paragraphs is False
+        assert config.preserve_sentences is True
+
+    def test_window_with_preserve_options(self):
+        """Test creating window with preserve options."""
+        doc = "Paragraph one.\n\nParagraph two."
+        config = WindowConfig(
+            size=1000,
+            preserve_paragraphs=True,
+            preserve_sentences=True,
+        )
+        window = Window.create(doc, config=config)
+        assert window.config.preserve_paragraphs is True
+        assert window.config.preserve_sentences is True
+
+
+class TestProcessingStats:
+    """Tests for ProcessingStats dataclass."""
+
+    def test_processing_stats_fields(self):
+        """Test ProcessingStats has all required fields."""
+        stats = ProcessingStats(
+            total=10,
+            successful=8,
+            failed=2,
+            success_rate=80.0,
+            avg_duration=100.5,
+            total_duration=1005.0,
+        )
+        assert stats.total == 10
+        assert stats.successful == 8
+        assert stats.failed == 2
+        assert stats.success_rate == 80.0
+        assert stats.avg_duration == 100.5
+        assert stats.total_duration == 1005.0

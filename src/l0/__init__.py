@@ -161,12 +161,22 @@ from .types import (
 )
 from .version import __version__
 from .window import (
+    ChunkingStrategy,
     ChunkProcessConfig,
     ChunkResult,
+    ContextRestorationOptions,
+    ContextRestorationStrategy,
     DocumentChunk,
     DocumentWindow,
+    ProcessingStats,
     Window,
     WindowConfig,
+    WindowStats,
+    get_processing_stats,
+    l0_with_window,
+    merge_chunks,
+    merge_results,
+    process_with_window,
 )
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -535,8 +545,19 @@ __all__ = [
     "DocumentWindow",
     "DocumentChunk",
     "WindowConfig",
+    "WindowStats",
     "ChunkProcessConfig",
     "ChunkResult",
+    "ChunkingStrategy",
+    "ProcessingStats",
+    "ContextRestorationOptions",
+    "ContextRestorationStrategy",
+    # Window helper functions
+    "process_with_window",
+    "merge_results",
+    "merge_chunks",
+    "get_processing_stats",
+    "l0_with_window",
     # Debug
     "enable_debug",
     # Formatting
