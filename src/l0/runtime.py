@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 
 from .adapters import AdaptedEvent, Adapter, Adapters
 from .continuation import ContinuationConfig, deduplicate_continuation, detect_overlap
+from .drift import DriftDetector
 from .events import EventBus, ObservabilityEventType
 from .logging import logger
 from .retry import RetryManager
@@ -181,6 +182,7 @@ async def _internal_run(
     *,
     fallbacks: list[StreamFactory] | None = None,
     guardrails: list[GuardrailRule] | None = None,
+    drift_detector: DriftDetector | None = None,
     retry: Retry | None = None,
     timeout: Timeout | None = None,
     check_intervals: CheckIntervals | None = None,
@@ -212,6 +214,7 @@ async def _internal_run(
         stream: Factory function that returns an async LLM stream
         fallbacks: Optional list of fallback stream factories
         guardrails: Optional list of guardrail rules to apply
+        drift_detector: Optional drift detector for detecting model derailment
         retry: Optional retry configuration
         timeout: Optional timeout configuration
         check_intervals: Optional check intervals for guardrails/drift/checkpoint
@@ -332,7 +335,9 @@ async def _internal_run(
                 event_bus.emit(
                     ObservabilityEventType.FALLBACK_MODEL_SELECTED, index=fallback_idx
                 )
-                _fire_callback(cb.on_fallback, fallback_idx, reason)
+                # on_fallback uses 0-based fallback index (0 = first fallback)
+                # fallback_idx is 1-based in streams array (0 = primary, 1 = first fallback)
+                _fire_callback(cb.on_fallback, fallback_idx - 1, reason)
 
             while True:
                 if aborted:
@@ -370,6 +375,13 @@ async def _internal_run(
                             checkpoint_length=len(pending_checkpoint),
                         )
 
+                        # Emit RESUME_START per lifecycle spec
+                        event_bus.emit(
+                            ObservabilityEventType.RESUME_START,
+                            checkpoint=pending_checkpoint,
+                            token_count=state.token_count,
+                        )
+
                         # Fire on_resume callback
                         _fire_callback(
                             cb.on_resume, pending_checkpoint, state.token_count
@@ -390,6 +402,13 @@ async def _internal_run(
                         if build_continuation_prompt:
                             # This allows the user to modify the prompt for the next call
                             build_continuation_prompt(pending_checkpoint)
+
+                        # Emit RESUME_END per lifecycle spec
+                        event_bus.emit(
+                            ObservabilityEventType.RESUME_END,
+                            checkpoint=pending_checkpoint,
+                            token_count=state.token_count,
+                        )
 
                         event_bus.emit(
                             ObservabilityEventType.CONTINUATION_END,
@@ -630,6 +649,44 @@ async def _internal_run(
                                     ObservabilityEventType.GUARDRAIL_PHASE_END,
                                     rule_count=len(guardrails),
                                     violation_count=len(all_violations),
+                                )
+
+                            # Check drift periodically
+                            if (
+                                drift_detector is not None
+                                and state.token_count % drift_interval == 0
+                            ):
+                                event_bus.emit(
+                                    ObservabilityEventType.DRIFT_CHECK_START,
+                                    token_count=state.token_count,
+                                )
+                                drift_result = drift_detector.check(
+                                    state.content, token_text
+                                )
+                                if drift_result.detected:
+                                    state.drift_detected = True
+                                    event_bus.emit(
+                                        ObservabilityEventType.DRIFT_CHECK_RESULT,
+                                        detected=True,
+                                        types=drift_result.types,
+                                        confidence=drift_result.confidence,
+                                    )
+                                    # Fire on_drift callback
+                                    _fire_callback(
+                                        cb.on_drift,
+                                        drift_result.types,
+                                        drift_result.confidence,
+                                    )
+                                else:
+                                    event_bus.emit(
+                                        ObservabilityEventType.DRIFT_CHECK_RESULT,
+                                        detected=False,
+                                        types=[],
+                                        confidence=0.0,
+                                    )
+                                event_bus.emit(
+                                    ObservabilityEventType.DRIFT_CHECK_END,
+                                    token_count=state.token_count,
                                 )
 
                         # Handle tool call buffering

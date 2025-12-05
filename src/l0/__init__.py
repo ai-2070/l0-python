@@ -267,6 +267,7 @@ async def run(
     *,
     fallbacks: list[StreamFactory] | None = None,
     guardrails: list[GuardrailRule] | None = None,
+    drift_detector: DriftDetector | None = None,
     retry: Retry | None = None,
     timeout: Timeout | None = None,
     check_intervals: "CheckIntervals | None" = None,
@@ -301,6 +302,7 @@ async def run(
         stream: Factory function that returns an async LLM stream
         fallbacks: Optional list of fallback stream factories
         guardrails: Optional list of guardrail rules to apply
+        drift_detector: Optional drift detector for detecting model derailment
         retry: Optional retry configuration
         timeout: Optional timeout configuration
         check_intervals: Optional check intervals for guardrails/drift/checkpoint
@@ -366,6 +368,7 @@ async def run(
         stream=stream,
         fallbacks=fallbacks,
         guardrails=guardrails,
+        drift_detector=drift_detector,
         retry=retry,
         timeout=timeout,
         check_intervals=check_intervals,
