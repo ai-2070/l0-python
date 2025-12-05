@@ -20,6 +20,26 @@ from .adapters import (
     OpenAIAdapterOptions,
 )
 from .client import WrappedClient, wrap_client
+from .comparison import (
+    Difference,
+    DifferenceSeverity,
+    DifferenceType,
+    ObjectComparisonOptions,
+    StringComparisonOptions,
+    calculate_similarity_score,
+    compare_arrays,
+    compare_numbers,
+    compare_objects,
+    compare_strings,
+    compare_values,
+    cosine_similarity,
+    count_fields,
+    deep_equal,
+    get_type,
+    jaro_winkler_similarity,
+    levenshtein_distance,
+    levenshtein_similarity,
+)
 from .consensus import (
     # Result types (needed for type hints)
     Agreement,
@@ -94,6 +114,24 @@ from .json_schema import (
 )
 from .logging import enable_debug
 from .multimodal import Multimodal
+from .normalize import (
+    NormalizeOptions,
+    WhitespaceOptions,
+    count_lines,
+    dedent,
+    ensure_trailing_newline,
+    get_line,
+    indent,
+    is_whitespace_only,
+    normalize_for_model,
+    normalize_indentation,
+    normalize_newlines,
+    normalize_text,
+    normalize_whitespace,
+    remove_trailing_whitespace,
+    replace_line,
+    trim_text,
+)
 from .parallel import (
     AggregatedTelemetry,
     ParallelOptions,
@@ -140,11 +178,14 @@ from .structured import (
     structured_stream,
 )
 from .types import (
+    ERROR_TYPE_DELAY_DEFAULTS,
+    RETRY_DEFAULTS,
     BackoffStrategy,
     CheckIntervals,
     ContentType,
     DataPayload,
     ErrorCategory,
+    ErrorTypeDelayDefaults,
     ErrorTypeDelays,
     Event,
     EventType,
@@ -153,6 +194,7 @@ from .types import (
     RawStream,
     Retry,
     RetryableErrorType,
+    RetryDefaults,
     State,
     Stream,
     StreamFactory,
@@ -433,6 +475,8 @@ __all__ = [
     "EventType",
     # Config
     "Retry",
+    "RetryDefaults",
+    "RETRY_DEFAULTS",
     "RetryableErrorType",
     "Timeout",
     "TimeoutError",
@@ -440,6 +484,8 @@ __all__ = [
     "BackoffStrategy",
     "ErrorCategory",
     "ErrorTypeDelays",
+    "ErrorTypeDelayDefaults",
+    "ERROR_TYPE_DELAY_DEFAULTS",
     "LifecycleCallbacks",
     # Errors
     "Error",  # L0 error with code, context, checkpoint
@@ -595,4 +641,40 @@ __all__ = [
     "DriftResult",
     "check_drift",
     "create_drift_detector",
+    # Text normalization utilities
+    "NormalizeOptions",
+    "WhitespaceOptions",
+    "normalize_newlines",
+    "normalize_whitespace",
+    "normalize_indentation",
+    "normalize_text",
+    "normalize_for_model",
+    "dedent",
+    "indent",
+    "trim_text",
+    "ensure_trailing_newline",
+    "remove_trailing_whitespace",
+    "is_whitespace_only",
+    "count_lines",
+    "get_line",
+    "replace_line",
+    # Comparison utilities
+    "Difference",
+    "DifferenceSeverity",
+    "DifferenceType",
+    "StringComparisonOptions",
+    "ObjectComparisonOptions",
+    "compare_strings",
+    "compare_numbers",
+    "compare_values",
+    "compare_objects",
+    "compare_arrays",
+    "levenshtein_distance",
+    "levenshtein_similarity",
+    "jaro_winkler_similarity",
+    "cosine_similarity",
+    "deep_equal",
+    "get_type",
+    "count_fields",
+    "calculate_similarity_score",
 ]

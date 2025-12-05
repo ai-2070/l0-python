@@ -287,21 +287,70 @@ class ErrorTypeDelays:
     """Per-error-type delay configuration.
 
     All delays are in seconds (float), matching Python conventions.
+    Default values are sourced from ERROR_TYPE_DELAY_DEFAULTS for consistency.
+
+    Usage:
+        from l0 import ErrorTypeDelays, ERROR_TYPE_DELAY_DEFAULTS
+
+        # Use all defaults
+        delays = ErrorTypeDelays()
+
+        # Override specific delays
+        delays = ErrorTypeDelays(timeout=3.0, dns_error=5.0)
+
+        # Check default values
+        print(ERROR_TYPE_DELAY_DEFAULTS.timeout)  # 1.0
     """
 
-    connection_dropped: float = 1.0
-    fetch_error: float = 0.5
-    econnreset: float = 1.0
-    econnrefused: float = 2.0
-    sse_aborted: float = 0.5
-    no_bytes: float = 0.5
-    partial_chunks: float = 0.5
-    runtime_killed: float = 2.0
-    background_throttle: float = 5.0
-    dns_error: float = 3.0
-    ssl_error: float = 2.0
-    timeout: float = 1.0
-    unknown: float = 1.0
+    connection_dropped: float | None = None
+    fetch_error: float | None = None
+    econnreset: float | None = None
+    econnrefused: float | None = None
+    sse_aborted: float | None = None
+    no_bytes: float | None = None
+    partial_chunks: float | None = None
+    runtime_killed: float | None = None
+    background_throttle: float | None = None
+    dns_error: float | None = None
+    ssl_error: float | None = None
+    timeout: float | None = None
+    unknown: float | None = None
+
+    def __post_init__(self) -> None:
+        """Apply defaults from ERROR_TYPE_DELAY_DEFAULTS for any unset values."""
+        # Import here to avoid circular dependency at module load time
+        # ERROR_TYPE_DELAY_DEFAULTS is defined after this class
+        from . import types as _types
+
+        defaults = _types.ERROR_TYPE_DELAY_DEFAULTS
+        if self.connection_dropped is None:
+            object.__setattr__(self, "connection_dropped", defaults.connection_dropped)
+        if self.fetch_error is None:
+            object.__setattr__(self, "fetch_error", defaults.fetch_error)
+        if self.econnreset is None:
+            object.__setattr__(self, "econnreset", defaults.econnreset)
+        if self.econnrefused is None:
+            object.__setattr__(self, "econnrefused", defaults.econnrefused)
+        if self.sse_aborted is None:
+            object.__setattr__(self, "sse_aborted", defaults.sse_aborted)
+        if self.no_bytes is None:
+            object.__setattr__(self, "no_bytes", defaults.no_bytes)
+        if self.partial_chunks is None:
+            object.__setattr__(self, "partial_chunks", defaults.partial_chunks)
+        if self.runtime_killed is None:
+            object.__setattr__(self, "runtime_killed", defaults.runtime_killed)
+        if self.background_throttle is None:
+            object.__setattr__(
+                self, "background_throttle", defaults.background_throttle
+            )
+        if self.dns_error is None:
+            object.__setattr__(self, "dns_error", defaults.dns_error)
+        if self.ssl_error is None:
+            object.__setattr__(self, "ssl_error", defaults.ssl_error)
+        if self.timeout is None:
+            object.__setattr__(self, "timeout", defaults.timeout)
+        if self.unknown is None:
+            object.__setattr__(self, "unknown", defaults.unknown)
 
 
 class RetryableErrorType(str, Enum):
@@ -330,6 +379,95 @@ DEFAULT_RETRY_ON: list[RetryableErrorType] = [
 ]
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Centralized Retry Defaults (matching TypeScript RETRY_DEFAULTS)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class RetryDefaults:
+    """Centralized retry configuration defaults.
+
+    All retry-related code should import these constants instead of hardcoding values.
+    All delays are in seconds (float), matching Python conventions.
+
+    Usage:
+        from l0 import RETRY_DEFAULTS
+
+        # Access defaults
+        max_attempts = RETRY_DEFAULTS.attempts
+        base_delay = RETRY_DEFAULTS.base_delay
+        strategy = RETRY_DEFAULTS.backoff
+    """
+
+    attempts: int = 3
+    """Maximum retry attempts for model failures."""
+
+    max_retries: int = 6
+    """Absolute maximum retries across all error types."""
+
+    base_delay: float = 1.0
+    """Base delay in seconds."""
+
+    max_delay: float = 10.0
+    """Maximum delay cap in seconds."""
+
+    network_max_delay: float = 30.0
+    """Maximum delay for network error suggestions in seconds."""
+
+    backoff: BackoffStrategy = BackoffStrategy.FIXED_JITTER
+    """Default backoff strategy (AWS-style fixed jitter for predictable retry timing)."""
+
+    retry_on: tuple[RetryableErrorType, ...] = (
+        RetryableErrorType.ZERO_OUTPUT,
+        RetryableErrorType.GUARDRAIL_VIOLATION,
+        RetryableErrorType.DRIFT,
+        RetryableErrorType.INCOMPLETE,
+        RetryableErrorType.NETWORK_ERROR,
+        RetryableErrorType.TIMEOUT,
+        RetryableErrorType.RATE_LIMIT,
+        RetryableErrorType.SERVER_ERROR,
+    )
+    """Default retry reasons (unknown errors are not retried by default)."""
+
+
+# Singleton instance - use this in all retry-related code
+RETRY_DEFAULTS = RetryDefaults()
+
+
+@dataclass(frozen=True)
+class ErrorTypeDelayDefaults:
+    """Default error-type-specific delays for network errors.
+
+    All delays are in seconds (float), matching Python conventions.
+
+    Usage:
+        from l0 import ERROR_TYPE_DELAY_DEFAULTS
+
+        # Access defaults
+        timeout_delay = ERROR_TYPE_DELAY_DEFAULTS.timeout
+        dns_delay = ERROR_TYPE_DELAY_DEFAULTS.dns_error
+    """
+
+    connection_dropped: float = 1.0
+    fetch_error: float = 0.5
+    econnreset: float = 1.0
+    econnrefused: float = 2.0
+    sse_aborted: float = 0.5
+    no_bytes: float = 0.5
+    partial_chunks: float = 0.5
+    runtime_killed: float = 2.0
+    background_throttle: float = 5.0
+    dns_error: float = 3.0
+    ssl_error: float = 2.0
+    timeout: float = 1.0
+    unknown: float = 1.0
+
+
+# Singleton instance - use this in all error-type delay code
+ERROR_TYPE_DELAY_DEFAULTS = ErrorTypeDelayDefaults()
+
+
 @dataclass
 class Retry:
     """Retry configuration.
@@ -337,8 +475,10 @@ class Retry:
     All delays are in seconds (float), matching Python conventions
     like asyncio.sleep(), time.sleep(), etc.
 
+    Default values are sourced from RETRY_DEFAULTS for consistency.
+
     Usage:
-        from l0 import Retry, RetryableErrorType
+        from l0 import Retry, RetryableErrorType, RETRY_DEFAULTS
 
         # Use presets
         retry = Retry.recommended()
@@ -385,15 +525,34 @@ class Retry:
         )
     """
 
-    attempts: int = 3  # Model errors only
-    max_retries: int = 6  # Absolute cap (all errors)
-    base_delay: float = 1.0  # Starting delay (seconds)
-    max_delay: float = 10.0  # Maximum delay (seconds)
-    strategy: BackoffStrategy = BackoffStrategy.FIXED_JITTER
+    attempts: int | None = None  # Model errors only (default: RETRY_DEFAULTS.attempts)
+    max_retries: int | None = None  # Absolute cap (default: RETRY_DEFAULTS.max_retries)
+    base_delay: float | None = (
+        None  # Starting delay in seconds (default: RETRY_DEFAULTS.base_delay)
+    )
+    max_delay: float | None = (
+        None  # Maximum delay in seconds (default: RETRY_DEFAULTS.max_delay)
+    )
+    strategy: BackoffStrategy | None = (
+        None  # Backoff strategy (default: RETRY_DEFAULTS.backoff)
+    )
     error_type_delays: ErrorTypeDelays | None = None  # Per-error-type delays
     retry_on: list[RetryableErrorType] | None = None  # Which error types to retry
     should_retry: Callable[..., bool] | None = None  # Veto callback (sync or async)
     calculate_delay: Callable[..., float] | None = None  # Custom delay calculation
+
+    def __post_init__(self) -> None:
+        """Apply defaults from RETRY_DEFAULTS for any unset values."""
+        if self.attempts is None:
+            object.__setattr__(self, "attempts", RETRY_DEFAULTS.attempts)
+        if self.max_retries is None:
+            object.__setattr__(self, "max_retries", RETRY_DEFAULTS.max_retries)
+        if self.base_delay is None:
+            object.__setattr__(self, "base_delay", RETRY_DEFAULTS.base_delay)
+        if self.max_delay is None:
+            object.__setattr__(self, "max_delay", RETRY_DEFAULTS.max_delay)
+        if self.strategy is None:
+            object.__setattr__(self, "strategy", RETRY_DEFAULTS.backoff)
 
     @classmethod
     def recommended(cls) -> Retry:
