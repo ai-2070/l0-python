@@ -17,6 +17,42 @@ T = TypeVar("T")
 
 
 @dataclass
+class AggregatedTelemetry:
+    """Aggregated telemetry from parallel operations.
+
+    Attributes:
+        total_tokens: Total tokens used across all operations
+        total_duration: Total duration in seconds
+        total_retries: Total retry attempts
+        total_network_errors: Total network errors
+        total_violations: Total guardrail violations
+        avg_tokens_per_second: Average tokens per second
+        avg_time_to_first_token: Average time to first token in seconds
+    """
+
+    total_tokens: int = 0
+    total_duration: float = 0.0
+    total_retries: int = 0
+    total_network_errors: int = 0
+    total_violations: int = 0
+    avg_tokens_per_second: float = 0.0
+    avg_time_to_first_token: float = 0.0
+
+
+@dataclass
+class RaceResult(Generic[T]):
+    """Result from race operation.
+
+    Attributes:
+        value: The winning result value
+        winner_index: Index of the winning operation (0-based)
+    """
+
+    value: T
+    winner_index: int
+
+
+@dataclass
 class ParallelResult(Generic[T]):
     """Result of parallel execution.
 
@@ -34,6 +70,7 @@ class ParallelResult(Generic[T]):
     success_count: int = 0
     failure_count: int = 0
     duration: float = 0.0
+    aggregated_telemetry: AggregatedTelemetry | None = None
 
     @property
     def all_succeeded(self) -> bool:
@@ -182,7 +219,7 @@ async def race(
     tasks: list[Callable[[], Awaitable[T]]],
     *,
     on_error: Callable[[Exception, int], None] | None = None,
-) -> T:
+) -> RaceResult[T]:
     """Return first successful result, cancel remaining tasks.
 
     Args:
@@ -190,7 +227,7 @@ async def race(
         on_error: Callback when a task fails
 
     Returns:
-        Result from the first task to complete successfully
+        RaceResult containing the value and winner_index (0-based)
 
     Raises:
         RuntimeError: If no tasks provided
@@ -204,7 +241,8 @@ async def race(
             lambda: call_anthropic(prompt),
             lambda: call_google(prompt),
         ])
-        # Uses first successful response
+        print(f"Winner: provider {result.winner_index}")
+        print(f"Response: {result.value}")
         ```
     """
     if not tasks:
@@ -218,6 +256,7 @@ async def race(
         task: i for i, task in enumerate(pending_tasks)
     }
     last_error: Exception | None = None
+    winner_idx: int = -1
 
     try:
         while pending_tasks:
@@ -238,6 +277,7 @@ async def race(
                     # Found a successful result
                     if not found_success:
                         success_result = result
+                        winner_idx = task_to_index.get(task, -1)
                         found_success = True
                 except Exception as e:
                     last_error = e
@@ -249,7 +289,9 @@ async def race(
             if found_success:
                 for p in pending_tasks:
                     p.cancel()
-                return cast(T, success_result)
+                return RaceResult(
+                    value=cast(T, success_result), winner_index=winner_idx
+                )
 
         # All tasks failed
         if last_error:

@@ -73,11 +73,30 @@ from .guardrails import (
     LatexAnalysis,
     MarkdownAnalysis,
 )
+from .json_schema import (
+    JSONSchemaAdapter,
+    JSONSchemaDefinition,
+    JSONSchemaValidationError,
+    JSONSchemaValidationFailure,
+    JSONSchemaValidationSuccess,
+    SimpleJSONSchemaAdapter,
+    UnifiedSchema,
+    create_simple_json_schema_adapter,
+    get_json_schema_adapter,
+    has_json_schema_adapter,
+    is_json_schema,
+    register_json_schema_adapter,
+    unregister_json_schema_adapter,
+    validate_json_schema,
+    wrap_json_schema,
+)
 from .logging import enable_debug
 from .multimodal import Multimodal
 from .parallel import (
+    AggregatedTelemetry,
     ParallelOptions,
     ParallelResult,
+    RaceResult,
     batched,
     parallel,
     race,
@@ -466,6 +485,8 @@ __all__ = [
     "batched",
     "ParallelResult",
     "ParallelOptions",
+    "RaceResult",
+    "AggregatedTelemetry",
     # Pool (dynamic workload)
     "OperationPool",
     "PoolOptions",
@@ -510,6 +531,22 @@ __all__ = [
     "enable_debug",
     # Formatting
     "Format",
+    # JSON Schema (adapter-based validation)
+    "JSONSchemaAdapter",
+    "JSONSchemaDefinition",
+    "JSONSchemaValidationError",
+    "JSONSchemaValidationFailure",
+    "JSONSchemaValidationSuccess",
+    "SimpleJSONSchemaAdapter",
+    "UnifiedSchema",
+    "create_simple_json_schema_adapter",
+    "get_json_schema_adapter",
+    "has_json_schema_adapter",
+    "is_json_schema",
+    "register_json_schema_adapter",
+    "unregister_json_schema_adapter",
+    "validate_json_schema",
+    "wrap_json_schema",
     # Multimodal (scoped API)
     "Multimodal",  # Class with .image(), .audio(), .video(), .from_stream(), etc.
     "ContentType",
