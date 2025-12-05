@@ -171,25 +171,7 @@ Python has some callbacks but needs verification and completion.
 
 ## Phase 3: Guardrails Enhancements
 
-### 3.1 Fast/Slow Path Execution
-
-**Priority: Medium**
-
-#### Missing Features
-
-TS uses a two-path strategy to avoid blocking the streaming loop:
-- **Fast path**: Delta < 1KB, total < 5KB → synchronous
-- **Slow path**: Large content → deferred via `asyncio.create_task()`
-
-#### Implementation Tasks
-
-- [ ] Add content size thresholds to `Guardrails` class
-- [ ] Implement fast path for small content
-- [ ] Implement slow path with `asyncio.create_task()` for large content
-- [ ] Add `run_async_guardrail_check()` function
-- [ ] Add tests for path selection
-
-### 3.2 LaTeX Rule
+### 3.1 LaTeX Rule
 
 **Priority: Low**
 
