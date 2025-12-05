@@ -4,32 +4,14 @@ from collections.abc import AsyncIterator, Callable
 from typing import Any
 
 from .adapters import (
+    # Types for custom adapters
     AdaptedEvent,
     Adapter,
+    # Main class (scoped API) - all utilities accessible via Adapters.*
     Adapters,
     LiteLLMAdapter,
     OpenAIAdapter,
     OpenAIAdapterOptions,
-    # Registry functions
-    clear_adapters,
-    # Helper functions
-    create_audio_event,
-    create_complete_event,
-    create_data_event,
-    create_error_event,
-    create_image_event,
-    create_progress_event,
-    create_token_event,
-    detect_adapter,
-    get_adapter,
-    get_registered_adapters,
-    has_matching_adapter,
-    register_adapter,
-    to_l0_events,
-    to_l0_events_with_messages,
-    to_multimodal_l0_events,
-    unregister_adapter,
-    unregister_all_except,
 )
 from .client import WrappedClient, wrap_client
 from .consensus import (
@@ -458,31 +440,14 @@ __all__ = [
     "consume_stream",
     "get_text",
     # Adapters (scoped API)
-    "Adapters",  # Class with .detect(), .register(), .openai(), .litellm(), .get(), etc.
+    # All utilities accessible via Adapters.* (e.g., Adapters.register(), Adapters.to_l0_events(), etc.)
+    "Adapters",
+    # Adapter types (for custom adapters)
     "Adapter",
+    "AdaptedEvent",
     "OpenAIAdapter",
     "OpenAIAdapterOptions",
     "LiteLLMAdapter",
-    # Adapter registry functions
-    "register_adapter",
-    "unregister_adapter",
-    "unregister_all_except",
-    "get_adapter",
-    "get_registered_adapters",
-    "clear_adapters",
-    "detect_adapter",
-    "has_matching_adapter",
-    # Adapter helpers
-    "to_l0_events",
-    "to_l0_events_with_messages",
-    "to_multimodal_l0_events",
-    "create_token_event",
-    "create_complete_event",
-    "create_error_event",
-    "create_data_event",
-    "create_progress_event",
-    "create_image_event",
-    "create_audio_event",
     # Guardrails (scoped API)
     "Guardrails",  # Class with .recommended(), .strict(), .json(), .check(), .analyze_json(), etc.
     "GuardrailRule",

@@ -486,9 +486,198 @@ class Adapters:
         """
         return [a.name for a in _adapters]
 
+    # ─────────────────────────────────────────────────────────────────────────
+    # Helper Functions (scoped under Adapters)
+    # ─────────────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    async def to_l0_events(
+        stream: AsyncIterator[Any],
+        extract_text: Callable[[Any], str | None],
+    ) -> AsyncIterator[Event]:
+        """Convert any async iterable stream to L0 Events.
+
+        This helper makes it easier to build custom adapters by handling:
+        - Error conversion to L0 error events
+        - Automatic complete event emission
+
+        Args:
+            stream: The source async iterable stream
+            extract_text: Function to extract text from a chunk (return None to skip)
+
+        Yields:
+            L0 Event objects
+
+        Example:
+            ```python
+            from l0 import Adapters
+
+            async def my_adapter(stream):
+                async for event in Adapters.to_l0_events(stream, lambda chunk: chunk.text):
+                    yield event
+            ```
+        """
+        async for event in to_l0_events(stream, extract_text):
+            yield event
+
+    @staticmethod
+    async def to_l0_events_with_messages(
+        stream: AsyncIterator[Any],
+        extract_text: Callable[[Any], str | None],
+        extract_message: Callable[[Any], dict[str, Any] | None] | None = None,
+    ) -> AsyncIterator[Event]:
+        """Convert a stream with message events to L0 Events.
+
+        Use this when your stream emits both text tokens and structured messages
+        (e.g., tool calls, function calls).
+
+        Args:
+            stream: The source async iterable stream
+            extract_text: Function to extract text from a chunk
+            extract_message: Function to extract message from a chunk
+
+        Yields:
+            L0 Event objects
+        """
+        async for event in to_l0_events_with_messages(
+            stream, extract_text, extract_message
+        ):
+            yield event
+
+    @staticmethod
+    async def to_multimodal_l0_events(
+        stream: AsyncIterator[Any],
+        extract_text: Callable[[Any], str | None] | None = None,
+        extract_data: Callable[[Any], DataPayload | None] | None = None,
+        extract_progress: Callable[[Any], Progress | None] | None = None,
+        extract_message: Callable[[Any], dict[str, Any] | None] | None = None,
+    ) -> AsyncIterator[Event]:
+        """Convert multimodal stream to L0 Events with support for text and data.
+
+        Args:
+            stream: The source async iterable stream
+            extract_text: Function to extract text from a chunk
+            extract_data: Function to extract multimodal data from a chunk
+            extract_progress: Function to extract progress from a chunk
+            extract_message: Function to extract message from a chunk
+
+        Yields:
+            L0 Event objects
+        """
+        async for event in to_multimodal_l0_events(
+            stream, extract_text, extract_data, extract_progress, extract_message
+        ):
+            yield event
+
+    @staticmethod
+    def token_event(value: str) -> Event:
+        """Create an L0 token event.
+
+        Args:
+            value: The token text
+
+        Returns:
+            Event of type TOKEN
+        """
+        return create_token_event(value)
+
+    @staticmethod
+    def complete_event(usage: dict[str, int] | None = None) -> Event:
+        """Create an L0 complete event.
+
+        Args:
+            usage: Optional usage information
+
+        Returns:
+            Event of type COMPLETE
+        """
+        return create_complete_event(usage)
+
+    @staticmethod
+    def error_event(error: Exception | str) -> Event:
+        """Create an L0 error event.
+
+        Args:
+            error: The error (will be wrapped if string)
+
+        Returns:
+            Event of type ERROR
+        """
+        return create_error_event(error)
+
+    @staticmethod
+    def data_event(payload: DataPayload) -> Event:
+        """Create an L0 data event for multimodal content.
+
+        Args:
+            payload: The data payload
+
+        Returns:
+            Event of type DATA
+        """
+        return create_data_event(payload)
+
+    @staticmethod
+    def progress_event(progress: Progress) -> Event:
+        """Create an L0 progress event.
+
+        Args:
+            progress: Progress information
+
+        Returns:
+            Event of type PROGRESS
+        """
+        return create_progress_event(progress)
+
+    @staticmethod
+    def image_event(
+        url: str | None = None,
+        base64: str | None = None,
+        mime_type: str = "image/png",
+        width: int | None = None,
+        height: int | None = None,
+        **metadata: Any,
+    ) -> Event:
+        """Create an image data event with convenience parameters.
+
+        Args:
+            url: Image URL
+            base64: Base64-encoded image data
+            mime_type: MIME type (default: image/png)
+            width: Image width
+            height: Image height
+            **metadata: Additional metadata
+
+        Returns:
+            Event of type DATA with image content
+        """
+        return create_image_event(url, base64, mime_type, width, height, **metadata)
+
+    @staticmethod
+    def audio_event(
+        url: str | None = None,
+        base64: str | None = None,
+        mime_type: str = "audio/mp3",
+        duration: float | None = None,
+        **metadata: Any,
+    ) -> Event:
+        """Create an audio data event with convenience parameters.
+
+        Args:
+            url: Audio URL
+            base64: Base64-encoded audio data
+            mime_type: MIME type (default: audio/mp3)
+            duration: Audio duration in seconds
+            **metadata: Additional metadata
+
+        Returns:
+            Event of type DATA with audio content
+        """
+        return create_audio_event(url, base64, mime_type, duration, **metadata)
+
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Module-level convenience functions (matches TS exports)
+# Module-level convenience functions (kept for internal use)
 # ─────────────────────────────────────────────────────────────────────────────
 
 
