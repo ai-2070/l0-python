@@ -181,7 +181,7 @@ Python has some callbacks but needs verification and completion.
 - [ ] If missing, implement LaTeX environment validation
 - [ ] Add tests for LaTeX guardrail
 
-### 3.3 Custom Pattern Rule Enhancement
+### 3.2 Custom Pattern Rule Enhancement
 
 **Priority: Medium**
 
