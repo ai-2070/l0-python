@@ -28,7 +28,8 @@ class TestFormatNamespace:
 
     def test_instructions(self):
         result = Format.instructions("Be helpful")
-        assert "<system_instructions>" in result
+        assert "<instructions>" in result
+        assert "Be helpful" in result
 
     def test_memory(self):
         mem = [{"role": "user", "content": "Hi"}]
