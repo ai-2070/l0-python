@@ -504,25 +504,7 @@ on_event = exclude_events(
 
 ## Phase 10: Adapters
 
-### 10.1 Mastra Adapter
-
-**Priority: Low**
-
-#### Implementation Tasks
-
-- [ ] Create Mastra adapter (if Mastra has Python SDK)
-- [ ] Add tests for Mastra integration
-
-### 10.2 Anthropic Adapter
-
-**Priority: Medium**
-
-#### Implementation Tasks
-
-- [ ] Create Anthropic adapter for direct SDK usage
-- [ ] Add tests for Anthropic integration
-
-### 10.3 Helper Functions
+### 10.1 Helper Functions
 
 **Priority: Medium**
 
