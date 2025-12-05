@@ -209,6 +209,41 @@ class Error(Exception):
     def __repr__(self) -> str:
         return f"Error(code={self.code.value!r}, message={self.args[0]!r})"
 
+    def to_json(self) -> dict[str, Any]:
+        """Serialize error for logging/transport.
+
+        Returns:
+            Dictionary with error details suitable for JSON serialization.
+
+        Example:
+            ```python
+            try:
+                result = await l0.run(stream)
+            except Error as e:
+                # Log to monitoring service
+                import json
+                log_entry = json.dumps(e.to_json())
+                send_to_monitoring(log_entry)
+            ```
+        """
+        return {
+            "name": self.__class__.__name__,
+            "code": self.code.value,
+            "category": Error.categorize(self).value,
+            "message": str(self.args[0]) if self.args else "",
+            "timestamp": self.timestamp,
+            "has_checkpoint": self.has_checkpoint,
+            "checkpoint_length": len(self.context.checkpoint)
+            if self.context.checkpoint
+            else None,
+            "token_count": self.context.token_count,
+            "content_length": self.context.content_length,
+            "model_retry_count": self.context.model_retry_count,
+            "network_retry_count": self.context.network_retry_count,
+            "fallback_index": self.context.fallback_index,
+            "metadata": self.context.metadata,
+        }
+
     # ─────────────────────────────────────────────────────────────────────────
     # Static Methods for Any Exception
     # ─────────────────────────────────────────────────────────────────────────
