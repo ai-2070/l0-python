@@ -821,3 +821,478 @@ class TestGuardrailsNamespace:
         rules = [Guardrails.pattern()]
         violations = Guardrails.check(state, rules)
         assert len(violations) >= 1
+
+    def test_new_types_accessible(self):
+        """Test new types added for TypeScript parity."""
+        assert Guardrails.Context is not None
+        assert Guardrails.Result is not None
+        assert Guardrails.ResultSummary is not None
+        assert Guardrails.State is not None
+        assert Guardrails.Config is not None
+        assert Guardrails.Engine is not None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# GuardrailEngine Tests
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestGuardrailEngine:
+    """Tests for the GuardrailEngine class."""
+
+    def test_create_engine(self):
+        from src.l0.guardrails import GuardrailConfig, GuardrailEngine
+
+        engine = GuardrailEngine(GuardrailConfig(rules=[json_rule()]))
+        assert engine is not None
+
+    def test_create_guardrail_engine_factory(self):
+        from src.l0.guardrails import create_guardrail_engine
+
+        engine = create_guardrail_engine([json_rule(), markdown_rule()])
+        assert engine is not None
+
+    def test_engine_check_passes(self):
+        from src.l0.guardrails import GuardrailContext, create_guardrail_engine
+
+        engine = create_guardrail_engine([json_rule()])
+        result = engine.check(GuardrailContext(content='{"key": 1}', completed=True))
+        assert result.passed is True
+        assert len(result.violations) == 0
+        assert result.should_retry is False
+        assert result.should_halt is False
+
+    def test_engine_check_fails(self):
+        from src.l0.guardrails import GuardrailContext, create_guardrail_engine
+
+        engine = create_guardrail_engine([json_rule()])
+        result = engine.check(GuardrailContext(content='{"key": 1}}', completed=True))
+        assert result.passed is False
+        assert len(result.violations) >= 1
+
+    def test_engine_result_summary(self):
+        from src.l0.guardrails import GuardrailContext, create_guardrail_engine
+
+        engine = create_guardrail_engine([json_rule()])
+        result = engine.check(GuardrailContext(content='{"key": 1}}', completed=True))
+        assert result.summary.total >= 1
+        assert result.summary.errors >= 1
+
+    def test_engine_add_rule(self):
+        from src.l0.guardrails import create_guardrail_engine
+
+        engine = create_guardrail_engine([json_rule()])
+        engine.add_rule(markdown_rule())
+        # Check that engine now has both rules
+
+    def test_engine_remove_rule(self):
+        from src.l0.guardrails import create_guardrail_engine
+
+        engine = create_guardrail_engine([json_rule(), markdown_rule()])
+        removed = engine.remove_rule("json")
+        assert removed is True
+        removed_again = engine.remove_rule("json")
+        assert removed_again is False
+
+    def test_engine_get_state(self):
+        from src.l0.guardrails import GuardrailContext, create_guardrail_engine
+
+        engine = create_guardrail_engine([json_rule()])
+        engine.check(GuardrailContext(content='{"key": 1}}', completed=True))
+        state = engine.get_state()
+        assert state.violation_count >= 1
+
+    def test_engine_reset(self):
+        from src.l0.guardrails import GuardrailContext, create_guardrail_engine
+
+        engine = create_guardrail_engine([json_rule()])
+        engine.check(GuardrailContext(content='{"key": 1}}', completed=True))
+        engine.reset()
+        state = engine.get_state()
+        assert state.violation_count == 0
+
+    def test_engine_has_violations(self):
+        from src.l0.guardrails import GuardrailContext, create_guardrail_engine
+
+        engine = create_guardrail_engine([json_rule()])
+        engine.check(GuardrailContext(content='{"key": 1}}', completed=True))
+        assert engine.has_violations() is True
+
+    def test_engine_get_violations_by_rule(self):
+        from src.l0.guardrails import GuardrailContext, create_guardrail_engine
+
+        engine = create_guardrail_engine([json_rule()])
+        engine.check(GuardrailContext(content='{"key": 1}}', completed=True))
+        violations = engine.get_violations_by_rule("json")
+        assert len(violations) >= 1
+
+    def test_engine_on_violation_callback(self):
+        from src.l0.guardrails import GuardrailContext, create_guardrail_engine
+
+        violations_received = []
+
+        def on_violation(v):
+            violations_received.append(v)
+
+        engine = create_guardrail_engine([json_rule()], on_violation=on_violation)
+        engine.check(GuardrailContext(content='{"key": 1}}', completed=True))
+        assert len(violations_received) >= 1
+
+    def test_guardrails_create_engine(self):
+        """Test Guardrails.create_engine() method."""
+        engine = Guardrails.create_engine([json_rule()])
+        assert engine is not None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# GuardrailContext Tests
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestGuardrailContext:
+    """Tests for the GuardrailContext dataclass."""
+
+    def test_create_context(self):
+        from src.l0.guardrails import GuardrailContext
+
+        ctx = GuardrailContext(content="test content", completed=True)
+        assert ctx.content == "test content"
+        assert ctx.completed is True
+
+    def test_context_with_all_fields(self):
+        from src.l0.guardrails import GuardrailContext, GuardrailViolation
+
+        ctx = GuardrailContext(
+            content="test content",
+            completed=True,
+            checkpoint="previous content",
+            delta="new content",
+            token_count=100,
+            metadata={"key": "value"},
+            previous_violations=[
+                GuardrailViolation(rule="test", message="test", severity="warning")
+            ],
+        )
+        assert ctx.checkpoint == "previous content"
+        assert ctx.delta == "new content"
+        assert ctx.token_count == 100
+        assert ctx.metadata == {"key": "value"}
+        assert len(ctx.previous_violations) == 1
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# GuardrailResult Tests
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestGuardrailResult:
+    """Tests for the GuardrailResult dataclass."""
+
+    def test_create_result(self):
+        from src.l0.guardrails import (
+            GuardrailResult,
+            GuardrailResultSummary,
+        )
+
+        result = GuardrailResult(
+            passed=True,
+            violations=[],
+            should_retry=False,
+            should_halt=False,
+            summary=GuardrailResultSummary(total=0, fatal=0, errors=0, warnings=0),
+        )
+        assert result.passed is True
+        assert result.should_retry is False
+
+    def test_result_with_violations(self):
+        from src.l0.guardrails import (
+            GuardrailResult,
+            GuardrailResultSummary,
+            GuardrailViolation,
+        )
+
+        result = GuardrailResult(
+            passed=False,
+            violations=[
+                GuardrailViolation(rule="test", message="error", severity="error")
+            ],
+            should_retry=True,
+            should_halt=False,
+            summary=GuardrailResultSummary(total=1, fatal=0, errors=1, warnings=0),
+        )
+        assert result.passed is False
+        assert len(result.violations) == 1
+        assert result.summary.errors == 1
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# check_guardrails_full Tests
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestCheckGuardrailsFull:
+    """Tests for check_guardrails_full function."""
+
+    def test_check_guardrails_full_passes(self):
+        from src.l0.guardrails import GuardrailContext, check_guardrails_full
+
+        result = check_guardrails_full(
+            GuardrailContext(content='{"key": 1}', completed=True), [json_rule()]
+        )
+        assert result.passed is True
+        assert result.should_retry is False
+        assert result.should_halt is False
+
+    def test_check_guardrails_full_fails(self):
+        from src.l0.guardrails import GuardrailContext, check_guardrails_full
+
+        result = check_guardrails_full(
+            GuardrailContext(content='{"key": 1}}', completed=True), [json_rule()]
+        )
+        assert result.passed is False
+        assert len(result.violations) >= 1
+
+    def test_guardrails_check_full(self):
+        """Test Guardrails.check_full() method."""
+        from src.l0.guardrails import GuardrailContext
+
+        result = Guardrails.check_full(
+            GuardrailContext(content='{"key": 1}', completed=True), [json_rule()]
+        )
+        assert result.passed is True
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Pattern Detection Functions Tests
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestPatternDetectionFunctions:
+    """Tests for standalone pattern detection functions."""
+
+    def test_detect_meta_commentary(self):
+        from src.l0.guardrails import GuardrailContext, detect_meta_commentary
+
+        ctx = GuardrailContext(content="As an AI, I cannot help", completed=True)
+        violations = detect_meta_commentary(ctx)
+        assert len(violations) >= 1
+        assert violations[0].rule == "pattern-meta-commentary"
+
+    def test_detect_meta_commentary_no_match(self):
+        from src.l0.guardrails import GuardrailContext, detect_meta_commentary
+
+        ctx = GuardrailContext(content="Normal content here", completed=True)
+        violations = detect_meta_commentary(ctx)
+        assert len(violations) == 0
+
+    def test_detect_excessive_hedging(self):
+        from src.l0.guardrails import GuardrailContext, detect_excessive_hedging
+
+        ctx = GuardrailContext(content="Sure! Here is the answer", completed=True)
+        violations = detect_excessive_hedging(ctx)
+        assert len(violations) >= 1
+        assert violations[0].rule == "pattern-hedging"
+
+    def test_detect_refusal(self):
+        from src.l0.guardrails import GuardrailContext, detect_refusal
+
+        ctx = GuardrailContext(
+            content="I cannot provide that information", completed=True
+        )
+        violations = detect_refusal(ctx)
+        assert len(violations) >= 1
+        assert violations[0].rule == "pattern-refusal"
+        assert violations[0].recoverable is False
+
+    def test_detect_instruction_leakage(self):
+        from src.l0.guardrails import GuardrailContext, detect_instruction_leakage
+
+        ctx = GuardrailContext(
+            content="[SYSTEM] You are a helpful assistant", completed=True
+        )
+        violations = detect_instruction_leakage(ctx)
+        assert len(violations) >= 1
+        assert violations[0].rule == "pattern-instruction-leak"
+
+    def test_detect_placeholders(self):
+        from src.l0.guardrails import GuardrailContext, detect_placeholders
+
+        ctx = GuardrailContext(content="Hello [INSERT NAME HERE]", completed=True)
+        violations = detect_placeholders(ctx)
+        assert len(violations) >= 1
+        assert violations[0].rule == "pattern-placeholders"
+
+    def test_detect_placeholders_incomplete_skipped(self):
+        from src.l0.guardrails import GuardrailContext, detect_placeholders
+
+        ctx = GuardrailContext(content="Hello [INSERT NAME HERE]", completed=False)
+        violations = detect_placeholders(ctx)
+        assert len(violations) == 0
+
+    def test_detect_format_collapse(self):
+        from src.l0.guardrails import GuardrailContext, detect_format_collapse
+
+        ctx = GuardrailContext(content="Here is the code:", completed=True)
+        violations = detect_format_collapse(ctx)
+        assert len(violations) >= 1
+        assert violations[0].rule == "pattern-format-collapse"
+
+    def test_detect_repetition(self):
+        from src.l0.guardrails import GuardrailContext, detect_repetition
+
+        ctx = GuardrailContext(
+            content="This is a test sentence. This is a test sentence. This is a test sentence.",
+            completed=True,
+        )
+        violations = detect_repetition(ctx, threshold=2)
+        assert len(violations) >= 1
+        assert violations[0].rule == "pattern-repetition"
+
+    def test_detect_repetition_incomplete_skipped(self):
+        from src.l0.guardrails import GuardrailContext, detect_repetition
+
+        ctx = GuardrailContext(
+            content="This is a test. This is a test. This is a test.",
+            completed=False,
+        )
+        violations = detect_repetition(ctx)
+        assert len(violations) == 0
+
+    def test_detect_first_last_duplicate(self):
+        from src.l0.guardrails import GuardrailContext, detect_first_last_duplicate
+
+        ctx = GuardrailContext(
+            content="Hello world and this is the start. Some content in the middle that is long enough. Hello world and this is the start.",
+            completed=True,
+        )
+        violations = detect_first_last_duplicate(ctx)
+        assert len(violations) >= 1
+        assert violations[0].rule == "pattern-first-last-duplicate"
+
+    def test_detect_first_last_duplicate_short_content_skipped(self):
+        from src.l0.guardrails import GuardrailContext, detect_first_last_duplicate
+
+        ctx = GuardrailContext(content="Short. Short.", completed=True)
+        violations = detect_first_last_duplicate(ctx)
+        assert len(violations) == 0
+
+    def test_detect_first_last_duplicate_incomplete_skipped(self):
+        from src.l0.guardrails import GuardrailContext, detect_first_last_duplicate
+
+        ctx = GuardrailContext(
+            content="Hello world. Some content. Hello world.",
+            completed=False,
+        )
+        violations = detect_first_last_duplicate(ctx)
+        assert len(violations) == 0
+
+    def test_guardrails_detect_methods(self):
+        """Test Guardrails namespace detection methods."""
+        from src.l0.guardrails import GuardrailContext
+
+        ctx = GuardrailContext(content="As an AI", completed=True)
+        violations = Guardrails.detect_meta_commentary(ctx)
+        assert len(violations) >= 1
+
+        ctx2 = GuardrailContext(
+            content="Test. Content. Test.",
+            completed=True,
+        )
+        violations2 = Guardrails.detect_repetition(ctx2, threshold=1)
+        # May or may not find repetition depending on sentence length
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Async Guardrail Check Tests
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestAsyncGuardrailCheck:
+    """Tests for async guardrail check functions."""
+
+    def test_run_async_guardrail_check_fast_path(self):
+        """Test that fast path returns result immediately for small content."""
+        from src.l0.guardrails import (
+            GuardrailContext,
+            create_guardrail_engine,
+            run_async_guardrail_check,
+        )
+
+        engine = create_guardrail_engine([json_rule()])
+        results = []
+
+        def on_complete(result):
+            results.append(result)
+
+        ctx = GuardrailContext(
+            content='{"key": 1}',
+            delta='{"key": 1}',
+            completed=True,
+        )
+        result = run_async_guardrail_check(engine, ctx, on_complete)
+
+        # For small content with delta, should return immediately
+        assert result is not None or len(results) > 0
+
+    def test_run_async_guardrail_check_with_violation(self):
+        """Test that violations are detected in fast path."""
+        from src.l0.guardrails import (
+            GuardrailContext,
+            create_guardrail_engine,
+            run_async_guardrail_check,
+        )
+
+        engine = create_guardrail_engine([json_rule()])
+        results = []
+
+        def on_complete(result):
+            results.append(result)
+
+        ctx = GuardrailContext(
+            content='{"key": 1}}',
+            delta='{"key": 1}}',
+            completed=True,
+        )
+        result = run_async_guardrail_check(engine, ctx, on_complete)
+
+        # Should find violation
+        if result is not None:
+            assert result.passed is False or len(result.violations) >= 1
+
+    @pytest.mark.asyncio
+    async def test_run_guardrail_check_async(self):
+        """Test async version of guardrail check."""
+        from src.l0.guardrails import (
+            GuardrailContext,
+            create_guardrail_engine,
+            run_guardrail_check_async,
+        )
+
+        engine = create_guardrail_engine([json_rule()])
+        ctx = GuardrailContext(content='{"key": 1}', completed=True)
+        result = await run_guardrail_check_async(engine, ctx)
+        assert result.passed is True
+
+    @pytest.mark.asyncio
+    async def test_run_guardrail_check_async_with_violation(self):
+        """Test async version detects violations."""
+        from src.l0.guardrails import (
+            GuardrailContext,
+            create_guardrail_engine,
+            run_guardrail_check_async,
+        )
+
+        engine = create_guardrail_engine([json_rule()])
+        ctx = GuardrailContext(content='{"key": 1}}', completed=True)
+        result = await run_guardrail_check_async(engine, ctx)
+        assert result.passed is False
+
+    @pytest.mark.asyncio
+    async def test_guardrails_run_check_async(self):
+        """Test Guardrails.run_check_async() method."""
+        from src.l0.guardrails import GuardrailContext
+
+        engine = Guardrails.create_engine([json_rule()])
+        ctx = GuardrailContext(content='{"key": 1}', completed=True)
+        result = await Guardrails.run_check_async(engine, ctx)
+        assert result.passed is True

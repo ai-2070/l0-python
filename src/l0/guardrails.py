@@ -33,6 +33,71 @@ class GuardrailViolation:
 
 
 @dataclass
+class GuardrailContext:
+    """Context passed to guardrail rules.
+
+    This is the TypeScript-compatible context type. For backwards compatibility,
+    rules can also accept State objects.
+    """
+
+    content: str  # Current accumulated content
+    completed: bool = False  # Whether stream is complete
+    checkpoint: str | None = None  # Previous checkpoint content
+    delta: str | None = None  # Current token delta (latest chunk)
+    token_count: int = 0  # Total tokens received
+    metadata: dict[str, Any] | None = None  # Stream metadata
+    previous_violations: list[GuardrailViolation] | None = None  # Previous violations
+
+
+@dataclass
+class GuardrailResultSummary:
+    """Summary of guardrail check results."""
+
+    total: int
+    fatal: int
+    errors: int
+    warnings: int
+
+
+@dataclass
+class GuardrailResult:
+    """Result from running guardrails."""
+
+    passed: bool  # Whether all checks passed
+    violations: list[GuardrailViolation]  # All violations found
+    should_retry: bool  # Whether content should be retried
+    should_halt: bool  # Whether execution should halt
+    summary: GuardrailResultSummary  # Summary of results
+
+
+@dataclass
+class GuardrailState:
+    """Guardrail engine state."""
+
+    violations: list[GuardrailViolation] = field(default_factory=list)
+    violations_by_rule: dict[str, list[GuardrailViolation]] = field(
+        default_factory=dict
+    )
+    has_fatal_violations: bool = False
+    has_error_violations: bool = False
+    violation_count: int = 0
+    last_check_time: float | None = None
+
+
+@dataclass
+class GuardrailConfig:
+    """Guardrail engine configuration."""
+
+    rules: list["GuardrailRule"] = field(default_factory=list)
+    stop_on_fatal: bool = True  # Whether to stop on first fatal violation
+    enable_streaming: bool = True  # Whether to run streaming checks
+    check_interval: int = 100  # Interval for streaming checks (in tokens or ms)
+    on_violation: Callable[[GuardrailViolation], None] | None = (
+        None  # Callback when violation is detected
+    )
+
+
+@dataclass
 class GuardrailRule:
     """Guardrail rule definition."""
 
@@ -44,10 +109,244 @@ class GuardrailRule:
     recoverable: bool = True  # Whether violations are recoverable via retry
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Guardrail Engine
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class GuardrailEngine:
+    """Guardrail engine for executing rules and managing violations.
+
+    Example:
+        >>> engine = GuardrailEngine(GuardrailConfig(rules=[json_rule()]))
+        >>> result = engine.check(GuardrailContext(content='{"key": 1}', completed=True))
+        >>> result.passed
+        True
+    """
+
+    def __init__(self, config: GuardrailConfig | None = None) -> None:
+        if config is None:
+            config = GuardrailConfig()
+        self._rules = list(config.rules)
+        self._config = config
+        self._state = self._create_initial_state()
+
+    def _create_initial_state(self) -> GuardrailState:
+        """Create initial guardrail state."""
+        return GuardrailState()
+
+    def check(self, context: GuardrailContext | State) -> GuardrailResult:
+        """Execute all rules against context.
+
+        Args:
+            context: GuardrailContext or State object.
+
+        Returns:
+            GuardrailResult with violations and flags.
+        """
+        # Convert GuardrailContext to State-like for rule compatibility
+        if isinstance(context, GuardrailContext):
+            from .types import State as StateType
+
+            state = StateType(
+                content=context.content,
+                completed=context.completed,
+            )
+            # Copy additional fields if State supports them
+            if hasattr(state, "delta"):
+                state.delta = context.delta
+            if hasattr(state, "token_count"):
+                state.token_count = context.token_count
+        else:
+            state = context
+
+        violations: list[GuardrailViolation] = []
+        timestamp = time.time()
+
+        # Execute each rule
+        for rule in self._rules:
+            # Skip streaming rules if not enabled or not streaming check
+            if (
+                rule.streaming
+                and not self._config.enable_streaming
+                and not state.completed
+            ):
+                continue
+
+            # Skip non-streaming rules if streaming check
+            if not rule.streaming and not state.completed:
+                continue
+
+            try:
+                rule_violations = rule.check(state)
+
+                # Add timestamp to violations
+                for violation in rule_violations:
+                    violation.timestamp = timestamp
+                    violations.append(violation)
+
+                # Track violations by rule
+                if rule_violations:
+                    existing = self._state.violations_by_rule.get(rule.name, [])
+                    self._state.violations_by_rule[rule.name] = (
+                        existing + rule_violations
+                    )
+
+                # Stop on fatal if configured
+                if self._config.stop_on_fatal and any(
+                    v.severity == "fatal" for v in rule_violations
+                ):
+                    break
+
+            except Exception as e:
+                # Rule execution failed - treat as warning
+                violations.append(
+                    GuardrailViolation(
+                        rule=rule.name,
+                        message=f"Rule execution failed: {e}",
+                        severity="warning",
+                        recoverable=True,
+                        timestamp=timestamp,
+                    )
+                )
+
+        # Update state
+        self._state.violations.extend(violations)
+        self._state.violation_count = len(self._state.violations)
+        self._state.has_fatal_violations = any(
+            v.severity == "fatal" for v in violations
+        )
+        self._state.has_error_violations = any(
+            v.severity == "error" for v in violations
+        )
+        self._state.last_check_time = timestamp
+
+        # Notify callback
+        if self._config.on_violation:
+            for violation in violations:
+                self._config.on_violation(violation)
+
+        # Build result
+        return GuardrailResult(
+            passed=len(violations) == 0,
+            violations=violations,
+            should_retry=self._should_retry(violations),
+            should_halt=self._should_halt(violations),
+            summary=GuardrailResultSummary(
+                total=len(violations),
+                fatal=sum(1 for v in violations if v.severity == "fatal"),
+                errors=sum(1 for v in violations if v.severity == "error"),
+                warnings=sum(1 for v in violations if v.severity == "warning"),
+            ),
+        )
+
+    def _should_retry(self, violations: list[GuardrailViolation]) -> bool:
+        """Determine if violations should trigger a retry."""
+        return any(
+            v.recoverable and v.severity in ("error", "fatal") for v in violations
+        )
+
+    def _should_halt(self, violations: list[GuardrailViolation]) -> bool:
+        """Determine if violations should halt execution."""
+        # Halt on fatal violations
+        if any(v.severity == "fatal" for v in violations):
+            return True
+        # Halt on non-recoverable errors
+        if any(not v.recoverable and v.severity == "error" for v in violations):
+            return True
+        return False
+
+    def get_state(self) -> GuardrailState:
+        """Get current state."""
+        return GuardrailState(
+            violations=list(self._state.violations),
+            violations_by_rule=dict(self._state.violations_by_rule),
+            has_fatal_violations=self._state.has_fatal_violations,
+            has_error_violations=self._state.has_error_violations,
+            violation_count=self._state.violation_count,
+            last_check_time=self._state.last_check_time,
+        )
+
+    def reset(self) -> None:
+        """Reset state."""
+        self._state = self._create_initial_state()
+
+    def add_rule(self, rule: GuardrailRule) -> None:
+        """Add a rule to the engine."""
+        self._rules.append(rule)
+
+    def remove_rule(self, rule_name: str) -> bool:
+        """Remove a rule from the engine by name."""
+        for i, rule in enumerate(self._rules):
+            if rule.name == rule_name:
+                self._rules.pop(i)
+                return True
+        return False
+
+    def get_violations_by_rule(self, rule_name: str) -> list[GuardrailViolation]:
+        """Get violations for a specific rule."""
+        return list(self._state.violations_by_rule.get(rule_name, []))
+
+    def get_all_violations(self) -> list[GuardrailViolation]:
+        """Get all violations."""
+        return list(self._state.violations)
+
+    def has_violations(self) -> bool:
+        """Check if any violations exist."""
+        return self._state.violation_count > 0
+
+    def has_fatal_violations(self) -> bool:
+        """Check if any fatal violations exist."""
+        return self._state.has_fatal_violations
+
+    def has_error_violations(self) -> bool:
+        """Check if any error violations exist."""
+        return self._state.has_error_violations
+
+
+def create_guardrail_engine(
+    rules: list[GuardrailRule],
+    *,
+    stop_on_fatal: bool = True,
+    enable_streaming: bool = True,
+    check_interval: int = 100,
+    on_violation: Callable[[GuardrailViolation], None] | None = None,
+) -> GuardrailEngine:
+    """Create a guardrail engine with rules.
+
+    Args:
+        rules: List of guardrail rules.
+        stop_on_fatal: Whether to stop on first fatal violation.
+        enable_streaming: Whether to run streaming checks.
+        check_interval: Interval for streaming checks.
+        on_violation: Callback when violation is detected.
+
+    Returns:
+        Configured GuardrailEngine.
+
+    Example:
+        >>> engine = create_guardrail_engine([json_rule(), markdown_rule()])
+        >>> result = engine.check(GuardrailContext(content='{}', completed=True))
+    """
+    return GuardrailEngine(
+        GuardrailConfig(
+            rules=rules,
+            stop_on_fatal=stop_on_fatal,
+            enable_streaming=enable_streaming,
+            check_interval=check_interval,
+            on_violation=on_violation,
+        )
+    )
+
+
 def check_guardrails(
     state: State, rules: list[GuardrailRule]
 ) -> list[GuardrailViolation]:
-    """Run all guardrail rules against current state."""
+    """Run all guardrail rules against current state.
+
+    Note: For the full GuardrailResult with shouldRetry/shouldHalt,
+    use GuardrailEngine.check() or check_guardrails_full() instead.
+    """
     violations = []
     for rule in rules:
         result = rule.check(state)
@@ -55,6 +354,165 @@ def check_guardrails(
             logger.debug(f"Guardrail '{rule.name}' triggered: {len(result)} violations")
         violations.extend(result)
     return violations
+
+
+def check_guardrails_full(
+    context: GuardrailContext | State,
+    rules: list[GuardrailRule],
+) -> GuardrailResult:
+    """Execute rules once and return full result.
+
+    Args:
+        context: GuardrailContext or State object.
+        rules: List of guardrail rules.
+
+    Returns:
+        GuardrailResult with violations and flags.
+
+    Example:
+        >>> result = check_guardrails_full(
+        ...     GuardrailContext(content='{}', completed=True),
+        ...     [json_rule()]
+        ... )
+        >>> result.passed
+        True
+    """
+    engine = create_guardrail_engine(rules)
+    return engine.check(context)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Async Guardrail Check Functions
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def run_async_guardrail_check(
+    engine: GuardrailEngine,
+    context: GuardrailContext,
+    on_complete: Callable[[GuardrailResult], None],
+) -> GuardrailResult | None:
+    """Run guardrail check with fast/slow path.
+
+    This implements the same fast/slow path pattern as TypeScript:
+    - Try fast check first (delta-only, cheap)
+    - If inconclusive, schedule full check async and call on_complete when done
+    - Never blocks the main thread for large content
+
+    Note: In Python, this uses call_soon() for consistency with the TypeScript
+    setImmediate() pattern. For true async, use run_guardrail_check_async().
+
+    Args:
+        engine: The guardrail engine.
+        context: The guardrail context.
+        on_complete: Callback when async check completes.
+
+    Returns:
+        Immediate result if fast path succeeds, None if deferred to async.
+
+    Example:
+        >>> def handle_result(result):
+        ...     if result.should_halt:
+        ...         print("Halting!")
+        >>> engine = create_guardrail_engine([json_rule()])
+        >>> result = run_async_guardrail_check(engine, context, handle_result)
+        >>> if result is not None:
+        ...     print("Fast path:", result.passed)
+    """
+    import asyncio
+
+    # Fast path: check delta only for obvious violations
+    # This catches things like blocked words, obvious pattern matches
+    if context.delta and len(context.delta) < 1000:
+        quick_context = GuardrailContext(
+            content=context.delta,  # Only check the delta
+            completed=context.completed,
+            checkpoint=context.checkpoint,
+            delta=context.delta,
+            token_count=context.token_count,
+            metadata=context.metadata,
+            previous_violations=context.previous_violations,
+        )
+
+        quick_result = engine.check(quick_context)
+
+        # If we found violations in delta, return immediately
+        if quick_result.violations:
+            return quick_result
+
+        # If delta is clean and content is small, do full check sync
+        if len(context.content) < 5000:
+            return engine.check(context)
+
+    # Slow path: defer full content check
+    # Use call_soon if we have an event loop, otherwise run sync
+    try:
+        loop = asyncio.get_running_loop()
+
+        def _run_check() -> None:
+            try:
+                result = engine.check(context)
+                on_complete(result)
+            except Exception:
+                # On error, return clean result
+                on_complete(
+                    GuardrailResult(
+                        passed=True,
+                        violations=[],
+                        should_retry=False,
+                        should_halt=False,
+                        summary=GuardrailResultSummary(
+                            total=0, fatal=0, errors=0, warnings=0
+                        ),
+                    )
+                )
+
+        loop.call_soon(_run_check)
+        return None  # Deferred to async
+    except RuntimeError:
+        # No event loop running - run synchronously
+        result = engine.check(context)
+        on_complete(result)
+        return result
+
+
+async def run_guardrail_check_async(
+    engine: GuardrailEngine,
+    context: GuardrailContext,
+) -> GuardrailResult:
+    """Run guardrail check asynchronously.
+
+    This is the async/await version that always runs asynchronously.
+    Use this in async contexts for cleaner code.
+
+    Args:
+        engine: The guardrail engine.
+        context: The guardrail context.
+
+    Returns:
+        GuardrailResult from the check.
+
+    Example:
+        >>> async def check():
+        ...     engine = create_guardrail_engine([json_rule()])
+        ...     context = GuardrailContext(content='{}', completed=True)
+        ...     result = await run_guardrail_check_async(engine, context)
+        ...     return result.passed
+    """
+    import asyncio
+
+    # Yield control to event loop, then run check
+    await asyncio.sleep(0)
+    try:
+        return engine.check(context)
+    except Exception:
+        # On error, return clean result
+        return GuardrailResult(
+            passed=True,
+            violations=[],
+            should_retry=False,
+            should_halt=False,
+            summary=GuardrailResultSummary(total=0, fatal=0, errors=0, warnings=0),
+        )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -652,6 +1110,360 @@ def find_bad_patterns(
         for match in re.finditer(pattern, content, re.IGNORECASE | re.MULTILINE):
             matches.append((pattern, match))
     return matches
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Pattern Detection Functions
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def detect_meta_commentary(
+    context: GuardrailContext | State,
+) -> list[GuardrailViolation]:
+    """Detect meta commentary in output.
+
+    Args:
+        context: Guardrail context or State.
+
+    Returns:
+        List of violations for meta commentary patterns.
+
+    Example:
+        >>> ctx = GuardrailContext(content="As an AI, I cannot...", completed=True)
+        >>> violations = detect_meta_commentary(ctx)
+        >>> len(violations) > 0
+        True
+    """
+    content = context.content
+    violations: list[GuardrailViolation] = []
+
+    matches = find_bad_patterns(content, BAD_PATTERNS.META_COMMENTARY)
+
+    for pattern, match in matches:
+        violations.append(
+            GuardrailViolation(
+                rule="pattern-meta-commentary",
+                message=f'Meta commentary detected: "{match.group()}"',
+                severity="error",
+                position=match.start(),
+                recoverable=True,
+                suggestion="Retry generation without meta commentary",
+            )
+        )
+
+    return violations
+
+
+def detect_excessive_hedging(
+    context: GuardrailContext | State,
+) -> list[GuardrailViolation]:
+    """Detect excessive hedging at start of content.
+
+    Args:
+        context: Guardrail context or State.
+
+    Returns:
+        List of violations for hedging patterns.
+
+    Example:
+        >>> ctx = GuardrailContext(content="Sure! Here is the answer...", completed=True)
+        >>> violations = detect_excessive_hedging(ctx)
+    """
+    content = context.content
+    violations: list[GuardrailViolation] = []
+
+    # Check if content starts with hedging
+    first_line = content.strip().split("\n")[0] if content.strip() else ""
+    matches = find_bad_patterns(first_line, BAD_PATTERNS.HEDGING)
+
+    if matches:
+        pattern, match = matches[0]
+        violations.append(
+            GuardrailViolation(
+                rule="pattern-hedging",
+                message=f'Excessive hedging at start: "{match.group()}"',
+                severity="warning",
+                position=match.start(),
+                recoverable=True,
+                suggestion="Content should start directly without hedging",
+            )
+        )
+
+    return violations
+
+
+def detect_refusal(
+    context: GuardrailContext | State,
+) -> list[GuardrailViolation]:
+    """Detect refusal patterns in content.
+
+    Args:
+        context: Guardrail context or State.
+
+    Returns:
+        List of violations for refusal patterns.
+
+    Example:
+        >>> ctx = GuardrailContext(content="I cannot provide that information", completed=True)
+        >>> violations = detect_refusal(ctx)
+        >>> len(violations) > 0
+        True
+    """
+    content = context.content
+    violations: list[GuardrailViolation] = []
+
+    matches = find_bad_patterns(content, BAD_PATTERNS.REFUSAL)
+
+    for pattern, match in matches:
+        violations.append(
+            GuardrailViolation(
+                rule="pattern-refusal",
+                message=f'Refusal pattern detected: "{match.group()}"',
+                severity="error",
+                position=match.start(),
+                recoverable=False,
+                suggestion="Model refused to complete the task",
+            )
+        )
+
+    return violations
+
+
+def detect_instruction_leakage(
+    context: GuardrailContext | State,
+) -> list[GuardrailViolation]:
+    """Detect instruction/prompt leakage in content.
+
+    Args:
+        context: Guardrail context or State.
+
+    Returns:
+        List of violations for instruction leak patterns.
+
+    Example:
+        >>> ctx = GuardrailContext(content="[SYSTEM] You are...", completed=True)
+        >>> violations = detect_instruction_leakage(ctx)
+        >>> len(violations) > 0
+        True
+    """
+    content = context.content
+    violations: list[GuardrailViolation] = []
+
+    matches = find_bad_patterns(content, BAD_PATTERNS.INSTRUCTION_LEAK)
+
+    for pattern, match in matches:
+        violations.append(
+            GuardrailViolation(
+                rule="pattern-instruction-leak",
+                message=f'Instruction leakage detected: "{match.group()}"',
+                severity="error",
+                position=match.start(),
+                recoverable=True,
+                suggestion="Retry generation without system tokens",
+            )
+        )
+
+    return violations
+
+
+def detect_placeholders(
+    context: GuardrailContext | State,
+) -> list[GuardrailViolation]:
+    """Detect placeholder patterns in content.
+
+    Only checks complete output.
+
+    Args:
+        context: Guardrail context or State.
+
+    Returns:
+        List of violations for placeholder patterns.
+
+    Example:
+        >>> ctx = GuardrailContext(content="Hello [INSERT NAME HERE]", completed=True)
+        >>> violations = detect_placeholders(ctx)
+        >>> len(violations) > 0
+        True
+    """
+    content = context.content
+    completed = context.completed
+    violations: list[GuardrailViolation] = []
+
+    # Only check complete output
+    if not completed:
+        return violations
+
+    matches = find_bad_patterns(content, BAD_PATTERNS.PLACEHOLDERS)
+
+    for pattern, match in matches:
+        violations.append(
+            GuardrailViolation(
+                rule="pattern-placeholders",
+                message=f'Placeholder detected: "{match.group()}"',
+                severity="error",
+                position=match.start(),
+                recoverable=True,
+                suggestion="Output contains incomplete placeholders",
+            )
+        )
+
+    return violations
+
+
+def detect_format_collapse(
+    context: GuardrailContext | State,
+) -> list[GuardrailViolation]:
+    """Detect format collapse (mixing instructions with output).
+
+    Args:
+        context: Guardrail context or State.
+
+    Returns:
+        List of violations for format collapse patterns.
+
+    Example:
+        >>> ctx = GuardrailContext(content="Here is the code:", completed=True)
+        >>> violations = detect_format_collapse(ctx)
+    """
+    content = context.content
+    violations: list[GuardrailViolation] = []
+
+    # Only check beginning of content
+    first_lines = "\n".join(content.split("\n")[:3])
+    matches = find_bad_patterns(first_lines, BAD_PATTERNS.FORMAT_COLLAPSE)
+
+    if matches:
+        pattern, match = matches[0]
+        violations.append(
+            GuardrailViolation(
+                rule="pattern-format-collapse",
+                message=f'Format collapse detected: "{match.group()}"',
+                severity="warning",
+                position=match.start(),
+                recoverable=True,
+                suggestion="Output should not mix meta-instructions with content",
+            )
+        )
+
+    return violations
+
+
+def detect_repetition(
+    context: GuardrailContext | State,
+    threshold: int = 2,
+) -> list[GuardrailViolation]:
+    """Detect repeated sentences or paragraphs.
+
+    Only checks complete output.
+
+    Args:
+        context: Guardrail context or State.
+        threshold: Number of repetitions to trigger (default 2).
+
+    Returns:
+        List of violations for repetition patterns.
+
+    Example:
+        >>> ctx = GuardrailContext(
+        ...     content="This is a test. This is a test. This is a test.",
+        ...     completed=True
+        ... )
+        >>> violations = detect_repetition(ctx)
+        >>> len(violations) > 0
+        True
+    """
+    content = context.content
+    completed = context.completed
+    violations: list[GuardrailViolation] = []
+
+    # Only check complete output
+    if not completed:
+        return violations
+
+    # Split into sentences
+    sentences = [
+        s.strip().lower()
+        for s in re.split(r"[.!?]+", content)
+        if s.strip() and len(s.strip()) > 20  # Only check substantial sentences
+    ]
+
+    # Count occurrences
+    from collections import Counter
+
+    counts = Counter(sentences)
+
+    # Find repeated sentences
+    for sentence, count in counts.items():
+        if count > threshold:
+            violations.append(
+                GuardrailViolation(
+                    rule="pattern-repetition",
+                    message=f'Sentence repeated {count} times: "{sentence[:50]}..."',
+                    severity="error",
+                    recoverable=True,
+                    suggestion="Content contains repeated sentences",
+                    context={"sentence": sentence, "count": count},
+                )
+            )
+
+    return violations
+
+
+def detect_first_last_duplicate(
+    context: GuardrailContext | State,
+) -> list[GuardrailViolation]:
+    """Detect duplicated first and last sentence.
+
+    This is a common sign of model looping. Only checks complete output
+    with sufficient content.
+
+    Args:
+        context: Guardrail context or State.
+
+    Returns:
+        List of violations if first and last sentences match.
+
+    Example:
+        >>> ctx = GuardrailContext(
+        ...     content="Hello world. Some middle content. Hello world.",
+        ...     completed=True
+        ... )
+        >>> violations = detect_first_last_duplicate(ctx)
+        >>> len(violations) > 0
+        True
+    """
+    content = context.content
+    completed = context.completed
+    violations: list[GuardrailViolation] = []
+
+    # Only check complete output with sufficient content
+    if not completed or len(content) < 100:
+        return violations
+
+    sentences = [
+        s.strip()
+        for s in re.split(r"[.!?]+", content)
+        if s.strip() and len(s.strip()) > 10
+    ]
+
+    if len(sentences) < 2:
+        return violations
+
+    first = sentences[0].lower()
+    last = sentences[-1].lower()
+
+    if first == last:
+        violations.append(
+            GuardrailViolation(
+                rule="pattern-first-last-duplicate",
+                message="First and last sentences are identical",
+                severity="error",
+                recoverable=True,
+                suggestion="Retry generation - possible loop detected",
+            )
+        )
+
+    return violations
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1276,6 +2088,12 @@ class Guardrails:
 
     Rule = GuardrailRule
     Violation = GuardrailViolation
+    Context = GuardrailContext
+    Result = GuardrailResult
+    ResultSummary = GuardrailResultSummary
+    State = GuardrailState
+    Config = GuardrailConfig
+    Engine = GuardrailEngine
     JsonAnalysis = JsonAnalysis
     MarkdownAnalysis = MarkdownAnalysis
     LatexAnalysis = LatexAnalysis
@@ -1499,10 +2317,153 @@ class Guardrails:
         return find_bad_patterns(content, patterns)
 
     # ─────────────────────────────────────────────────────────────────────────
-    # Check Function
+    # Pattern Detection Functions
+    # ─────────────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def detect_meta_commentary(
+        context: GuardrailContext | State,
+    ) -> list[GuardrailViolation]:
+        """Detect meta commentary in output."""
+        return detect_meta_commentary(context)
+
+    @staticmethod
+    def detect_excessive_hedging(
+        context: GuardrailContext | State,
+    ) -> list[GuardrailViolation]:
+        """Detect excessive hedging at start of content."""
+        return detect_excessive_hedging(context)
+
+    @staticmethod
+    def detect_refusal(
+        context: GuardrailContext | State,
+    ) -> list[GuardrailViolation]:
+        """Detect refusal patterns in content."""
+        return detect_refusal(context)
+
+    @staticmethod
+    def detect_instruction_leakage(
+        context: GuardrailContext | State,
+    ) -> list[GuardrailViolation]:
+        """Detect instruction/prompt leakage in content."""
+        return detect_instruction_leakage(context)
+
+    @staticmethod
+    def detect_placeholders(
+        context: GuardrailContext | State,
+    ) -> list[GuardrailViolation]:
+        """Detect placeholder patterns in content."""
+        return detect_placeholders(context)
+
+    @staticmethod
+    def detect_format_collapse(
+        context: GuardrailContext | State,
+    ) -> list[GuardrailViolation]:
+        """Detect format collapse in content."""
+        return detect_format_collapse(context)
+
+    @staticmethod
+    def detect_repetition(
+        context: GuardrailContext | State,
+        threshold: int = 2,
+    ) -> list[GuardrailViolation]:
+        """Detect repeated sentences or paragraphs."""
+        return detect_repetition(context, threshold)
+
+    @staticmethod
+    def detect_first_last_duplicate(
+        context: GuardrailContext | State,
+    ) -> list[GuardrailViolation]:
+        """Detect duplicated first and last sentence."""
+        return detect_first_last_duplicate(context)
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Engine Functions
+    # ─────────────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def create_engine(
+        rules: list[GuardrailRule],
+        *,
+        stop_on_fatal: bool = True,
+        enable_streaming: bool = True,
+        check_interval: int = 100,
+        on_violation: Callable[[GuardrailViolation], None] | None = None,
+    ) -> GuardrailEngine:
+        """Create a guardrail engine with rules.
+
+        Args:
+            rules: List of guardrail rules.
+            stop_on_fatal: Whether to stop on first fatal violation.
+            enable_streaming: Whether to run streaming checks.
+            check_interval: Interval for streaming checks.
+            on_violation: Callback when violation is detected.
+
+        Returns:
+            Configured GuardrailEngine.
+        """
+        return create_guardrail_engine(
+            rules,
+            stop_on_fatal=stop_on_fatal,
+            enable_streaming=enable_streaming,
+            check_interval=check_interval,
+            on_violation=on_violation,
+        )
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Check Functions
     # ─────────────────────────────────────────────────────────────────────────
 
     @staticmethod
     def check(state: State, rules: list[GuardrailRule]) -> list[GuardrailViolation]:
-        """Run all guardrail rules against current state."""
+        """Run all guardrail rules against current state.
+
+        Note: For the full GuardrailResult with shouldRetry/shouldHalt,
+        use check_full() or create an engine instead.
+        """
         return check_guardrails(state, rules)
+
+    @staticmethod
+    def check_full(
+        context: GuardrailContext | State,
+        rules: list[GuardrailRule],
+    ) -> GuardrailResult:
+        """Execute rules once and return full result.
+
+        Returns GuardrailResult with passed, violations, shouldRetry, shouldHalt.
+        """
+        return check_guardrails_full(context, rules)
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Async Check Functions
+    # ─────────────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def run_async_check(
+        engine: GuardrailEngine,
+        context: GuardrailContext,
+        on_complete: Callable[[GuardrailResult], None],
+    ) -> GuardrailResult | None:
+        """Run guardrail check with fast/slow path.
+
+        This implements the same fast/slow path pattern as TypeScript:
+        - Try fast check first (delta-only, cheap)
+        - If inconclusive, schedule full check async and call on_complete when done
+        - Never blocks the main thread for large content
+
+        Returns:
+            Immediate result if fast path succeeds, None if deferred to async.
+        """
+        return run_async_guardrail_check(engine, context, on_complete)
+
+    @staticmethod
+    async def run_check_async(
+        engine: GuardrailEngine,
+        context: GuardrailContext,
+    ) -> GuardrailResult:
+        """Run guardrail check asynchronously.
+
+        This is the async/await version that always runs asynchronously.
+        Use this in async contexts for cleaner code.
+        """
+        return await run_guardrail_check_async(engine, context)
