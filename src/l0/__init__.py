@@ -23,7 +23,9 @@ from .adapters import (
 )
 from .client import WrappedClient, wrap_client
 from .consensus import (
+    # Result types (needed for type hints)
     Agreement,
+    # Main class (scoped API) - all utilities accessible via Consensus.*
     Consensus,
     ConsensusAnalysis,
     ConsensusOutput,
@@ -31,8 +33,10 @@ from .consensus import (
     ConsensusResult,
     Disagreement,
     DisagreementValue,
+    FieldAgreement,
     FieldConsensus,
     FieldConsensusInfo,
+    # Convenience alias for Consensus.run()
     consensus,
 )
 from .continuation import (
@@ -509,8 +513,10 @@ __all__ = [
     "RELIABLE_PIPELINE",
     "PRODUCTION_PIPELINE",
     # Consensus (scoped API)
-    "Consensus",  # Class with .run(), .strict(), .standard(), .lenient(), .best(), .quick(), .get_value(), .validate()
+    # All utilities accessible via Consensus.* (e.g., Consensus.quick(), Consensus.STRICT, etc.)
+    "Consensus",
     "consensus",  # Convenience alias for Consensus.run()
+    # Consensus result types (for type hints)
     "ConsensusResult",
     "ConsensusOutput",
     "ConsensusAnalysis",
@@ -518,8 +524,9 @@ __all__ = [
     "Agreement",
     "Disagreement",
     "DisagreementValue",
+    "FieldAgreement",
     "FieldConsensus",
-    "FieldConsensusInfo",
+    "FieldConsensusInfo",  # Alias for FieldAgreement (backwards compat)
     # Window (scoped API)
     "Window",  # Class with .create(), .small(), .medium(), .large(), .paragraph(), .sentence(), .chunk(), .estimate_tokens()
     "DocumentWindow",
