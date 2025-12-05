@@ -52,13 +52,13 @@ from .drift import (
     create_drift_detector,
 )
 from .errors import (
-    # L0 Error (with .categorize() and .is_retryable() static methods)
+    # L0 Error (with scoped API: .categorize(), .is_retryable(), .is_error(), .get_category())
     Error,
     ErrorCode,
     ErrorContext,
     # Failure and recovery
     FailureType,
-    # Network errors (scoped API)
+    # Network errors (scoped API: .check(), .analyze(), .is_timeout(), .suggest_delay(), etc.)
     NetworkError,
     NetworkErrorAnalysis,
     NetworkErrorType,
@@ -449,8 +449,8 @@ __all__ = [
     "FailureType",  # network, model, timeout, abort, etc.
     "RecoveryStrategy",  # retry, fallback, continue, halt
     "RecoveryPolicy",
-    # Network errors (scoped API)
-    "NetworkError",  # Class with .check(), .analyze(), .is_timeout(), etc.
+    # Network errors (scoped API: NetworkError.check(), .analyze(), .is_timeout(), .suggest_delay(), etc.)
+    "NetworkError",
     "NetworkErrorType",
     "NetworkErrorAnalysis",
     # Events

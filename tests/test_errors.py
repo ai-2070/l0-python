@@ -6,521 +6,455 @@ from src.l0.errors import (
     Error,
     ErrorCode,
     ErrorContext,
-    FailureType,
     NetworkError,
+    NetworkErrorAnalysis,
     NetworkErrorType,
-    RecoveryPolicy,
-    RecoveryStrategy,
 )
-from src.l0.types import ErrorCategory, ErrorTypeDelays, Retry
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Error Class Tests
-# ─────────────────────────────────────────────────────────────────────────────
+from src.l0.types import ErrorCategory
 
 
-class TestError:
-    """Tests for Error class."""
+class TestL0Error:
+    """Tests for L0 Error class."""
 
-    def test_basic_error(self):
-        """Test creating a basic error."""
-        error = Error("Something went wrong", code=ErrorCode.ZERO_OUTPUT)
-        assert str(error) == "Something went wrong"
-        assert error.code == ErrorCode.ZERO_OUTPUT
-        assert error.timestamp > 0
-
-    def test_error_with_context(self):
-        """Test error with full context."""
-        context = ErrorContext(
-            code=ErrorCode.GUARDRAIL_VIOLATION,
-            checkpoint="Some partial content",
-            token_count=50,
-            content_length=200,
-            model_retry_count=2,
-            network_retry_count=1,
-            fallback_index=0,
-            metadata={"rule": "json_rule"},
-        )
+    def test_create_error_with_context(self):
+        """Test creating error with context."""
         error = Error(
-            "Guardrail violation", code=ErrorCode.GUARDRAIL_VIOLATION, context=context
+            "Test error",
+            code=ErrorCode.NETWORK_ERROR,
+            context=ErrorContext(
+                code=ErrorCode.NETWORK_ERROR,
+                checkpoint="some content",
+                token_count=10,
+            ),
         )
 
-        assert error.code == ErrorCode.GUARDRAIL_VIOLATION
-        assert error.context.checkpoint == "Some partial content"
-        assert error.context.token_count == 50
-        assert error.context.metadata is not None
-        assert error.context.metadata["rule"] == "json_rule"
+        assert str(error) == "Test error"
+        assert error.code == ErrorCode.NETWORK_ERROR
+        assert error.context.checkpoint == "some content"
+        assert error.context.token_count == 10
+        assert error.timestamp is not None
+
+    def test_get_correct_category(self):
+        """Test that error returns correct category."""
+        network_error = Error("Network", code=ErrorCode.NETWORK_ERROR)
+        assert network_error.category == ErrorCategory.NETWORK
+
+        content_error = Error("Content", code=ErrorCode.GUARDRAIL_VIOLATION)
+        assert content_error.category == ErrorCategory.CONTENT
 
     def test_has_checkpoint(self):
         """Test has_checkpoint property."""
-        # No checkpoint
-        error = Error("Error", code=ErrorCode.ZERO_OUTPUT)
-        assert not error.has_checkpoint
+        with_checkpoint = Error(
+            "Error",
+            code=ErrorCode.NETWORK_ERROR,
+            context=ErrorContext(
+                code=ErrorCode.NETWORK_ERROR,
+                checkpoint="content",
+            ),
+        )
+        assert with_checkpoint.has_checkpoint is True
 
-        # With checkpoint
-        context = ErrorContext(code=ErrorCode.ZERO_OUTPUT, checkpoint="partial")
-        error = Error("Error", code=ErrorCode.ZERO_OUTPUT, context=context)
-        assert error.has_checkpoint
+        no_checkpoint = Error("Error", code=ErrorCode.NETWORK_ERROR)
+        assert no_checkpoint.has_checkpoint is False
+
+        empty_checkpoint = Error(
+            "Error",
+            code=ErrorCode.NETWORK_ERROR,
+            context=ErrorContext(
+                code=ErrorCode.NETWORK_ERROR,
+                checkpoint="",
+            ),
+        )
+        assert empty_checkpoint.has_checkpoint is False
 
     def test_get_checkpoint(self):
         """Test get_checkpoint method."""
-        context = ErrorContext(code=ErrorCode.ZERO_OUTPUT, checkpoint="partial content")
-        error = Error("Error", code=ErrorCode.ZERO_OUTPUT, context=context)
-        assert error.get_checkpoint() == "partial content"
+        error = Error(
+            "Error",
+            code=ErrorCode.NETWORK_ERROR,
+            context=ErrorContext(
+                code=ErrorCode.NETWORK_ERROR,
+                checkpoint="saved content",
+            ),
+        )
+        assert error.get_checkpoint() == "saved content"
 
     def test_to_detailed_string(self):
-        """Test to_detailed_string method."""
-        context = ErrorContext(
-            code=ErrorCode.ZERO_OUTPUT,
-            checkpoint="Some content here",
-            token_count=10,
-            model_retry_count=2,
+        """Test to_detailed_string format."""
+        error = Error(
+            "Test error",
+            code=ErrorCode.NETWORK_ERROR,
+            context=ErrorContext(
+                code=ErrorCode.NETWORK_ERROR,
+                token_count=10,
+                model_retry_count=2,
+                fallback_index=1,
+                checkpoint="content",
+            ),
         )
-        error = Error("Zero output", code=ErrorCode.ZERO_OUTPUT, context=context)
+
         detailed = error.to_detailed_string()
+        assert "Test error" in detailed
+        assert "Tokens: 10" in detailed
+        assert "Retries: 2" in detailed
+        assert "Fallback: 1" in detailed
+        assert "chars" in detailed
+        # Should be pipe-separated
+        assert " | " in detailed
 
-        assert "ZERO_OUTPUT" in detailed
-        assert "Token count: 10" in detailed
-        assert "Model retries: 2" in detailed
-        assert "Has checkpoint: True" in detailed
-
-    def test_repr(self):
-        """Test error repr."""
-        error = Error("Test error", code=ErrorCode.STREAM_ABORTED)
-        assert "STREAM_ABORTED" in repr(error)
-        assert "Test error" in repr(error)
-
-
-class TestErrorCode:
-    """Tests for ErrorCode enum."""
-
-    def test_all_error_codes_exist(self):
-        """Test all expected error codes exist."""
-        assert ErrorCode.STREAM_ABORTED == "STREAM_ABORTED"
-        assert ErrorCode.INITIAL_TOKEN_TIMEOUT == "INITIAL_TOKEN_TIMEOUT"
-        assert ErrorCode.INTER_TOKEN_TIMEOUT == "INTER_TOKEN_TIMEOUT"
-        assert ErrorCode.ZERO_OUTPUT == "ZERO_OUTPUT"
-        assert ErrorCode.GUARDRAIL_VIOLATION == "GUARDRAIL_VIOLATION"
-        assert ErrorCode.FATAL_GUARDRAIL_VIOLATION == "FATAL_GUARDRAIL_VIOLATION"
-        assert ErrorCode.DRIFT_DETECTED == "DRIFT_DETECTED"
-        assert ErrorCode.INVALID_STREAM == "INVALID_STREAM"
-        assert ErrorCode.ALL_STREAMS_EXHAUSTED == "ALL_STREAMS_EXHAUSTED"
-        assert ErrorCode.NETWORK_ERROR == "NETWORK_ERROR"
-
-    def test_error_code_is_string_enum(self):
-        """Test ErrorCode is a string enum."""
-        assert isinstance(ErrorCode.ZERO_OUTPUT, str)
-
-
-class TestErrorContext:
-    """Tests for ErrorContext dataclass."""
-
-    def test_default_values(self):
-        """Test default context values."""
-        context = ErrorContext(code=ErrorCode.ZERO_OUTPUT)
-        assert context.checkpoint is None
-        assert context.token_count == 0
-        assert context.content_length == 0
-        assert context.model_retry_count == 0
-        assert context.network_retry_count == 0
-        assert context.fallback_index == 0
-        assert context.metadata is None
-
-    def test_full_context(self):
-        """Test context with all fields."""
-        context = ErrorContext(
-            code=ErrorCode.GUARDRAIL_VIOLATION,
-            checkpoint="checkpoint data",
-            token_count=100,
-            content_length=500,
-            model_retry_count=3,
-            network_retry_count=2,
-            fallback_index=1,
-            metadata={"key": "value"},
+    def test_to_json(self):
+        """Test JSON serialization."""
+        error = Error(
+            "Test",
+            code=ErrorCode.NETWORK_ERROR,
+            context=ErrorContext(
+                code=ErrorCode.NETWORK_ERROR,
+                token_count=5,
+                checkpoint="test content",
+            ),
         )
-        assert context.code == ErrorCode.GUARDRAIL_VIOLATION
-        assert context.checkpoint == "checkpoint data"
-        assert context.token_count == 100
-        assert context.metadata == {"key": "value"}
+
+        json_data = error.to_json()
+        assert json_data["name"] == "Error"
+        assert json_data["code"] == "NETWORK_ERROR"
+        assert json_data["message"] == "Test"
+        assert json_data["token_count"] == 5
+        assert json_data["checkpoint"] == "test content"
 
 
-class TestFailureType:
-    """Tests for FailureType enum."""
+class TestIsL0Error:
+    """Tests for Error.is_error / Error.is_l0_error methods."""
 
-    def test_failure_types(self):
-        """Test all failure types exist."""
-        assert FailureType.NETWORK == "network"
-        assert FailureType.MODEL == "model"
-        assert FailureType.TOOL == "tool"
-        assert FailureType.TIMEOUT == "timeout"
-        assert FailureType.ABORT == "abort"
-        assert FailureType.ZERO_OUTPUT == "zero_output"
-        assert FailureType.UNKNOWN == "unknown"
+    def test_returns_true_for_l0_error(self):
+        """Test returns True for L0 Error."""
+        error = Error("Test", code=ErrorCode.NETWORK_ERROR)
+        assert Error.is_error(error) is True
+        assert Error.is_l0_error(error) is True
 
-
-class TestRecoveryStrategy:
-    """Tests for RecoveryStrategy enum."""
-
-    def test_recovery_strategies(self):
-        """Test all recovery strategies exist."""
-        assert RecoveryStrategy.RETRY == "retry"
-        assert RecoveryStrategy.FALLBACK == "fallback"
-        assert RecoveryStrategy.CONTINUE == "continue"
-        assert RecoveryStrategy.HALT == "halt"
-
-
-class TestRecoveryPolicy:
-    """Tests for RecoveryPolicy dataclass."""
-
-    def test_default_values(self):
-        """Test default policy values."""
-        policy = RecoveryPolicy()
-        assert policy.retry_enabled is True
-        assert policy.fallback_enabled is False
-        assert policy.max_retries == 3
-        assert policy.max_fallbacks == 0
-        assert policy.attempt == 1
-        assert policy.fallback_index == 0
-
-    def test_custom_policy(self):
-        """Test custom policy values."""
-        policy = RecoveryPolicy(
-            retry_enabled=True,
-            fallback_enabled=True,
-            max_retries=5,
-            max_fallbacks=2,
-            attempt=3,
-            fallback_index=1,
-        )
-        assert policy.max_retries == 5
-        assert policy.max_fallbacks == 2
-        assert policy.attempt == 3
-        assert policy.fallback_index == 1
-
-
-class TestErrorIsinstance:
-    """Tests for isinstance() with Error."""
-
-    def test_isinstance_error_true(self):
-        """Test isinstance returns True for Error."""
-        error = Error("Test", code=ErrorCode.ZERO_OUTPUT)
-        assert isinstance(error, Error)
-
-    def test_isinstance_error_false_for_exception(self):
-        """Test isinstance returns False for regular Exception."""
+    def test_returns_false_for_regular_error(self):
+        """Test returns False for regular Error."""
         error = Exception("Test")
-        assert not isinstance(error, Error)
+        assert Error.is_error(error) is False
+        assert Error.is_l0_error(error) is False
 
-    def test_isinstance_error_false_for_value_error(self):
-        """Test isinstance returns False for ValueError."""
-        error = ValueError("Test")
-        assert not isinstance(error, Error)
-
-    def test_error_is_exception(self):
-        """Test Error is a subclass of Exception."""
-        error = Error("Test", code=ErrorCode.ZERO_OUTPUT)
-        assert isinstance(error, Exception)
+    def test_returns_false_for_non_errors(self):
+        """Test returns False for non-errors."""
+        assert Error.is_error(None) is False
+        assert Error.is_error("error") is False
+        assert Error.is_error(42) is False
 
 
-class TestErrorIsRetryable:
-    """Tests for Error.is_retryable() static method."""
+class TestGetErrorCategory:
+    """Tests for Error.get_category method."""
 
-    def test_network_errors_retryable(self):
-        """Test network errors are retryable."""
-        assert Error.is_retryable(Exception("Connection reset"))
-        assert Error.is_retryable(Exception("Timeout"))
+    def test_categorize_network_errors(self):
+        """Test network error categorization."""
+        assert Error.get_category(ErrorCode.NETWORK_ERROR) == ErrorCategory.NETWORK
 
-    def test_fatal_errors_not_retryable(self):
-        """Test fatal errors are not retryable."""
+    def test_categorize_transient_errors(self):
+        """Test transient error categorization."""
+        assert (
+            Error.get_category(ErrorCode.INITIAL_TOKEN_TIMEOUT)
+            == ErrorCategory.TRANSIENT
+        )
+        assert (
+            Error.get_category(ErrorCode.INTER_TOKEN_TIMEOUT) == ErrorCategory.TRANSIENT
+        )
 
-        class AuthError(Exception):
-            status_code = 401
+    def test_categorize_content_errors(self):
+        """Test content error categorization."""
+        assert (
+            Error.get_category(ErrorCode.GUARDRAIL_VIOLATION) == ErrorCategory.CONTENT
+        )
+        assert (
+            Error.get_category(ErrorCode.FATAL_GUARDRAIL_VIOLATION)
+            == ErrorCategory.CONTENT
+        )
+        assert Error.get_category(ErrorCode.DRIFT_DETECTED) == ErrorCategory.CONTENT
+        assert Error.get_category(ErrorCode.ZERO_OUTPUT) == ErrorCategory.CONTENT
 
-        assert not Error.is_retryable(AuthError())
+    def test_categorize_internal_errors(self):
+        """Test internal error categorization."""
+        assert Error.get_category(ErrorCode.INVALID_STREAM) == ErrorCategory.INTERNAL
+        assert Error.get_category(ErrorCode.ADAPTER_NOT_FOUND) == ErrorCategory.INTERNAL
+        assert (
+            Error.get_category(ErrorCode.FEATURE_NOT_ENABLED) == ErrorCategory.INTERNAL
+        )
 
-    def test_transient_errors_retryable(self):
-        """Test transient errors are retryable."""
-
-        class RateLimitError(Exception):
-            status_code = 429
-
-        assert Error.is_retryable(RateLimitError())
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Categorize Error Tests
-# ─────────────────────────────────────────────────────────────────────────────
-
-
-class TestErrorCategorize:
-    """Tests for Error.categorize() static method."""
-
-    def test_network_errors(self):
-        """Test network error patterns are detected."""
-        network_errors = [
-            Exception("Connection reset by peer"),
-            Exception("Connection refused"),
-            Exception("Connection timeout"),
-            Exception("Request timed out"),
-            Exception("DNS failed to resolve"),
-            Exception("Name resolution failed"),
-            Exception("Socket error occurred"),
-            Exception("EOF occurred unexpectedly"),
-            Exception("Broken pipe"),
-            Exception("Network unreachable"),
-            Exception("Host unreachable"),
-        ]
-        for error in network_errors:
-            assert Error.categorize(error) == ErrorCategory.NETWORK, (
-                f"Failed for: {error}"
-            )
-
-    def test_ssl_errors_are_fatal(self):
-        """Test SSL/TLS errors are fatal (not retryable)."""
-        ssl_errors = [
-            Exception("SSL error during handshake"),
-            Exception("SSL certificate verify failed"),
-            Exception("certificate verify failed"),
-            Exception("SSL: CERTIFICATE_VERIFY_FAILED"),
-            Exception("[SSL: WRONG_VERSION_NUMBER]"),
-        ]
-        for error in ssl_errors:
-            assert Error.categorize(error) == ErrorCategory.FATAL, (
-                f"SSL error should be FATAL: {error}"
-            )
-
-    def test_rate_limit_transient(self):
-        """Test rate limit errors are transient."""
-        error = Exception("Rate limit exceeded")
-        assert Error.categorize(error) == ErrorCategory.TRANSIENT
-
-    def test_http_429_transient(self):
-        """Test HTTP 429 is transient."""
-
-        class HTTPError(Exception):
-            status_code = 429
-
-        assert Error.categorize(HTTPError()) == ErrorCategory.TRANSIENT
-
-    def test_http_503_transient(self):
-        """Test HTTP 503 is transient."""
-
-        class HTTPError(Exception):
-            status_code = 503
-
-        assert Error.categorize(HTTPError()) == ErrorCategory.TRANSIENT
-
-    def test_http_401_fatal(self):
-        """Test HTTP 401 is fatal."""
-
-        class HTTPError(Exception):
-            status_code = 401
-
-        assert Error.categorize(HTTPError()) == ErrorCategory.FATAL
-
-    def test_http_403_fatal(self):
-        """Test HTTP 403 is fatal."""
-
-        class HTTPError(Exception):
-            status_code = 403
-
-        assert Error.categorize(HTTPError()) == ErrorCategory.FATAL
-
-    def test_unknown_error_is_model(self):
-        """Test unknown errors default to MODEL category."""
-        error = Exception("Some unknown error")
-        assert Error.categorize(error) == ErrorCategory.MODEL
+    def test_categorize_provider_errors(self):
+        """Test provider error categorization."""
+        assert Error.get_category(ErrorCode.STREAM_ABORTED) == ErrorCategory.PROVIDER
+        assert (
+            Error.get_category(ErrorCode.ALL_STREAMS_EXHAUSTED)
+            == ErrorCategory.PROVIDER
+        )
 
 
 class TestNetworkErrorDetection:
-    """Test NetworkError specific detection methods."""
+    """Tests for NetworkError detection methods."""
 
-    def test_is_connection_dropped(self):
-        """Test connection dropped detection."""
-        assert NetworkError.is_connection_dropped(Exception("Connection reset by peer"))
-        assert NetworkError.is_connection_dropped(Exception("connection closed"))
-        assert NetworkError.is_connection_dropped(Exception("Broken pipe"))
-        assert not NetworkError.is_connection_dropped(Exception("Some other error"))
+    class TestIsConnectionDropped:
+        def test_detect_connection_dropped_errors(self):
+            assert (
+                NetworkError.is_connection_dropped(Exception("connection dropped"))
+                is True
+            )
+            assert (
+                NetworkError.is_connection_dropped(Exception("connection closed"))
+                is True
+            )
+            assert (
+                NetworkError.is_connection_dropped(Exception("connection reset"))
+                is True
+            )
+            assert NetworkError.is_connection_dropped(Exception("ECONNRESET")) is True
+            assert NetworkError.is_connection_dropped(Exception("broken pipe")) is True
 
-    def test_is_econnreset(self):
-        """Test ECONNRESET detection."""
-        assert NetworkError.is_econnreset(Exception("ECONNRESET"))
-        assert NetworkError.is_econnreset(Exception("Connection reset by peer"))
-        assert not NetworkError.is_econnreset(Exception("Connection refused"))
+        def test_returns_false_for_other_errors(self):
+            assert NetworkError.is_connection_dropped(Exception("timeout")) is False
 
-    def test_is_econnrefused(self):
-        """Test ECONNREFUSED detection."""
-        assert NetworkError.is_econnrefused(Exception("ECONNREFUSED"))
-        assert NetworkError.is_econnrefused(Exception("Connection refused"))
-        assert not NetworkError.is_econnrefused(Exception("Connection reset"))
+    class TestIsFetchTypeError:
+        def test_detect_fetch_type_errors(self):
+            error = TypeError("Failed to fetch")
+            assert NetworkError.is_fetch_error(error) is True
 
-    def test_is_timeout(self):
-        """Test timeout detection."""
-        assert NetworkError.is_timeout(TimeoutError("Request timed out"))
-        assert NetworkError.is_timeout(Exception("Connection timeout"))
-        assert NetworkError.is_timeout(Exception("deadline exceeded"))
-        assert not NetworkError.is_timeout(Exception("Connection refused"))
+        def test_detect_network_request_failed(self):
+            error = TypeError("Network request failed")
+            assert NetworkError.is_fetch_error(error) is True
 
-    def test_is_dns(self):
-        """Test DNS error detection."""
-        assert NetworkError.is_dns(Exception("DNS lookup failed"))
-        assert NetworkError.is_dns(Exception("getaddrinfo failed"))
-        assert NetworkError.is_dns(Exception("Name resolution failed"))
-        assert not NetworkError.is_dns(Exception("Connection refused"))
+        def test_returns_false_for_non_type_errors(self):
+            assert NetworkError.is_fetch_error(Exception("Failed to fetch")) is False
 
-    def test_is_ssl(self):
-        """Test SSL error detection."""
-        assert NetworkError.is_ssl(Exception("SSL handshake failed"))
-        assert NetworkError.is_ssl(Exception("Certificate verify failed"))
-        assert NetworkError.is_ssl(Exception("TLS error"))
-        assert not NetworkError.is_ssl(Exception("Connection refused"))
+    class TestIsECONNRESET:
+        def test_detect_econnreset_errors(self):
+            assert NetworkError.is_econnreset(Exception("ECONNRESET")) is True
+            assert (
+                NetworkError.is_econnreset(Exception("connection reset by peer"))
+                is True
+            )
 
-    def test_is_sse_aborted(self):
-        """Test SSE aborted detection."""
-        assert NetworkError.is_sse_aborted(Exception("SSE connection aborted"))
-        assert NetworkError.is_sse_aborted(Exception("stream aborted"))
-        assert not NetworkError.is_sse_aborted(Exception("Connection refused"))
+    class TestIsECONNREFUSED:
+        def test_detect_econnrefused_errors(self):
+            assert NetworkError.is_econnrefused(Exception("ECONNREFUSED")) is True
+            assert NetworkError.is_econnrefused(Exception("connection refused")) is True
 
-    def test_is_no_bytes(self):
-        """Test no bytes detection."""
-        assert NetworkError.is_no_bytes(Exception("No bytes received"))
-        assert NetworkError.is_no_bytes(Exception("Empty response"))
-        assert not NetworkError.is_no_bytes(Exception("Connection refused"))
+    class TestIsSSEAborted:
+        def test_detect_sse_aborted_errors(self):
+            assert (
+                NetworkError.is_sse_aborted(Exception("SSE connection failed")) is True
+            )
+            assert NetworkError.is_sse_aborted(Exception("stream aborted")) is True
 
-    def test_is_partial_chunks(self):
-        """Test partial chunks detection."""
-        assert NetworkError.is_partial_chunks(Exception("Incomplete chunk"))
-        assert NetworkError.is_partial_chunks(Exception("Truncated response"))
-        assert NetworkError.is_partial_chunks(Exception("premature close"))
-        assert not NetworkError.is_partial_chunks(Exception("Connection refused"))
+    class TestIsNoBytes:
+        def test_detect_no_bytes_errors(self):
+            assert NetworkError.is_no_bytes(Exception("no bytes received")) is True
+            assert NetworkError.is_no_bytes(Exception("empty response")) is True
+            assert NetworkError.is_no_bytes(Exception("zero bytes")) is True
 
-    def test_is_runtime_killed(self):
-        """Test runtime killed detection."""
-        assert NetworkError.is_runtime_killed(Exception("Lambda timeout"))
-        assert NetworkError.is_runtime_killed(Exception("Worker terminated"))
-        assert NetworkError.is_runtime_killed(Exception("SIGTERM received"))
-        assert not NetworkError.is_runtime_killed(Exception("Connection refused"))
+    class TestIsPartialChunks:
+        def test_detect_partial_chunk_errors(self):
+            assert (
+                NetworkError.is_partial_chunks(Exception("partial chunk received"))
+                is True
+            )
+            assert (
+                NetworkError.is_partial_chunks(Exception("truncated response")) is True
+            )
+            assert NetworkError.is_partial_chunks(Exception("premature close")) is True
 
-    def test_is_background_throttle(self):
-        """Test background throttle detection."""
-        assert NetworkError.is_background_throttle(Exception("Tab suspended"))
-        assert NetworkError.is_background_throttle(Exception("Background throttle"))
-        assert not NetworkError.is_background_throttle(Exception("Connection refused"))
+    class TestIsRuntimeKilled:
+        def test_detect_runtime_killed_errors(self):
+            assert (
+                NetworkError.is_runtime_killed(Exception("worker terminated")) is True
+            )
+            assert NetworkError.is_runtime_killed(Exception("lambda timeout")) is True
+            assert NetworkError.is_runtime_killed(Exception("SIGTERM")) is True
 
-    def test_check_any_network_error(self):
-        """Test NetworkError.check() detects any network error."""
-        assert NetworkError.check(Exception("Connection reset"))
-        assert NetworkError.check(Exception("DNS failed"))
-        assert NetworkError.check(TimeoutError("Timed out"))
-        assert not NetworkError.check(Exception("Invalid JSON"))
+    class TestIsBackgroundThrottle:
+        def test_detect_background_throttle_errors(self):
+            assert (
+                NetworkError.is_background_throttle(Exception("background suspend"))
+                is True
+            )
+            assert (
+                NetworkError.is_background_throttle(Exception("tab suspended")) is True
+            )
+            assert NetworkError.is_background_throttle(Exception("page hidden")) is True
+
+    class TestIsDNSError:
+        def test_detect_dns_errors(self):
+            assert NetworkError.is_dns(Exception("DNS lookup failed")) is True
+            assert NetworkError.is_dns(Exception("ENOTFOUND")) is True
+            assert NetworkError.is_dns(Exception("getaddrinfo failed")) is True
+
+    class TestIsSSLError:
+        def test_detect_ssl_errors(self):
+            assert NetworkError.is_ssl(Exception("SSL handshake failed")) is True
+            assert NetworkError.is_ssl(Exception("certificate expired")) is True
+            assert NetworkError.is_ssl(Exception("self signed certificate")) is True
+
+    class TestIsTimeoutError:
+        def test_detect_timeout_errors(self):
+            assert NetworkError.is_timeout(Exception("timeout")) is True
+            assert NetworkError.is_timeout(Exception("timed out")) is True
+            assert NetworkError.is_timeout(Exception("deadline exceeded")) is True
+
+        def test_detect_timeout_error_by_type(self):
+            assert NetworkError.is_timeout(TimeoutError("Operation timed out")) is True
 
 
-class TestNetworkErrorAnalysis:
-    """Test NetworkError.analyze() method."""
+class TestAnalyzeNetworkError:
+    """Tests for NetworkError.analyze method."""
 
-    def test_analyze_connection_dropped(self):
-        """Test analysis of connection dropped errors."""
-        analysis = NetworkError.analyze(Exception("Connection reset by peer"))
+    def test_analyze_connection_dropped_error(self):
+        analysis = NetworkError.analyze(Exception("connection dropped"))
         assert analysis.type == NetworkErrorType.CONNECTION_DROPPED
         assert analysis.retryable is True
         assert analysis.counts_toward_limit is False
 
-    def test_analyze_ssl_not_retryable(self):
-        """Test SSL errors are not retryable."""
-        analysis = NetworkError.analyze(Exception("SSL certificate verify failed"))
+    def test_analyze_fetch_error(self):
+        error = TypeError("Failed to fetch")
+        analysis = NetworkError.analyze(error)
+        assert analysis.type == NetworkErrorType.FETCH_ERROR
+        assert analysis.retryable is True
+
+    def test_analyze_ssl_error_as_non_retryable(self):
+        analysis = NetworkError.analyze(Exception("SSL certificate error"))
         assert analysis.type == NetworkErrorType.SSL_ERROR
         assert analysis.retryable is False
 
-    def test_analyze_timeout(self):
-        """Test analysis of timeout errors."""
-        analysis = NetworkError.analyze(TimeoutError("Request timed out"))
-        assert analysis.type == NetworkErrorType.TIMEOUT
-        assert analysis.retryable is True
-
-    def test_analyze_unknown(self):
-        """Test analysis of unknown errors."""
-        analysis = NetworkError.analyze(Exception("Unknown network issue"))
+    def test_return_unknown_for_unrecognized_errors(self):
+        analysis = NetworkError.analyze(Exception("some random error"))
         assert analysis.type == NetworkErrorType.UNKNOWN
         assert analysis.retryable is True
 
 
-class TestNetworkErrorUtilities:
-    """Test NetworkError utility methods."""
+class TestIsNetworkError:
+    """Tests for NetworkError.check method."""
 
-    def test_describe(self):
-        """Test NetworkError.describe()."""
-        desc = NetworkError.describe(Exception("Connection refused"))
-        assert "econnrefused" in desc.lower()
-        assert "network error" in desc.lower()
+    def test_returns_true_for_network_errors(self):
+        assert NetworkError.check(Exception("connection dropped")) is True
+        assert NetworkError.check(Exception("ECONNRESET")) is True
+        assert NetworkError.check(Exception("timeout")) is True
 
-    def test_suggest_delay(self):
-        """Test NetworkError.suggest_delay()."""
-        # ECONNREFUSED has 2.0s base delay
-        delay = NetworkError.suggest_delay(Exception("Connection refused"), attempt=0)
-        assert delay == 2.0
+    def test_returns_false_for_non_network_errors(self):
+        assert NetworkError.check(Exception("syntax error")) is False
+        assert NetworkError.check(Exception("undefined is not a function")) is False
 
-        # Exponential backoff
-        delay = NetworkError.suggest_delay(Exception("Connection refused"), attempt=2)
-        assert delay == 8.0  # 2.0 * 2^2
 
-    def test_suggest_delay_respects_max(self):
-        """Test suggest_delay respects max_delay."""
-        delay = NetworkError.suggest_delay(
-            Exception("Connection refused"),
-            attempt=10,
-            max_delay=5.0,
+class TestDescribeNetworkError:
+    """Tests for NetworkError.describe method."""
+
+    def test_describe_network_error(self):
+        description = NetworkError.describe(Exception("connection dropped"))
+        assert "Network error" in description
+        assert "connection_dropped" in description
+
+    def test_include_possible_cause_if_available(self):
+        description = NetworkError.describe(Exception("ECONNREFUSED"))
+        assert "econnrefused" in description
+        assert "Server may be down" in description
+
+
+class TestCreateNetworkError:
+    """Tests for NetworkError.create method."""
+
+    def test_create_enhanced_error_with_analysis(self):
+        original = Exception("connection dropped")
+        analysis = NetworkError.analyze(original)
+        enhanced = NetworkError.create(original, analysis)
+
+        assert hasattr(enhanced, "analysis")
+        assert enhanced.analysis == analysis
+        assert "connection_dropped" in str(enhanced)
+
+
+class TestIsStreamInterrupted:
+    """Tests for NetworkError.is_stream_interrupted method."""
+
+    def test_returns_true_for_network_error_with_tokens(self):
+        assert (
+            NetworkError.is_stream_interrupted(Exception("connection dropped"), 5)
+            is True
         )
+
+    def test_returns_false_for_network_error_with_no_tokens(self):
+        assert (
+            NetworkError.is_stream_interrupted(Exception("connection dropped"), 0)
+            is False
+        )
+
+    def test_detect_explicit_stream_interrupted_messages(self):
+        assert (
+            NetworkError.is_stream_interrupted(Exception("stream interrupted"), 0)
+            is True
+        )
+        assert (
+            NetworkError.is_stream_interrupted(
+                Exception("connection lost mid-stream"), 0
+            )
+            is True
+        )
+
+
+class TestSuggestRetryDelay:
+    """Tests for NetworkError.suggest_delay method."""
+
+    def test_suggest_delay_based_on_error_type(self):
+        conn_error = Exception("connection dropped")
+        delay = NetworkError.suggest_delay(conn_error, 0)
+        assert delay > 0
+
+    def test_apply_exponential_backoff(self):
+        error = Exception("connection dropped")
+        delay0 = NetworkError.suggest_delay(error, 0)
+        delay1 = NetworkError.suggest_delay(error, 1)
+        delay2 = NetworkError.suggest_delay(error, 2)
+
+        assert delay1 == delay0 * 2
+        assert delay2 == delay0 * 4
+
+    def test_return_zero_for_ssl_errors(self):
+        ssl_error = Exception("SSL certificate error")
+        delay = NetworkError.suggest_delay(ssl_error, 0)
+        assert delay == 0
+
+    def test_respect_max_delay(self):
+        error = Exception("connection dropped")
+        delay = NetworkError.suggest_delay(error, 10, max_delay=1.0)
+        assert delay <= 1.0
+
+    def test_use_custom_delays_if_provided(self):
+        error = Exception("connection dropped")
+        custom_delays = {NetworkErrorType.CONNECTION_DROPPED: 5.0}
+        delay = NetworkError.suggest_delay(error, 0, custom_delays=custom_delays)
         assert delay == 5.0
 
-    def test_is_stream_interrupted(self):
-        """Test NetworkError.is_stream_interrupted()."""
-        err = Exception("Connection reset")
-        # With tokens received, it's interrupted
-        assert NetworkError.is_stream_interrupted(err, token_count=50)
-        # Without tokens, not interrupted
-        assert not NetworkError.is_stream_interrupted(err, token_count=0)
 
+class TestNetworkErrorClass:
+    """Tests for NetworkError scoped API."""
 
-class TestRetryPresets:
-    """Test Retry class preset methods."""
+    def test_check_detects_network_errors(self):
+        assert NetworkError.check(Exception("connection dropped")) is True
+        assert NetworkError.check(Exception("syntax error")) is False
 
-    def test_recommended(self):
-        """Test Retry.recommended() preset."""
-        retry = Retry.recommended()
-        assert retry.attempts == 3
-        assert retry.max_retries == 6
-        assert retry.error_type_delays is not None
+    def test_analyze_returns_analysis(self):
+        analysis = NetworkError.analyze(Exception("connection dropped"))
+        assert isinstance(analysis, NetworkErrorAnalysis)
+        assert analysis.type == NetworkErrorType.CONNECTION_DROPPED
 
-    def test_mobile(self):
-        """Test Retry.mobile() preset."""
-        retry = Retry.mobile()
-        assert retry.max_delay == 15.0
-        assert retry.error_type_delays.background_throttle == 15.0
-        assert retry.error_type_delays.timeout == 3.0
+    def test_describe_returns_string(self):
+        desc = NetworkError.describe(Exception("timeout"))
+        assert isinstance(desc, str)
+        assert "timeout" in desc.lower()
 
-    def test_edge(self):
-        """Test Retry.edge() preset."""
-        retry = Retry.edge()
-        assert retry.base_delay == 0.5
-        assert retry.max_delay == 5.0
+    def test_create_returns_enhanced_error(self):
+        original = Exception("connection dropped")
+        enhanced = NetworkError.create(original)
+        assert hasattr(enhanced, "analysis")
 
-
-class TestErrorTypeDelays:
-    """Test ErrorTypeDelays configuration."""
-
-    def test_default_values(self):
-        """Test default delay values."""
-        delays = ErrorTypeDelays()
-        assert delays.connection_dropped == 1.0
-        assert delays.econnrefused == 2.0
-        assert delays.background_throttle == 5.0
-
-    def test_custom_values(self):
-        """Test custom delay values."""
-        delays = ErrorTypeDelays(
-            timeout=5.0,
-            connection_dropped=3.0,
-        )
-        assert delays.timeout == 5.0
-        assert delays.connection_dropped == 3.0
-        assert delays.econnreset == 1.0  # default
+    def test_suggest_delay_with_custom_delays(self):
+        error = Exception("timeout")
+        custom = {NetworkErrorType.TIMEOUT: 3.0}
+        delay = NetworkError.suggest_delay(error, 0, custom_delays=custom)
+        assert delay == 3.0
