@@ -1,6 +1,6 @@
 """Structured output exports."""
 
-from ..structured import (
+from .._structured import (
     MINIMAL_STRUCTURED,
     RECOMMENDED_STRUCTURED,
     STRICT_STRUCTURED,

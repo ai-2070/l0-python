@@ -95,7 +95,6 @@ _API_MODULES = {
     "StructuredStreamResult": "api.structured",
     "StructuredTelemetry": "api.structured",
     "structured": "api.structured",
-    "structured_output": "api.structured",
     "structured_array": "api.structured",
     "structured_object": "api.structured",
     "structured_stream": "api.structured",

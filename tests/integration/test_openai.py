@@ -201,7 +201,7 @@ class TestStructuredOutput:
             age: int
 
         # structured() needs lambda for potential retries
-        result = await l0.structured_output(
+        result = await l0.structured(
             schema=Person,
             stream=lambda: client.chat.completions.create(
                 model="gpt-4o-mini",
