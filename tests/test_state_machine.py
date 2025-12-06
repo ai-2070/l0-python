@@ -160,6 +160,45 @@ class TestStateMachine:
         assert notifications1 == [RuntimeState.STREAMING]
         assert notifications2 == [RuntimeState.STREAMING]
 
+    def test_listener_unsubscribes_during_notification(self) -> None:
+        """Test that unsubscribing during notification does not raise RuntimeError."""
+        sm = StateMachine()
+        notifications: list[RuntimeState] = []
+        unsubscribe_fn: list = []
+
+        def self_unsubscribing_listener(s: RuntimeState) -> None:
+            notifications.append(s)
+            if unsubscribe_fn:
+                unsubscribe_fn[0]()  # Unsubscribe during notification
+
+        unsubscribe = sm.subscribe(self_unsubscribing_listener)
+        unsubscribe_fn.append(unsubscribe)
+
+        # This should not raise RuntimeError: Set changed size during iteration
+        sm.transition(RuntimeState.STREAMING)
+
+        assert notifications == [RuntimeState.STREAMING]
+
+    def test_listener_subscribes_during_notification(self) -> None:
+        """Test that subscribing during notification does not raise RuntimeError."""
+        sm = StateMachine()
+        notifications: list[RuntimeState] = []
+
+        def subscribing_listener(s: RuntimeState) -> None:
+            notifications.append(("first", s))
+            # Subscribe a new listener during notification
+            sm.subscribe(lambda state: notifications.append(("second", state)))
+
+        sm.subscribe(subscribing_listener)
+
+        # This should not raise RuntimeError: Set changed size during iteration
+        sm.transition(RuntimeState.STREAMING)
+
+        # First listener was notified
+        assert ("first", RuntimeState.STREAMING) in notifications
+        # Second listener was added but not notified for this transition
+        # (because we iterate over a copy of the set)
+
     def test_create_class_method(self) -> None:
         sm = StateMachine.create()
         assert isinstance(sm, StateMachine)

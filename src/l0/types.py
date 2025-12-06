@@ -1075,6 +1075,7 @@ MINIMAL_RETRY = Retry(
     base_delay=1.0,
     max_delay=10.0,
     strategy=BackoffStrategy.LINEAR,
+    error_type_delays=ErrorTypeDelays(),
 )
 """Minimal retry preset: 2 attempts, 4 max retries, linear backoff."""
 
@@ -1084,6 +1085,7 @@ RECOMMENDED_RETRY = Retry(
     base_delay=1.0,
     max_delay=10.0,
     strategy=BackoffStrategy.FIXED_JITTER,
+    error_type_delays=ErrorTypeDelays(),
 )
 """Recommended retry preset: 3 attempts, 6 max retries, fixed-jitter backoff."""
 
@@ -1093,6 +1095,7 @@ STRICT_RETRY = Retry(
     base_delay=1.0,
     max_delay=10.0,
     strategy=BackoffStrategy.FULL_JITTER,
+    error_type_delays=ErrorTypeDelays(),
 )
 """Strict retry preset: 3 attempts, 6 max retries, full-jitter backoff."""
 
@@ -1102,5 +1105,6 @@ EXPONENTIAL_RETRY = Retry(
     base_delay=1.0,
     max_delay=10.0,
     strategy=BackoffStrategy.EXPONENTIAL,
+    error_type_delays=ErrorTypeDelays(),
 )
 """Exponential retry preset: 4 attempts, 8 max retries, exponential backoff."""

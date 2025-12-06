@@ -503,12 +503,25 @@ from typing import overload as _overload
 from typing import runtime_checkable as _runtime_checkable
 
 
-@_runtime_checkable
-class _OpenAILikeClient(_Protocol):
-    """Protocol matching OpenAI/LiteLLM client structure."""
+class _ChatCompletions(_Protocol):
+    """Protocol for the completions namespace."""
+
+    def create(self, *args: _Any, **kwargs: _Any) -> _Any: ...
+
+
+class _ChatNamespace(_Protocol):
+    """Protocol for the chat namespace with completions."""
 
     @property
-    def chat(self) -> _Any: ...
+    def completions(self) -> _ChatCompletions: ...
+
+
+@_runtime_checkable
+class _OpenAILikeClient(_Protocol):
+    """Protocol matching OpenAI/LiteLLM client structure with .chat.completions."""
+
+    @property
+    def chat(self) -> _ChatNamespace: ...
 
 
 @_overload

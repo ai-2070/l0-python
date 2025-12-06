@@ -232,9 +232,11 @@ class OpenTelemetry:
             meter=metrics.get_meter("l0"),
         )
 
-        # Create a traced stream
-        async with otel.trace_stream("chat-completion") as span:
-            result = await l0(stream=lambda: stream_text(model, prompt))
+        # Trace a stream operation
+        result = await otel.trace_stream(
+            "chat-completion",
+            lambda: l0(stream=lambda: stream_text(model, prompt)),
+        )
         ```
     """
 
@@ -783,7 +785,7 @@ async def with_opentelemetry(
         result = await with_opentelemetry(
             tracer=trace.get_tracer("my-app"),
             meter=metrics.get_meter("my-app"),
-            fn=lambda: l0(stream=lambda: stream_text(model, prompt)),
+            fn=lambda span: l0(stream=lambda: stream_text(model, prompt)),
             name="chat-completion",
         )
         ```

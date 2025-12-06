@@ -58,7 +58,7 @@ class StateMachine:
         print(sm.get())  # RuntimeState.STREAMING
 
         # Check state
-        if sm.is(RuntimeState.STREAMING, RuntimeState.CONTINUATION_MATCHING):
+        if sm.is_(RuntimeState.STREAMING, RuntimeState.CONTINUATION_MATCHING):
             print("Processing...")
 
         # Subscribe to changes
@@ -176,7 +176,7 @@ class StateMachine:
 
     def _notify(self) -> None:
         """Notify all listeners of state change."""
-        for listener in self._listeners:
+        for listener in list(self._listeners):
             try:
                 listener(self._state)
             except Exception:
