@@ -718,14 +718,6 @@ def create_opentelemetry_handler(
                 span=current_span,
             )
 
-        elif event_type == ObservabilityEventType.NETWORK_ERROR:
-            error_msg = meta.get("error", meta.get("message", "Network error"))
-            otel.record_network_error(
-                error=Exception(error_msg),
-                error_type=meta.get("error_type", "network"),
-                span=current_span,
-            )
-
         elif event_type == ObservabilityEventType.GUARDRAIL_RULE_RESULT:
             violation = meta.get("violation")
             if violation:

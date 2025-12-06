@@ -585,9 +585,6 @@ async def _internal_run(
                                 and state.resume_point
                             ):
                                 # Check for overlap with checkpoint
-                                event_bus.emit(
-                                    ObservabilityEventType.DEDUPLICATION_START
-                                )
                                 overlap_result = detect_overlap(
                                     state.resume_point,
                                     token_text,
@@ -598,12 +595,6 @@ async def _internal_run(
                                     token_text = overlap_result.deduplicated
                                     state.deduplication_applied = True
                                     state.overlap_removed = overlap_result.overlap_text
-                                    event_bus.emit(
-                                        ObservabilityEventType.DEDUPLICATION_END,
-                                        overlapDetected=True,
-                                        overlapLength=overlap_result.overlap_length,
-                                        overlapText=overlap_result.overlap_text,
-                                    )
                                     logger.debug(
                                         f"Deduplication removed {overlap_result.overlap_length} chars overlap"
                                     )
@@ -616,10 +607,6 @@ async def _internal_run(
                                 else:
                                     state.deduplication_applied = (
                                         True  # Mark as checked
-                                    )
-                                    event_bus.emit(
-                                        ObservabilityEventType.DEDUPLICATION_END,
-                                        overlapDetected=False,
                                     )
 
                             if not first_token_received and inter_timeout is not None:
@@ -706,10 +693,6 @@ async def _internal_run(
                                 drift_detector is not None
                                 and state.token_count % drift_interval == 0
                             ):
-                                event_bus.emit(
-                                    ObservabilityEventType.DRIFT_CHECK_START,
-                                    token_count=state.token_count,
-                                )
                                 drift_result = drift_detector.check(
                                     state.content, token_text
                                 )
@@ -734,11 +717,6 @@ async def _internal_run(
                                         types=[],
                                         confidence=0.0,
                                     )
-                                event_bus.emit(
-                                    ObservabilityEventType.DRIFT_CHECK_END,
-                                    token_count=state.token_count,
-                                )
-
                         # Handle tool call buffering
                         if buffer_tool_calls and event.type == EventType.TOOL_CALL:
                             # Buffer tool call data by index
@@ -1003,18 +981,11 @@ async def _internal_run(
                     # Fire on_error callback BEFORE retry/fallback decision
                     _fire_callback(cb.on_error, e, will_retry, will_fallback)
 
-                    if is_network:
-                        event_bus.emit(
-                            ObservabilityEventType.NETWORK_ERROR,
-                            error=str(e),
-                            retryable=will_retry,
-                        )
-                    else:
-                        event_bus.emit(
-                            ObservabilityEventType.ERROR,
-                            error=str(e),
-                            category=error_category.value,
-                        )
+                    event_bus.emit(
+                        ObservabilityEventType.ERROR,
+                        error=str(e),
+                        category=error_category.value,
+                    )
 
                     if will_retry:
                         event_bus.emit(

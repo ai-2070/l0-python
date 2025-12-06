@@ -86,7 +86,7 @@ def filter_events(
         from l0.events import ObservabilityEventType
 
         error_handler = filter_events(
-            [ObservabilityEventType.ERROR, ObservabilityEventType.NETWORK_ERROR],
+            [ObservabilityEventType.ERROR],
             lambda event: send_to_alert_system(event),
         )
         ```
@@ -344,7 +344,7 @@ class Monitoring:
 
         # Filter events by type
         errors_only = Monitoring.filter(
-            ["ERROR", "NETWORK_ERROR"],
+            ["ERROR"],
             error_handler,
         )
 

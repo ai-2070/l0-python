@@ -479,19 +479,6 @@ def create_sentry_handler(
                 is_network_error=meta.get("is_network", False),
             )
 
-        elif event_type == ObservabilityEventType.NETWORK_ERROR:
-            error_msg = meta.get("error", "Network error")
-            error = (
-                error_msg
-                if isinstance(error_msg, Exception)
-                else Exception(str(error_msg))
-            )
-            integration.record_network_error(
-                error=error,
-                error_type=meta.get("category", "unknown"),
-                retried=meta.get("retryable", False),
-            )
-
         elif event_type == ObservabilityEventType.ERROR:
             error_msg = meta.get("error", "Error")
             error = (
