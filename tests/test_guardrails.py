@@ -1300,3 +1300,60 @@ class TestAsyncGuardrailCheck:
         ctx = GuardrailContext(content='{"key": 1}', completed=True)
         result = await Guardrails.run_check_async(engine, ctx)
         assert result.passed is True
+
+    @pytest.mark.asyncio
+    async def test_run_guardrail_check_async_fails_safe_on_exception(self):
+        """Test that async guardrail check fails safe when engine.check() throws."""
+        from unittest.mock import MagicMock
+
+        from l0.guardrails import (
+            GuardrailContext,
+            run_guardrail_check_async,
+        )
+
+        # Create a mock engine that raises an exception on check()
+        mock_engine = MagicMock()
+        mock_engine.check.side_effect = RuntimeError("Simulated engine failure")
+
+        ctx = GuardrailContext(content="test content", completed=True)
+
+        # Should fail safe (passed=False) instead of raising or passing through
+        result = await run_guardrail_check_async(mock_engine, ctx)
+
+        assert result.passed is False
+        assert result.should_retry is True
+        assert len(result.violations) == 1
+        assert result.violations[0].rule == "internal_error"
+        assert "Simulated engine failure" in result.violations[0].message
+
+    def test_engine_handles_rule_exception_gracefully(self):
+        """Test that engine handles individual rule exceptions as warnings."""
+        from l0.guardrails import (
+            GuardrailConfig,
+            GuardrailContext,
+            GuardrailEngine,
+            GuardrailRule,
+        )
+
+        # Create a rule that raises an exception
+        def failing_check(state):
+            raise RuntimeError("Simulated rule failure")
+
+        failing_rule = GuardrailRule(
+            name="failing_rule",
+            check=failing_check,
+            severity="error",
+        )
+
+        engine = GuardrailEngine(GuardrailConfig(rules=[failing_rule]))
+        ctx = GuardrailContext(content="test content", completed=True)
+
+        # Engine should handle this gracefully and return a result
+        result = engine.check(ctx)
+
+        # Rule failure is treated as a warning violation, not a pass
+        assert result.passed is False
+        assert len(result.violations) == 1
+        assert result.violations[0].rule == "failing_rule"
+        assert "Rule execution failed" in result.violations[0].message
+        assert result.violations[0].severity == "warning"

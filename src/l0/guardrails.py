@@ -448,16 +448,24 @@ def run_async_guardrail_check(
             try:
                 result = engine.check(context)
                 on_complete(result)
-            except Exception:
-                # On error, return clean result
+            except Exception as e:
+                # On error, fail safe - treat as a violation to prevent invalid content
+                logger.error(f"Guardrail check failed with error: {e}")
                 on_complete(
                     GuardrailResult(
-                        passed=True,
-                        violations=[],
-                        should_retry=False,
+                        passed=False,
+                        violations=[
+                            GuardrailViolation(
+                                rule="internal_error",
+                                severity="error",
+                                message=f"Guardrail check failed: {e}",
+                                recoverable=True,
+                            )
+                        ],
+                        should_retry=True,
                         should_halt=False,
                         summary=GuardrailResultSummary(
-                            total=0, fatal=0, errors=0, warnings=0
+                            total=1, fatal=0, errors=1, warnings=0
                         ),
                     )
                 )
@@ -500,14 +508,22 @@ async def run_guardrail_check_async(
     await asyncio.sleep(0)
     try:
         return engine.check(context)
-    except Exception:
-        # On error, return clean result
+    except Exception as e:
+        # On error, fail safe - treat as a violation to prevent invalid content
+        logger.error(f"Guardrail check failed with error: {e}")
         return GuardrailResult(
-            passed=True,
-            violations=[],
-            should_retry=False,
+            passed=False,
+            violations=[
+                GuardrailViolation(
+                    rule="internal_error",
+                    severity="error",
+                    message=f"Guardrail check failed: {e}",
+                    recoverable=True,
+                )
+            ],
+            should_retry=True,
             should_halt=False,
-            summary=GuardrailResultSummary(total=0, fatal=0, errors=0, warnings=0),
+            summary=GuardrailResultSummary(total=1, fatal=0, errors=1, warnings=0),
         )
 
 
