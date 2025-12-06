@@ -884,7 +884,6 @@ class Window:
             overlap=overlap,
             strategy=strategy,
             concurrency=concurrency,
-            on_progress=on_progress,
         )
 
     @staticmethod
