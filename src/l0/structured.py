@@ -454,17 +454,19 @@ def _parse_and_validate(
                 input_fields = set(parsed_json.keys())
                 extra_fields = input_fields - schema_fields
                 if extra_fields:
+                    from pydantic_core import InitErrorDetails
+
+                    line_errors: list[InitErrorDetails] = [
+                        InitErrorDetails(
+                            type="extra_forbidden",
+                            loc=(field,),
+                            input=parsed_json.get(field),
+                        )
+                        for field in extra_fields
+                    ]
                     raise ValidationError.from_exception_data(
                         f"Extra fields not allowed: {extra_fields}",
-                        [
-                            {
-                                "type": "extra_forbidden",
-                                "loc": (field,),
-                                "input": parsed_json.get(field),
-                                "msg": f"Extra field '{field}' not allowed in strict mode",
-                            }
-                            for field in extra_fields
-                        ],
+                        line_errors,
                     )
 
             parsed = schema.model_validate(parsed_json)

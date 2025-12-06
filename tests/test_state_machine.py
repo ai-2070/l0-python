@@ -182,7 +182,7 @@ class TestStateMachine:
     def test_listener_subscribes_during_notification(self) -> None:
         """Test that subscribing during notification does not raise RuntimeError."""
         sm = StateMachine()
-        notifications: list[RuntimeState] = []
+        notifications: list[tuple[str, RuntimeState]] = []
 
         def subscribing_listener(s: RuntimeState) -> None:
             notifications.append(("first", s))

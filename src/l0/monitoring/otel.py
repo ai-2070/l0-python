@@ -235,7 +235,7 @@ class OpenTelemetry:
         # Trace a stream operation
         result = await otel.trace_stream(
             "chat-completion",
-            lambda: l0(stream=lambda: stream_text(model, prompt)),
+            lambda span: l0(stream=lambda: stream_text(model, prompt)),
         )
         ```
     """

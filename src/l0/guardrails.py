@@ -460,6 +460,7 @@ def run_async_guardrail_check(
                                 severity="error",
                                 message=f"Guardrail check failed: {e}",
                                 recoverable=True,
+                                timestamp=time.time(),
                             )
                         ],
                         should_retry=True,
@@ -519,6 +520,7 @@ async def run_guardrail_check_async(
                     severity="error",
                     message=f"Guardrail check failed: {e}",
                     recoverable=True,
+                    timestamp=time.time(),
                 )
             ],
             should_retry=True,

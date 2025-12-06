@@ -1336,7 +1336,7 @@ class TestAsyncGuardrailCheck:
         )
 
         # Create a rule that raises an exception
-        def failing_check(state):
+        def failing_check(state: State) -> list[GuardrailViolation]:
             raise RuntimeError("Simulated rule failure")
 
         failing_rule = GuardrailRule(
