@@ -9,12 +9,6 @@ from l0 import (
     get_global_metrics,
     reset_global_metrics,
 )
-    Metrics,
-    MetricsSnapshot,
-    create_metrics,
-    get_global_metrics,
-    reset_global_metrics,
-)
 
 
 class TestMetrics:
