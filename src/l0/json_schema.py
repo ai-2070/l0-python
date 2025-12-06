@@ -486,3 +486,119 @@ def create_simple_json_schema_adapter() -> SimpleJSONSchemaAdapter:
         ```
     """
     return SimpleJSONSchemaAdapter()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Scoped API
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class JSONSchema:
+    """Scoped API for JSON Schema utilities.
+
+    Provides utilities for validating data against JSON Schema definitions,
+    registering validators, and wrapping schemas for use with structured().
+
+    Usage:
+        ```python
+        from l0 import JSONSchema
+
+        # Register a simple adapter (for basic validation)
+        JSONSchema.register(JSONSchema.create_simple_adapter())
+
+        # Check if value looks like a JSON Schema
+        is_schema = JSONSchema.is_schema({"type": "object", "properties": {}})
+
+        # Validate data against schema
+        success, data, error = JSONSchema.validate(schema, {"name": "Alice"})
+
+        # Wrap schema for use with structured()
+        unified = JSONSchema.wrap(schema)
+        result = unified.safe_parse(data)
+        ```
+    """
+
+    # Re-export types for convenience
+    Definition = JSONSchemaDefinition
+    ValidationError = JSONSchemaValidationError
+    ValidationSuccess = JSONSchemaValidationSuccess
+    ValidationFailure = JSONSchemaValidationFailure
+    Adapter = JSONSchemaAdapter
+    SimpleAdapter = SimpleJSONSchemaAdapter
+    Unified = UnifiedSchema
+
+    @staticmethod
+    def register(adapter: JSONSchemaAdapter) -> None:
+        """Register a JSON Schema adapter.
+
+        Call this once at app startup to enable JSON Schema support.
+
+        Args:
+            adapter: The JSON Schema adapter to register
+        """
+        register_json_schema_adapter(adapter)
+
+    @staticmethod
+    def unregister() -> None:
+        """Unregister the JSON Schema adapter."""
+        unregister_json_schema_adapter()
+
+    @staticmethod
+    def has_adapter() -> bool:
+        """Check if a JSON Schema adapter is registered."""
+        return has_json_schema_adapter()
+
+    @staticmethod
+    def get_adapter() -> JSONSchemaAdapter:
+        """Get the registered JSON Schema adapter.
+
+        Raises:
+            RuntimeError: If no adapter is registered.
+        """
+        return get_json_schema_adapter()
+
+    @staticmethod
+    def is_schema(value: Any) -> bool:
+        """Check if a value looks like a JSON Schema definition."""
+        return is_json_schema(value)
+
+    @staticmethod
+    def validate(
+        schema: JSONSchemaDefinition, data: Any
+    ) -> tuple[bool, Any | None, Exception | None]:
+        """Validate data against a JSON Schema.
+
+        Returns a normalized result compatible with L0's error handling.
+
+        Args:
+            schema: The JSON Schema definition
+            data: The data to validate
+
+        Returns:
+            Tuple of (success, data_or_none, error_or_none)
+        """
+        return validate_json_schema(schema, data)
+
+    @staticmethod
+    def wrap(schema: JSONSchemaDefinition) -> UnifiedSchema[Any]:
+        """Wrap a JSON Schema in a unified interface for use with structured().
+
+        Args:
+            schema: The JSON Schema definition
+
+        Returns:
+            UnifiedSchema wrapper for the schema
+        """
+        return wrap_json_schema(schema)
+
+    @staticmethod
+    def create_simple_adapter() -> SimpleJSONSchemaAdapter:
+        """Create a simple in-memory JSON Schema adapter for basic validation.
+
+        This is a minimal implementation for simple schemas without external dependencies.
+        For production use, prefer jsonschema or fastjsonschema.
+
+        Returns:
+            SimpleJSONSchemaAdapter instance
+        """
+        return create_simple_json_schema_adapter()

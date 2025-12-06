@@ -121,6 +121,9 @@ from .guardrails import (
     MarkdownAnalysis,
 )
 from .json_schema import (
+    # Scoped API
+    JSONSchema,
+    # Types (also available via JSONSchema.*)
     JSONSchemaAdapter,
     JSONSchemaDefinition,
     JSONSchemaValidationError,
@@ -128,14 +131,6 @@ from .json_schema import (
     JSONSchemaValidationSuccess,
     SimpleJSONSchemaAdapter,
     UnifiedSchema,
-    create_simple_json_schema_adapter,
-    get_json_schema_adapter,
-    has_json_schema_adapter,
-    is_json_schema,
-    register_json_schema_adapter,
-    unregister_json_schema_adapter,
-    validate_json_schema,
-    wrap_json_schema,
 )
 from .logging import enable_debug
 from .metrics import (
@@ -780,7 +775,9 @@ __all__ = [
     "tap_events",
     # Formatting
     "Format",
-    # JSON Schema (adapter-based validation)
+    # JSON Schema (scoped API)
+    "JSONSchema",  # Class with .register(), .unregister(), .has_adapter(), .get_adapter(), .is_schema(), .validate(), .wrap(), .create_simple_adapter()
+    # JSON Schema types (also available via JSONSchema.*)
     "JSONSchemaAdapter",
     "JSONSchemaDefinition",
     "JSONSchemaValidationError",
@@ -788,14 +785,6 @@ __all__ = [
     "JSONSchemaValidationSuccess",
     "SimpleJSONSchemaAdapter",
     "UnifiedSchema",
-    "create_simple_json_schema_adapter",
-    "get_json_schema_adapter",
-    "has_json_schema_adapter",
-    "is_json_schema",
-    "register_json_schema_adapter",
-    "unregister_json_schema_adapter",
-    "validate_json_schema",
-    "wrap_json_schema",
     # Multimodal (scoped API)
     "Multimodal",  # Class with .image(), .audio(), .video(), .from_stream(), etc.
     "ContentType",
