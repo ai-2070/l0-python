@@ -212,17 +212,21 @@ class TestRaceFunction:
     @pytest.mark.asyncio
     async def test_race_cancels_losers(self):
         """Should cancel remaining tasks when winner found."""
-        cancelled = []
+        slow_started = asyncio.Event()
+        cancelled = asyncio.Event()
 
         async def fast():
+            # Wait a tiny bit to ensure slow task starts
+            await asyncio.sleep(0.01)
             return "fast"
 
         async def slow():
             try:
+                slow_started.set()
                 await asyncio.sleep(10.0)
                 return "slow"
             except asyncio.CancelledError:
-                cancelled.append(True)
+                cancelled.set()
                 raise
 
         result = await race([fast, slow])
@@ -231,8 +235,9 @@ class TestRaceFunction:
         await asyncio.sleep(0.1)
 
         assert result.value == "fast"
-        # The slow task should have been cancelled
-        assert len(cancelled) >= 0  # May or may not have started
+        # The slow task should have started and been cancelled
+        assert slow_started.is_set(), "slow task should have started"
+        assert cancelled.is_set(), "slow task should have been cancelled"
 
     @pytest.mark.asyncio
     async def test_race_with_failing_task(self):
