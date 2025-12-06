@@ -479,9 +479,19 @@ class Retry:
 
     Usage:
         from l0 import Retry, RetryableErrorType, RETRY_DEFAULTS
+        from l0 import MINIMAL_RETRY, RECOMMENDED_RETRY, STRICT_RETRY, EXPONENTIAL_RETRY
 
-        # Use presets
+        # Use preset constants (matches TypeScript API)
+        retry = MINIMAL_RETRY
+        retry = RECOMMENDED_RETRY
+        retry = STRICT_RETRY
+        retry = EXPONENTIAL_RETRY
+
+        # Use class method presets
         retry = Retry.recommended()
+        retry = Retry.minimal()
+        retry = Retry.strict()
+        retry = Retry.exponential()
         retry = Retry.mobile()
         retry = Retry.edge()
 
@@ -555,7 +565,30 @@ class Retry:
             object.__setattr__(self, "strategy", RETRY_DEFAULTS.backoff)
 
     @classmethod
-    def recommended(cls) -> Retry:
+    def minimal(cls) -> "Retry":
+        """Get minimal retry configuration.
+
+        Lightweight retry for simple use cases:
+        - 2 model error retries
+        - 4 max total retries
+        - Linear backoff strategy
+
+        Matches TypeScript's minimalRetry preset.
+
+        Returns:
+            Retry configuration with minimal overhead.
+        """
+        return cls(
+            attempts=2,
+            max_retries=4,
+            base_delay=1.0,
+            max_delay=10.0,
+            strategy=BackoffStrategy.LINEAR,
+            error_type_delays=ErrorTypeDelays(),
+        )
+
+    @classmethod
+    def recommended(cls) -> "Retry":
         """Get recommended retry configuration.
 
         Handles all network errors automatically with sensible defaults:
@@ -563,6 +596,8 @@ class Retry:
         - 6 max total retries
         - Fixed-jitter backoff strategy
         - Per-error-type delays for network errors
+
+        Matches TypeScript's recommendedRetry preset.
 
         Returns:
             Retry configuration optimized for most use cases.
@@ -577,7 +612,53 @@ class Retry:
         )
 
     @classmethod
-    def mobile(cls) -> Retry:
+    def strict(cls) -> "Retry":
+        """Get strict retry configuration.
+
+        More aggressive jitter for high-load scenarios:
+        - 3 model error retries
+        - 6 max total retries
+        - Full-jitter backoff strategy (AWS-recommended for thundering herd)
+
+        Matches TypeScript's strictRetry preset.
+
+        Returns:
+            Retry configuration with full jitter for better load distribution.
+        """
+        return cls(
+            attempts=3,
+            max_retries=6,
+            base_delay=1.0,
+            max_delay=10.0,
+            strategy=BackoffStrategy.FULL_JITTER,
+            error_type_delays=ErrorTypeDelays(),
+        )
+
+    @classmethod
+    def exponential(cls) -> "Retry":
+        """Get exponential retry configuration.
+
+        More retries with exponential backoff:
+        - 4 model error retries
+        - 8 max total retries
+        - Exponential backoff strategy
+
+        Matches TypeScript's exponentialRetry preset.
+
+        Returns:
+            Retry configuration with exponential backoff for longer operations.
+        """
+        return cls(
+            attempts=4,
+            max_retries=8,
+            base_delay=1.0,
+            max_delay=10.0,
+            strategy=BackoffStrategy.EXPONENTIAL,
+            error_type_delays=ErrorTypeDelays(),
+        )
+
+    @classmethod
+    def mobile(cls) -> "Retry":
         """Get retry configuration optimized for mobile environments.
 
         Higher delays for background throttling and connection issues.
@@ -596,7 +677,7 @@ class Retry:
         )
 
     @classmethod
-    def edge(cls) -> Retry:
+    def edge(cls) -> "Retry":
         """Get retry configuration optimized for edge runtimes.
 
         Shorter delays to stay within edge runtime limits.
@@ -964,3 +1045,46 @@ class LazyStream(Generic[_LazyStreamChunkT]):
         if self._runner is None:
             return []
         return self._runner.raw()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Retry Presets (TypeScript parity)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# These match TypeScript's minimalRetry, recommendedRetry, strictRetry, exponentialRetry
+
+MINIMAL_RETRY = Retry(
+    attempts=2,
+    max_retries=4,
+    base_delay=1.0,
+    max_delay=10.0,
+    strategy=BackoffStrategy.LINEAR,
+)
+"""Minimal retry preset: 2 attempts, 4 max retries, linear backoff."""
+
+RECOMMENDED_RETRY = Retry(
+    attempts=3,
+    max_retries=6,
+    base_delay=1.0,
+    max_delay=10.0,
+    strategy=BackoffStrategy.FIXED_JITTER,
+)
+"""Recommended retry preset: 3 attempts, 6 max retries, fixed-jitter backoff."""
+
+STRICT_RETRY = Retry(
+    attempts=3,
+    max_retries=6,
+    base_delay=1.0,
+    max_delay=10.0,
+    strategy=BackoffStrategy.FULL_JITTER,
+)
+"""Strict retry preset: 3 attempts, 6 max retries, full-jitter backoff."""
+
+EXPONENTIAL_RETRY = Retry(
+    attempts=4,
+    max_retries=8,
+    base_delay=1.0,
+    max_delay=10.0,
+    strategy=BackoffStrategy.EXPONENTIAL,
+)
+"""Exponential retry preset: 4 attempts, 8 max retries, exponential backoff."""

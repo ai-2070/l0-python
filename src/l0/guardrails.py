@@ -2467,3 +2467,41 @@ class Guardrails:
         Use this in async contexts for cleaner code.
         """
         return await run_guardrail_check_async(engine, context)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Guardrail Presets (TypeScript parity)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# These match TypeScript's minimalGuardrails, recommendedGuardrails, etc.
+# Note: These are functions that return fresh rule lists, not constants,
+# because GuardrailRule instances have mutable state.
+
+
+def minimal_guardrails() -> list[GuardrailRule]:
+    """Minimal guardrails - JSON + zero output only.
+
+    Matches TypeScript's minimalGuardrails preset.
+    """
+    return Guardrails.minimal()
+
+
+# Preset constants for TypeScript API parity
+# Use these like: guardrails=MINIMAL_GUARDRAILS()
+MINIMAL_GUARDRAILS = minimal_guardrails
+"""Minimal guardrails preset: json, zero_output."""
+
+RECOMMENDED_GUARDRAILS = Guardrails.recommended
+"""Recommended guardrails preset: json, markdown, pattern, zero_output."""
+
+STRICT_GUARDRAILS = Guardrails.strict
+"""Strict guardrails preset: json, strict_json, markdown, latex, pattern, zero_output, stall, repetition."""
+
+JSON_ONLY_GUARDRAILS = Guardrails.json_only
+"""JSON-only guardrails preset: json, strict_json, zero_output."""
+
+MARKDOWN_ONLY_GUARDRAILS = Guardrails.markdown_only
+"""Markdown-only guardrails preset: markdown, zero_output."""
+
+LATEX_ONLY_GUARDRAILS = Guardrails.latex_only
+"""LaTeX-only guardrails preset: latex, zero_output."""
