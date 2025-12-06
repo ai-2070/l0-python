@@ -445,9 +445,29 @@ def _parse_and_validate(
     try:
         # Use strict mode if requested (forbid extra fields)
         if strict_mode:
-            # Parse JSON first, then validate with strict settings
+            # Parse JSON first, then validate and check for extra fields
             parsed_json = json.loads(text)
-            parsed = schema.model_validate(parsed_json, strict=True)
+
+            # Check for extra fields not in the schema
+            if isinstance(parsed_json, dict):
+                schema_fields = set(schema.model_fields.keys())
+                input_fields = set(parsed_json.keys())
+                extra_fields = input_fields - schema_fields
+                if extra_fields:
+                    raise ValidationError.from_exception_data(
+                        f"Extra fields not allowed: {extra_fields}",
+                        [
+                            {
+                                "type": "extra_forbidden",
+                                "loc": (field,),
+                                "input": parsed_json.get(field),
+                                "msg": f"Extra field '{field}' not allowed in strict mode",
+                            }
+                            for field in extra_fields
+                        ],
+                    )
+
+            parsed = schema.model_validate(parsed_json)
         else:
             parsed = schema.model_validate_json(text)
 
@@ -1029,7 +1049,7 @@ class StructuredConfig:
     Attributes:
         auto_correct: Whether to attempt JSON auto-correction
         attempts: Number of validation retry attempts
-        strict_mode: Reject unknown fields (not yet implemented)
+        strict_mode: Reject unknown fields in output
     """
 
     auto_correct: bool = True

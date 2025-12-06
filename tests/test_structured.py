@@ -679,3 +679,65 @@ class TestStructuredArray:
         assert result.telemetry is not None
         assert result.telemetry.schema_name is not None
         assert "list[SimpleModel]" in result.telemetry.schema_name
+
+
+class TestStructuredStrictMode:
+    """Test strict_mode parameter for rejecting extra fields."""
+
+    @pytest.mark.asyncio
+    async def test_strict_mode_rejects_extra_fields(self):
+        """Test that strict_mode rejects extra fields not in schema."""
+
+        async def json_stream():
+            # JSON with extra field "extra_field" not in SimpleModel
+            yield Event(
+                type=EventType.TOKEN,
+                text='{"value": "test", "extra_field": "should_fail"}',
+            )
+            yield Event(type=EventType.COMPLETE)
+
+        with pytest.raises(ValueError, match="Extra field"):
+            await structured(
+                SimpleModel,
+                stream=json_stream,
+                strict_mode=True,
+            )
+
+    @pytest.mark.asyncio
+    async def test_strict_mode_allows_valid_fields(self):
+        """Test that strict_mode allows JSON with only valid fields."""
+
+        async def json_stream():
+            yield Event(
+                type=EventType.TOKEN,
+                text='{"value": "test"}',
+            )
+            yield Event(type=EventType.COMPLETE)
+
+        result = await structured(
+            SimpleModel,
+            stream=json_stream,
+            strict_mode=True,
+        )
+
+        assert result.data.value == "test"
+
+    @pytest.mark.asyncio
+    async def test_non_strict_mode_allows_extra_fields(self):
+        """Test that non-strict mode (default) ignores extra fields."""
+
+        async def json_stream():
+            # JSON with extra field - should be ignored in non-strict mode
+            yield Event(
+                type=EventType.TOKEN,
+                text='{"value": "test", "extra_field": "ignored"}',
+            )
+            yield Event(type=EventType.COMPLETE)
+
+        result = await structured(
+            SimpleModel,
+            stream=json_stream,
+            strict_mode=False,
+        )
+
+        assert result.data.value == "test"
