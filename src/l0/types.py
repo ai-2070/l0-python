@@ -9,9 +9,10 @@ from types import TracebackType
 from typing import TYPE_CHECKING, Any, Coroutine, Generic, TypeVar
 
 if TYPE_CHECKING:
+    from .adapters import Adapter
     from .errors import NetworkError
     from .events import ObservabilityEvent
-    from .guardrails import GuardrailViolation
+    from .guardrails import GuardrailRule, GuardrailViolation
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Type Aliases for Stream Factories
@@ -939,9 +940,9 @@ class LazyStream(Generic[_LazyStreamChunkT]):
         self,
         stream: AsyncIterator[_LazyStreamChunkT],
         *,
-        guardrails: list[Any] | None = None,
+        guardrails: "list[GuardrailRule] | None" = None,
         timeout: Timeout | None = None,
-        adapter: Any | str | None = None,
+        adapter: "Adapter | str | None" = None,
         on_event: Callable[[ObservabilityEvent], None] | None = None,
         meta: dict[str, Any] | None = None,
         buffer_tool_calls: bool = False,

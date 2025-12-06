@@ -34,6 +34,7 @@ from .continuation import ContinuationConfig
 from .types import Retry, Stream, Timeout
 
 if TYPE_CHECKING:
+    from .adapters import Adapter
     from .events import ObservabilityEvent
     from .guardrails import GuardrailRule
 
@@ -128,7 +129,7 @@ class ClientConfig:
         guardrails: list[GuardrailRule] | None = None,
         retry: Retry | None = None,
         timeout: Timeout | None = None,
-        adapter: Any | str | None = None,
+        adapter: "Adapter | str | None" = None,
         on_event: Callable[[ObservabilityEvent], None] | None = None,
         meta: dict[str, Any] | None = None,
         buffer_tool_calls: bool = False,
@@ -204,7 +205,7 @@ class WrappedClient:
         guardrails: list[GuardrailRule] | None = None,
         retry: Retry | None = None,
         timeout: Timeout | None = None,
-        adapter: Any | str | None = None,
+        adapter: "Adapter | str | None" = None,
         on_event: Callable[[ObservabilityEvent], None] | None = None,
         meta: dict[str, Any] | None = None,
         buffer_tool_calls: bool | None = None,
@@ -243,10 +244,10 @@ def wrap_client(
     client: Any,
     *,
     fallbacks: list[Callable[[], Any]] | None = None,
-    guardrails: list[GuardrailRule] | None = None,
+    guardrails: "list[GuardrailRule] | None" = None,
     retry: Retry | None = None,
     timeout: Timeout | None = None,
-    adapter: Any | str | None = None,
+    adapter: "Adapter | str | None" = None,
     on_event: Callable[[ObservabilityEvent], None] | None = None,
     meta: dict[str, Any] | None = None,
     buffer_tool_calls: bool = False,
