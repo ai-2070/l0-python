@@ -483,25 +483,53 @@ async def _internal_run(
                     # Maps tool call index -> {id, name, arguments}
                     tool_call_buffers: dict[int, dict[str, Any]] = {}
 
+                    # Track tool calls we've emitted TOOL_REQUESTED for (non-buffered mode)
+                    tool_calls_started: set[str] = set()
+
                     async def emit_buffered_tool_calls() -> AsyncIterator[Event]:
                         """Emit all buffered tool calls."""
                         for idx in sorted(tool_call_buffers.keys()):
                             buffered = tool_call_buffers[idx]
+                            tool_name = buffered.get("name", "")
+                            tool_call_id = buffered.get("id", "")
+                            tool_args = buffered.get("arguments", "")
+
+                            # Emit TOOL_REQUESTED and TOOL_START
+                            event_bus.emit(
+                                ObservabilityEventType.TOOL_REQUESTED,
+                                toolName=tool_name,
+                                toolCallId=tool_call_id,
+                                arguments=tool_args,
+                            )
+                            event_bus.emit(
+                                ObservabilityEventType.TOOL_START,
+                                toolCallId=tool_call_id,
+                                toolName=tool_name,
+                            )
+
                             tool_event = Event(
                                 type=EventType.TOOL_CALL,
                                 data={
-                                    "id": buffered.get("id"),
-                                    "name": buffered.get("name"),
-                                    "arguments": buffered.get("arguments", ""),
+                                    "id": tool_call_id,
+                                    "name": tool_name,
+                                    "arguments": tool_args,
                                 },
                             )
                             # Fire on_tool_call callback
                             _fire_callback(
                                 cb.on_tool_call,
-                                buffered.get("name", ""),
-                                buffered.get("id", ""),
-                                {"arguments": buffered.get("arguments", "")},
+                                tool_name,
+                                tool_call_id,
+                                {"arguments": tool_args},
                             )
+
+                            # Emit TOOL_COMPLETED (tool call passed through)
+                            event_bus.emit(
+                                ObservabilityEventType.TOOL_COMPLETED,
+                                toolCallId=tool_call_id,
+                                status="success",
+                            )
+
                             yield tool_event
                         tool_call_buffers.clear()
 
@@ -753,7 +781,36 @@ async def _internal_run(
                             # when stream ends
                             continue
 
+                        # Emit TOOL_* events for non-buffered tool calls
+                        if not buffer_tool_calls and event.type == EventType.TOOL_CALL:
+                            tc_data = event.data or {}
+                            tool_call_id = tc_data.get("id", "")
+                            tool_name = tc_data.get("name", "")
+
+                            # Only emit TOOL_REQUESTED/TOOL_START once per tool call
+                            if tool_call_id and tool_call_id not in tool_calls_started:
+                                tool_calls_started.add(tool_call_id)
+                                event_bus.emit(
+                                    ObservabilityEventType.TOOL_REQUESTED,
+                                    toolName=tool_name,
+                                    toolCallId=tool_call_id,
+                                    arguments=tc_data.get("arguments", ""),
+                                )
+                                event_bus.emit(
+                                    ObservabilityEventType.TOOL_START,
+                                    toolCallId=tool_call_id,
+                                    toolName=tool_name,
+                                )
+
                         yield event
+
+                    # Emit TOOL_COMPLETED for non-buffered tool calls at end of stream
+                    for tool_call_id in tool_calls_started:
+                        event_bus.emit(
+                            ObservabilityEventType.TOOL_COMPLETED,
+                            toolCallId=tool_call_id,
+                            status="success",
+                        )
 
                     # Emit any buffered tool calls at end of stream
                     if buffer_tool_calls and tool_call_buffers:
@@ -877,7 +934,67 @@ async def _internal_run(
                     is_network = error_category == ErrorCategory.NETWORK
 
                     # Determine if we will retry or fallback
-                    will_retry = retry_mgr.should_retry(e)
+                    # First check basic retry conditions (sync)
+                    default_should_retry = retry_mgr.should_retry(e)
+
+                    # If custom should_retry callback exists, call it with events
+                    will_retry = default_should_retry
+                    if default_should_retry and retry_mgr.config.should_retry is not None:
+                        attempt = (
+                            retry_mgr.network_retry_count
+                            if error_category in (ErrorCategory.NETWORK, ErrorCategory.TRANSIENT)
+                            else retry_mgr.model_retry_count
+                        )
+
+                        # Emit RETRY_FN_START
+                        event_bus.emit(
+                            ObservabilityEventType.RETRY_FN_START,
+                            attempt=attempt,
+                            category=error_category.value,
+                            defaultShouldRetry=default_should_retry,
+                        )
+
+                        fn_start_time = time.time()
+                        try:
+                            # Call the callback (may be sync or async)
+                            user_result = retry_mgr.config.should_retry(
+                                e, state, attempt, error_category
+                            )
+                            if inspect.iscoroutine(user_result):
+                                user_result = await user_result
+
+                            duration_ms = int((time.time() - fn_start_time) * 1000)
+
+                            # User can only veto (narrow), not force (widen)
+                            final_should_retry = default_should_retry and bool(user_result)
+
+                            # Emit RETRY_FN_RESULT
+                            event_bus.emit(
+                                ObservabilityEventType.RETRY_FN_RESULT,
+                                attempt=attempt,
+                                category=error_category.value,
+                                userResult=bool(user_result),
+                                finalShouldRetry=final_should_retry,
+                                durationMs=duration_ms,
+                            )
+
+                            will_retry = final_should_retry
+                        except Exception as fn_error:
+                            duration_ms = int((time.time() - fn_start_time) * 1000)
+                            fn_err_msg = str(fn_error)
+
+                            # Emit RETRY_FN_ERROR - exception treated as veto
+                            event_bus.emit(
+                                ObservabilityEventType.RETRY_FN_ERROR,
+                                attempt=attempt,
+                                category=error_category.value,
+                                error=fn_err_msg,
+                                finalShouldRetry=False,
+                                durationMs=duration_ms,
+                            )
+
+                            will_retry = False
+
                     will_fallback = not will_retry and fallback_idx < len(streams) - 1
 
                     # Fire on_error callback BEFORE retry/fallback decision
