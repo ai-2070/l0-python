@@ -250,8 +250,8 @@ def batch_events(
                 loop = asyncio.get_running_loop()
                 timer_handle = loop.call_later(max_wait_seconds, flush)
             except RuntimeError:
-                # No event loop running, flush immediately when batch is full
-                pass
+                # No event loop running, flush immediately to avoid losing events
+                flush()
 
     return batched_handler
 

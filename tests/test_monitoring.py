@@ -1007,7 +1007,7 @@ class TestOpenTelemetry:
 
     def test_create_span_without_tracer(self):
         """Test creating span without tracer returns NoOpSpan."""
-        from l0.monitoring import OpenTelemetry, NoOpSpan
+        from l0.monitoring import NoOpSpan, OpenTelemetry
 
         otel = OpenTelemetry()
         span = otel.create_span("test")
@@ -1265,13 +1265,12 @@ class TestEventHandlerCombinators:
         # tap_events observes events
         assert len(tapped) == 1
 
-    def test_batch_events(self):
+    @pytest.mark.asyncio
+    async def test_batch_events(self):
         """Test batching events."""
-        import time
-
         from l0.monitoring import batch_events
 
-        batches = []
+        batches: list[list[ObservabilityEvent]] = []
 
         def handler(events: list[ObservabilityEvent]) -> None:
             batches.append(events)
@@ -1292,6 +1291,69 @@ class TestEventHandlerCombinators:
         # First batch of 3 should be complete
         assert len(batches) >= 1
         assert len(batches[0]) == 3
+
+    @pytest.mark.asyncio
+    async def test_batch_events_timer_flush(self):
+        """Test that partial batches flush after max_wait_seconds."""
+        import asyncio
+
+        from l0.monitoring import batch_events
+
+        batches: list[list[ObservabilityEvent]] = []
+
+        def handler(events: list[ObservabilityEvent]) -> None:
+            batches.append(events.copy())
+
+        # batch_events with short timeout
+        batched = batch_events(10, 0.05, handler)  # batch size 10, 50ms timeout
+
+        # Send only 2 events (less than batch size)
+        for i in range(2):
+            batched(
+                ObservabilityEvent(
+                    type=ObservabilityEventType.TOKEN,
+                    ts=1000.0 + i,
+                    stream_id="test",
+                    meta={"i": i},
+                )
+            )
+
+        # No batch should be flushed yet (not full, timer pending)
+        assert len(batches) == 0
+
+        # Wait for timer to trigger
+        await asyncio.sleep(0.1)
+
+        # Now the partial batch should be flushed
+        assert len(batches) == 1
+        assert len(batches[0]) == 2
+
+    def test_batch_events_no_event_loop(self):
+        """Test batching events without event loop flushes immediately to avoid data loss."""
+        from l0.monitoring import batch_events
+
+        batches: list[list[ObservabilityEvent]] = []
+
+        def handler(events: list[ObservabilityEvent]) -> None:
+            batches.append(events)
+
+        # batch_events takes (size, max_wait_seconds, handler)
+        batched = batch_events(3, 1.0, handler)
+
+        # Send 2 events (less than batch size)
+        for i in range(2):
+            batched(
+                ObservabilityEvent(
+                    type=ObservabilityEventType.TOKEN,
+                    ts=1000.0 + i,
+                    stream_id="test",
+                    meta={"i": i},
+                )
+            )
+
+        # Without event loop, events should be flushed immediately to avoid loss
+        # Each event triggers an immediate flush since no timer can be scheduled
+        assert len(batches) == 2
 
     def test_sample_events(self):
         """Test sampling events."""
