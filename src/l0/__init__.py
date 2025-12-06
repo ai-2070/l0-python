@@ -1,7 +1,11 @@
 """L0 - Reliability layer for AI/LLM streaming."""
 
-from collections.abc import AsyncIterator, Callable
-from typing import Any, Protocol, overload, runtime_checkable
+from collections.abc import AsyncIterator as _AsyncIterator
+from collections.abc import Callable as _Callable
+from typing import Any as _Any
+from typing import Protocol as _Protocol
+from typing import overload as _overload
+from typing import runtime_checkable as _runtime_checkable
 
 from ._utils import (
     CorrectionType,
@@ -295,60 +299,60 @@ from .window import (
 
 
 # Protocol for OpenAI-style clients (has .chat.completions)
-@runtime_checkable
-class _OpenAILikeClient(Protocol):
+@_runtime_checkable
+class _OpenAILikeClient(_Protocol):
     """Protocol matching OpenAI/LiteLLM client structure."""
 
     @property
-    def chat(self) -> Any: ...
+    def chat(self) -> _Any: ...
 
 
 # Overloads for wrap() to provide accurate return types
-@overload
+@_overload
 def wrap(
     client_or_stream: _OpenAILikeClient,
     *,
     guardrails: list[GuardrailRule] | None = None,
     retry: Retry | None = None,
     timeout: Timeout | None = None,
-    adapter: Any | str | None = None,
-    on_event: Callable[[ObservabilityEvent], None] | None = None,
-    meta: dict[str, Any] | None = None,
+    adapter: _Any | str | None = None,
+    on_event: _Callable[[ObservabilityEvent], None] | None = None,
+    meta: dict[str, _Any] | None = None,
     buffer_tool_calls: bool = False,
     continue_from_last_good_token: "ContinuationConfig | bool" = False,
-    build_continuation_prompt: Callable[[str], str] | None = None,
+    build_continuation_prompt: _Callable[[str], str] | None = None,
 ) -> WrappedClient: ...
 
 
-@overload
+@_overload
 def wrap(
-    client_or_stream: AsyncIterator[Any],
+    client_or_stream: _AsyncIterator[_Any],
     *,
     guardrails: list[GuardrailRule] | None = None,
     retry: Retry | None = None,
     timeout: Timeout | None = None,
-    adapter: Any | str | None = None,
-    on_event: Callable[[ObservabilityEvent], None] | None = None,
-    meta: dict[str, Any] | None = None,
+    adapter: _Any | str | None = None,
+    on_event: _Callable[[ObservabilityEvent], None] | None = None,
+    meta: dict[str, _Any] | None = None,
     buffer_tool_calls: bool = False,
     continue_from_last_good_token: "ContinuationConfig | bool" = False,
-    build_continuation_prompt: Callable[[str], str] | None = None,
-) -> "LazyStream[Any]": ...
+    build_continuation_prompt: _Callable[[str], str] | None = None,
+) -> "LazyStream[_Any]": ...
 
 
 def wrap(
-    client_or_stream: Any,
+    client_or_stream: _Any,
     *,
     guardrails: list[GuardrailRule] | None = None,
     retry: Retry | None = None,
     timeout: Timeout | None = None,
-    adapter: Any | str | None = None,
-    on_event: Callable[[ObservabilityEvent], None] | None = None,
-    meta: dict[str, Any] | None = None,
+    adapter: _Any | str | None = None,
+    on_event: _Callable[[ObservabilityEvent], None] | None = None,
+    meta: dict[str, _Any] | None = None,
     buffer_tool_calls: bool = False,
     continue_from_last_good_token: "ContinuationConfig | bool" = False,
-    build_continuation_prompt: Callable[[str], str] | None = None,
-) -> "WrappedClient | LazyStream[Any]":
+    build_continuation_prompt: _Callable[[str], str] | None = None,
+) -> "WrappedClient | LazyStream[_Any]":
     """Wrap an OpenAI/LiteLLM client or raw stream with L0 reliability.
 
     This is the preferred API. Pass a client for full retry support,
@@ -442,27 +446,27 @@ async def run(
     timeout: Timeout | None = None,
     check_intervals: "CheckIntervals | None" = None,
     adapter: Adapter | str | None = None,
-    on_event: Callable[[ObservabilityEvent], None] | None = None,
-    meta: dict[str, Any] | None = None,
+    on_event: _Callable[[ObservabilityEvent], None] | None = None,
+    meta: dict[str, _Any] | None = None,
     buffer_tool_calls: bool = False,
     continue_from_last_good_token: "ContinuationConfig | bool" = False,
-    build_continuation_prompt: Callable[[str], str] | None = None,
+    build_continuation_prompt: _Callable[[str], str] | None = None,
     # Lifecycle callbacks
     callbacks: "LifecycleCallbacks | None" = None,
-    on_start: Callable[[int, bool, bool], None] | None = None,
-    on_complete: Callable[[State], None] | None = None,
-    on_error: Callable[[Exception, bool, bool], None] | None = None,
-    on_stream_event: Callable[[Event], None] | None = None,
-    on_violation: Callable[..., None] | None = None,
-    on_retry: Callable[[int, str], None] | None = None,
-    on_fallback: Callable[[int, str], None] | None = None,
-    on_resume: Callable[[str, int], None] | None = None,
-    on_checkpoint: Callable[[str, int], None] | None = None,
-    on_timeout: Callable[[str, float], None] | None = None,
-    on_abort: Callable[[int, int], None] | None = None,
-    on_drift: Callable[[list[str], float | None], None] | None = None,
-    on_tool_call: Callable[[str, str, dict[str, Any]], None] | None = None,
-) -> "Stream[Any]":
+    on_start: _Callable[[int, bool, bool], None] | None = None,
+    on_complete: _Callable[[State], None] | None = None,
+    on_error: _Callable[[Exception, bool, bool], None] | None = None,
+    on_stream_event: _Callable[[Event], None] | None = None,
+    on_violation: _Callable[..., None] | None = None,
+    on_retry: _Callable[[int, str], None] | None = None,
+    on_fallback: _Callable[[int, str], None] | None = None,
+    on_resume: _Callable[[str, int], None] | None = None,
+    on_checkpoint: _Callable[[str, int], None] | None = None,
+    on_timeout: _Callable[[str, float], None] | None = None,
+    on_abort: _Callable[[int, int], None] | None = None,
+    on_drift: _Callable[[list[str], float | None], None] | None = None,
+    on_tool_call: _Callable[[str, str, dict[str, _Any]], None] | None = None,
+) -> "Stream[_Any]":
     """Run L0 with a stream factory (supports retries and fallbacks).
 
     Use this when you need retry/fallback support, which requires re-creating
@@ -568,6 +572,48 @@ async def run(
 # Legacy alias
 l0 = run
 
+# Clean up namespace - remove submodule references to avoid pollution
+# Users should import from the submodules directly if needed (e.g., from l0.adapters import ...)
+del _utils
+del adapters
+del client
+del comparison
+del consensus
+del continuation
+del drift
+del errors
+del event_sourcing
+del events
+del format
+del guardrails
+del json_schema
+del logging
+del metrics
+del monitoring
+del multimodal
+del normalize
+del parallel
+del pipeline
+del pool
+del runtime
+del state_machine
+del stream
+del structured
+del types
+del version
+del window
+
+# Also clean up submodules that may have been imported transitively
+import sys as _sys
+
+for _mod in ["formatting", "retry", "state"]:
+    _full = f"l0.{_mod}"
+    if _full in _sys.modules and _mod in dir():
+        delattr(_sys.modules[__name__], _mod)
+del _sys, _mod, _full
+
+# Hide wrap_client (internal, use wrap() instead)
+del wrap_client
 
 __all__ = [
     # Version
@@ -583,6 +629,9 @@ __all__ = [
     "Event",
     "State",
     "EventType",
+    "StreamFactory",
+    "StreamSource",
+    "RawStream",
     # Config
     "Retry",
     "RetryDefaults",
