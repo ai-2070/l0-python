@@ -259,7 +259,7 @@ class DriftDetector:
         words = content.lower().split()
         phrases: dict[str, int] = {}
 
-        for i in range(len(words) - 5):
+        for i in range(len(words) - 4):
             phrase = " ".join(words[i : i + 5])
             phrases[phrase] = phrases.get(phrase, 0) + 1
 

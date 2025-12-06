@@ -666,6 +666,104 @@ class TestIntegrationScenarios:
         assert "repetition" in result.types
 
 
+class TestPhraseRepetitionSlidingWindow:
+    """Tests for phrase repetition sliding window edge cases."""
+
+    def test_detect_repeated_phrase_at_end_of_content(self):
+        """Should detect repeated 5-word phrase at the end of content.
+
+        This tests the fix for the off-by-one error where range(len(words) - 5)
+        missed the last valid 5-word phrase starting position.
+        """
+        detector = DriftDetector()
+        # Create content where the repeated phrase appears at the very end
+        # "one two three four five" is exactly 5 words
+        content = (
+            "one two three four five "
+            "some other words here now "
+            "one two three four five "
+            "more different words between "
+            "one two three four five"
+        )
+        result = detector.check(content)
+        assert result.detected is True
+        assert "repetition" in result.types
+
+    def test_detect_phrase_starting_at_last_valid_position(self):
+        """Should detect phrase that starts at the last valid sliding window position."""
+        detector = DriftDetector()
+        # Construct content so the repeated phrase starts at index len(words) - 5
+        # The phrase "alpha beta gamma delta epsilon" repeats 3 times
+        content = (
+            "prefix word here "
+            "alpha beta gamma delta epsilon "
+            "middle section now "
+            "alpha beta gamma delta epsilon "
+            "alpha beta gamma delta epsilon"
+        )
+        result = detector.check(content)
+        assert result.detected is True
+        assert "repetition" in result.types
+
+    def test_exactly_five_words_repeated(self):
+        """Should detect repetition when content has exactly 5 words repeated."""
+        detector = DriftDetector()
+        # Exactly 5 words repeated 3 times (threshold default is 3)
+        content = (
+            "hello world foo bar baz hello world foo bar baz hello world foo bar baz"
+        )
+        result = detector.check(content)
+        assert result.detected is True
+        assert "repetition" in result.types
+
+    def test_six_words_with_phrase_at_boundary(self):
+        """Should detect 5-word phrase in 6-word content when repeated elsewhere."""
+        detector = DriftDetector()
+        # 6 words total, the phrase "a b c d e" should be detected at positions 0 and 1
+        # But we need 3 occurrences to trigger, so extend the content
+        content = (
+            "quick brown fox jumps over "
+            "lazy dog runs fast now "
+            "quick brown fox jumps over "
+            "the fence today here now "
+            "quick brown fox jumps over"
+        )
+        result = detector.check(content)
+        assert result.detected is True
+        assert "repetition" in result.types
+
+    def test_no_false_positive_with_four_word_near_match(self):
+        """Should not detect repetition when only 4 words match at boundary."""
+        detector = DriftDetector()
+        # Only 4 words match, not 5 - should not trigger phrase repetition
+        content = (
+            "one two three four DIFFERENT "
+            "some other content here now "
+            "one two three four ANOTHER"
+        )
+        result = detector.check(content)
+        # Should not detect phrase repetition (only 4 words match)
+        assert "repetition" not in result.types
+
+    def test_minimum_words_for_phrase_detection(self):
+        """Should handle content with exactly 5 words (minimum for phrase detection)."""
+        detector = DriftDetector()
+        # With exactly 5 words, there's only one possible 5-word phrase
+        content = "one two three four five"
+        result = detector.check(content)
+        # No repetition possible with just one phrase
+        assert "repetition" not in result.types
+
+    def test_four_words_no_phrase_detection(self):
+        """Should handle content with fewer than 5 words gracefully."""
+        detector = DriftDetector()
+        content = "one two three four"
+        result = detector.check(content)
+        # Should not crash, and no repetition detected
+        assert result is not None
+        assert "repetition" not in result.types
+
+
 class TestPerformance:
     """Tests for performance."""
 
