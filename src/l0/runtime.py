@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any, Coroutine, cast
 from .adapters import AdaptedEvent, Adapter, Adapters
 from .continuation import ContinuationConfig, deduplicate_continuation, detect_overlap
 from .drift import DriftDetector
-from .errors import Error, ErrorCode
+from .errors import Error, ErrorCode, ErrorContext
 from .events import EventBus, ObservabilityEventType
 from .logging import logger
 from .retry import RetryManager
@@ -807,6 +807,16 @@ async def _internal_run(
                             raise Error(
                                 f"Fatal guardrail violation: {first_violation.message}",
                                 code=ErrorCode.FATAL_GUARDRAIL_VIOLATION,
+                                context=ErrorContext(
+                                    code=ErrorCode.FATAL_GUARDRAIL_VIOLATION,
+                                    checkpoint=state.checkpoint,
+                                    token_count=state.token_count,
+                                    content_length=len(state.content),
+                                    model_retry_count=retry_mgr.model_retry_count,
+                                    network_retry_count=retry_mgr.network_retry_count,
+                                    fallback_index=fallback_idx,
+                                    context=context,
+                                ),
                             )
 
                         # Check for violations that should trigger retry
@@ -821,6 +831,16 @@ async def _internal_run(
                             raise Error(
                                 f"Guardrail violation: {first_violation.message}",
                                 code=ErrorCode.GUARDRAIL_VIOLATION,
+                                context=ErrorContext(
+                                    code=ErrorCode.GUARDRAIL_VIOLATION,
+                                    checkpoint=state.checkpoint,
+                                    token_count=state.token_count,
+                                    content_length=len(state.content),
+                                    model_retry_count=retry_mgr.model_retry_count,
+                                    network_retry_count=retry_mgr.network_retry_count,
+                                    fallback_index=fallback_idx,
+                                    context=context,
+                                ),
                             )
 
                     if fallback_idx > 0:

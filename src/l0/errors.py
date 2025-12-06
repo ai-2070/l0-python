@@ -174,7 +174,8 @@ class ErrorContext:
     model_retry_count: int = 0  # Retry attempts made
     network_retry_count: int = 0  # Network retries made
     fallback_index: int = 0  # Which fallback was tried
-    metadata: dict[str, Any] | None = None
+    metadata: dict[str, Any] | None = None  # Internal metadata
+    context: dict[str, Any] | None = None  # User-provided context
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -297,6 +298,7 @@ class Error(Exception):
             "network_retry_count": self.context.network_retry_count,
             "fallback_index": self.context.fallback_index,
             "metadata": self.context.metadata,
+            "context": self.context.context,
         }
 
     # ─────────────────────────────────────────────────────────────────────────
