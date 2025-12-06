@@ -68,13 +68,10 @@ class ObservabilityEventType(str, Enum):
     DRIFT_CHECK_SKIPPED = "DRIFT_CHECK_SKIPPED"
 
     # Checkpoint
-    CHECKPOINT_START = "CHECKPOINT_START"
-    CHECKPOINT_END = "CHECKPOINT_END"
     CHECKPOINT_SAVED = "CHECKPOINT_SAVED"
 
     # Resume
     RESUME_START = "RESUME_START"
-    RESUME_END = "RESUME_END"
 
     # Retry
     RETRY_START = "RETRY_START"
@@ -126,7 +123,6 @@ class ObservabilityEventType(str, Enum):
 
     # Continuation
     CONTINUATION_START = "CONTINUATION_START"
-    CONTINUATION_END = "CONTINUATION_END"
     DEDUPLICATION_START = "DEDUPLICATION_START"
     DEDUPLICATION_END = "DEDUPLICATION_END"
     # Alternate naming for compatibility with TS

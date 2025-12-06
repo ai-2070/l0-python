@@ -148,11 +148,6 @@ def _validate_checkpoint(
     # Create temporary state with checkpoint content
     temp_state = State(content=checkpoint, completed=False)
 
-    event_bus.emit(
-        ObservabilityEventType.CHECKPOINT_START,
-        checkpointLength=len(checkpoint),
-    )
-
     has_fatal_violation = False
 
     for rule in guardrails:
@@ -170,11 +165,6 @@ def _validate_checkpoint(
                     violations=[v.__dict__],
                     checkpointValidation=True,
                 )
-
-    event_bus.emit(
-        ObservabilityEventType.CHECKPOINT_END,
-        valid=not has_fatal_violation,
-    )
 
     return not has_fatal_violation
 
@@ -417,18 +407,6 @@ async def _internal_run(
                         if build_continuation_prompt:
                             # This allows the user to modify the prompt for the next call
                             build_continuation_prompt(pending_checkpoint)
-
-                        # Emit RESUME_END per lifecycle spec
-                        event_bus.emit(
-                            ObservabilityEventType.RESUME_END,
-                            checkpoint=pending_checkpoint,
-                            token_count=state.token_count,
-                        )
-
-                        event_bus.emit(
-                            ObservabilityEventType.CONTINUATION_END,
-                            checkpointLength=len(pending_checkpoint),
-                        )
 
                         logger.debug(
                             f"Continuing from checkpoint ({len(pending_checkpoint)} chars)"
