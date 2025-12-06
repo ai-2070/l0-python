@@ -16,12 +16,14 @@ from uuid6 import uuid7
 class ObservabilityEventType(str, Enum):
     # Session
     SESSION_START = "SESSION_START"
+    ATTEMPT_START = "ATTEMPT_START"
     SESSION_END = "SESSION_END"
     SESSION_SUMMARY = "SESSION_SUMMARY"
 
     # Stream
     STREAM_INIT = "STREAM_INIT"
     STREAM_READY = "STREAM_READY"
+    TOKEN = "TOKEN"
 
     # Adapter
     ADAPTER_DETECTED = "ADAPTER_DETECTED"
@@ -79,6 +81,9 @@ class ObservabilityEventType(str, Enum):
     RETRY_ATTEMPT = "RETRY_ATTEMPT"
     RETRY_END = "RETRY_END"
     RETRY_GIVE_UP = "RETRY_GIVE_UP"
+    RETRY_FN_START = "RETRY_FN_START"
+    RETRY_FN_RESULT = "RETRY_FN_RESULT"
+    RETRY_FN_ERROR = "RETRY_FN_ERROR"
 
     # Fallback
     FALLBACK_START = "FALLBACK_START"
@@ -106,14 +111,27 @@ class ObservabilityEventType(str, Enum):
     PARSE_ERROR = "PARSE_ERROR"
     SCHEMA_VALIDATION_START = "SCHEMA_VALIDATION_START"
     SCHEMA_VALIDATION_END = "SCHEMA_VALIDATION_END"
+    SCHEMA_VALIDATION_ERROR = "SCHEMA_VALIDATION_ERROR"
     AUTO_CORRECT_START = "AUTO_CORRECT_START"
     AUTO_CORRECT_END = "AUTO_CORRECT_END"
+    # Alternate naming for compatibility with TS
+    STRUCTURED_PARSE_START = "STRUCTURED_PARSE_START"
+    STRUCTURED_PARSE_END = "STRUCTURED_PARSE_END"
+    STRUCTURED_PARSE_ERROR = "STRUCTURED_PARSE_ERROR"
+    STRUCTURED_VALIDATION_START = "STRUCTURED_VALIDATION_START"
+    STRUCTURED_VALIDATION_END = "STRUCTURED_VALIDATION_END"
+    STRUCTURED_VALIDATION_ERROR = "STRUCTURED_VALIDATION_ERROR"
+    STRUCTURED_AUTO_CORRECT_START = "STRUCTURED_AUTO_CORRECT_START"
+    STRUCTURED_AUTO_CORRECT_END = "STRUCTURED_AUTO_CORRECT_END"
 
     # Continuation
     CONTINUATION_START = "CONTINUATION_START"
     CONTINUATION_END = "CONTINUATION_END"
     DEDUPLICATION_START = "DEDUPLICATION_START"
     DEDUPLICATION_END = "DEDUPLICATION_END"
+    # Alternate naming for compatibility with TS
+    CONTINUATION_DEDUPLICATION_START = "CONTINUATION_DEDUPLICATION_START"
+    CONTINUATION_DEDUPLICATION_END = "CONTINUATION_DEDUPLICATION_END"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -126,7 +144,12 @@ class ObservabilityEvent:
     type: ObservabilityEventType
     ts: float
     stream_id: str
-    meta: dict[str, Any] = field(default_factory=dict)
+    context: dict[str, Any] = field(
+        default_factory=dict
+    )  # User-provided metadata (request_id, tenant, etc.)
+    meta: dict[str, Any] = field(
+        default_factory=dict
+    )  # Event-specific data (attempt, reason, etc.)
 
 
 class EventBus:
@@ -135,11 +158,11 @@ class EventBus:
     def __init__(
         self,
         handler: Callable[[ObservabilityEvent], None] | None = None,
-        meta: dict[str, Any] | None = None,
+        context: dict[str, Any] | None = None,
     ):
         self._handler = handler
         self._stream_id = str(uuid7())
-        self._meta = meta or {}
+        self._context = context or {}
 
     @property
     def stream_id(self) -> str:
@@ -153,6 +176,7 @@ class EventBus:
             type=event_type,
             ts=time.time() * 1000,
             stream_id=self._stream_id,
-            meta={**self._meta, **event_meta},
+            context=self._context.copy(),
+            meta=event_meta,
         )
         self._handler(event)

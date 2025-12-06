@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from src.l0.formatting.strings import (
+from l0.formatting.strings import (
     escape,
     escape_html,
     escape_regex,
@@ -105,6 +105,14 @@ class TestHtmlEscaping:
         assert unescape_html("&amp;amp;") == "&amp;"
         # Verify injection attack is prevented
         assert unescape_html("&amp;lt;script&amp;gt;") == "&lt;script&gt;"
+
+    def test_unescape_html_hex_apostrophe(self):
+        """Test that hex variant &#x27; is also unescaped to apostrophe."""
+        assert unescape_html("it&#x27;s") == "it's"
+
+    def test_unescape_html_both_apostrophe_variants(self):
+        """Test that both &#39; and &#x27; are unescaped."""
+        assert unescape_html("&#39;hello&#x27;") == "'hello'"
 
     def test_roundtrip_html(self):
         original = '<script>alert("xss")</script>'

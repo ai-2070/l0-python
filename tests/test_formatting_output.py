@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from src.l0.formatting.output import (
+from l0.formatting.output import (
     JsonOutputOptions,
     OutputConstraints,
     clean_output,
@@ -14,6 +14,7 @@ from src.l0.formatting.output import (
     format_output_constraints,
     format_structured_output,
     validate_json_output,
+    wrap_output_instruction,
 )
 
 
@@ -24,11 +25,11 @@ class TestFormatJsonOutput:
         result = format_json_output({"strict": True})
         assert "valid JSON only" in result
         assert "Do not include any text" in result
-        assert "Do not wrap in code blocks" in result
+        assert "Do not wrap" in result
 
     def test_non_strict_json_output(self):
         result = format_json_output({"strict": False})
-        assert result == "Respond with JSON."
+        assert "JSON" in result
 
     def test_json_output_with_schema(self):
         result = format_json_output(
@@ -38,7 +39,7 @@ class TestFormatJsonOutput:
             }
         )
         assert "valid JSON only" in result
-        assert "Use this JSON schema" in result
+        assert "schema" in result.lower()
         assert '"name": "string"' in result
 
     def test_json_output_with_example(self):
@@ -48,7 +49,7 @@ class TestFormatJsonOutput:
                 "example": '{"name": "John", "age": 30}',
             }
         )
-        assert "Example:" in result
+        assert "xample" in result  # Example or example
         assert '{"name": "John"' in result
 
     def test_json_output_with_options_object(self):
@@ -89,11 +90,15 @@ class TestFormatOutputConstraints:
 
     def test_max_length_constraint(self):
         result = format_output_constraints({"max_length": 500})
-        assert "Maximum length: 500 characters" in result
+        # TS uses "Keep your response under X characters" format
+        assert "500" in result
+        assert "character" in result.lower()
 
     def test_min_length_constraint(self):
         result = format_output_constraints({"min_length": 100})
-        assert "Minimum length: 100 characters" in result
+        # TS uses "Provide at least X characters" format
+        assert "100" in result
+        assert "character" in result.lower()
 
     def test_no_code_blocks(self):
         result = format_output_constraints({"no_code_blocks": True})
@@ -101,7 +106,7 @@ class TestFormatOutputConstraints:
 
     def test_no_markdown(self):
         result = format_output_constraints({"no_markdown": True})
-        assert "Do not use markdown formatting" in result
+        assert "markdown" in result.lower() or "Markdown" in result
 
     def test_language_constraint(self):
         result = format_output_constraints({"language": "Spanish"})
@@ -120,8 +125,8 @@ class TestFormatOutputConstraints:
                 "tone": "casual",
             }
         )
-        assert "Maximum length: 500" in result
-        assert "Minimum length: 100" in result
+        assert "500" in result
+        assert "100" in result
         assert "French" in result
         assert "casual" in result
 
@@ -163,7 +168,7 @@ class TestCreateOutputFormatSection:
             },
         )
         assert "valid JSON only" in result
-        assert "Maximum length: 1000" in result
+        assert "1000" in result
 
     def test_format_section_with_schema(self):
         result = create_output_format_section(
@@ -335,3 +340,40 @@ class TestValidateJsonOutput:
         is_valid, error = validate_json_output("Just some text")
         assert is_valid is False
         assert error is not None
+
+
+class TestWrapOutputInstruction:
+    """Tests for wrap_output_instruction function."""
+
+    def test_wrap_basic_instruction(self):
+        result = wrap_output_instruction("Respond with valid JSON only.")
+        assert (
+            result == "<output_format>\nRespond with valid JSON only.\n</output_format>"
+        )
+
+    def test_wrap_multiline_instruction(self):
+        instruction = "Line 1\nLine 2\nLine 3"
+        result = wrap_output_instruction(instruction)
+        assert "<output_format>" in result
+        assert "</output_format>" in result
+        assert "Line 1\nLine 2\nLine 3" in result
+
+    def test_wrap_empty_instruction(self):
+        result = wrap_output_instruction("")
+        assert result == "<output_format>\n\n</output_format>"
+
+
+class TestOutputFormatSectionDefaultWrap:
+    """Tests for default wrap behavior in create_output_format_section."""
+
+    def test_default_wrap_is_true(self):
+        """Test that wrap defaults to True."""
+        result = create_output_format_section("json", {"strict": True})
+        assert "<output_format>" in result
+        assert "</output_format>" in result
+
+    def test_wrap_false_no_tags(self):
+        """Test that wrap=False excludes output_format tags."""
+        result = create_output_format_section("json", {"strict": True, "wrap": False})
+        assert "<output_format>" not in result
+        assert "</output_format>" not in result

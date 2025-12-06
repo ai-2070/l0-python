@@ -74,7 +74,11 @@ from .output import (
     format_output_constraints,
     format_structured_output,
     validate_json_output,
+    wrap_output_instruction,
 )
+
+# Re-export wrapOutputInstruction at top level for convenience
+from .output import wrap_output_instruction as wrapOutputInstruction
 
 # ─────────────────────────────────────────────────────────────────────────────
 # String Utilities
@@ -150,6 +154,7 @@ __all__ = [
     "extract_json_from_output",
     "clean_output",
     "validate_json_output",
+    "wrap_output_instruction",
     "JsonOutputOptions",
     "StructuredOutputOptions",
     "OutputConstraints",

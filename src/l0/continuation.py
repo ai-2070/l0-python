@@ -223,3 +223,71 @@ class ContinuationConfig(BaseModel):
     def disabled(cls) -> ContinuationConfig:
         """Get disabled continuation configuration."""
         return cls(enabled=False)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Scoped API
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class Continuation:
+    """Scoped API for continuation and deduplication utilities.
+
+    Provides utilities for handling checkpoint resumption and deduplication
+    when streams fail mid-generation and resume from a checkpoint.
+
+    Usage:
+        ```python
+        from l0 import Continuation
+
+        # Detect overlap between checkpoint and continuation
+        result = Continuation.detect_overlap("Hello world", "world is great")
+        if result.has_overlap:
+            print(f"Overlap: {result.overlap_text}")
+
+        # Deduplicate continuation (convenience method)
+        text = Continuation.deduplicate("Hello world", "world is great")
+        # Returns: " is great"
+        ```
+    """
+
+    # Re-export types for convenience
+    Config = ContinuationConfig
+    Options = DeduplicationOptions
+    OverlapResult = OverlapResult
+
+    @staticmethod
+    def detect_overlap(
+        checkpoint: str,
+        continuation: str,
+        options: DeduplicationOptions | None = None,
+    ) -> OverlapResult:
+        """Detect overlap between checkpoint suffix and continuation prefix.
+
+        Args:
+            checkpoint: The checkpoint content (text before failure)
+            continuation: The continuation content (text from resumed stream)
+            options: Deduplication options
+
+        Returns:
+            OverlapResult with overlap details and deduplicated continuation
+        """
+        return detect_overlap(checkpoint, continuation, options)
+
+    @staticmethod
+    def deduplicate(
+        checkpoint: str,
+        continuation: str,
+        options: DeduplicationOptions | None = None,
+    ) -> str:
+        """Remove overlapping text from continuation.
+
+        Args:
+            checkpoint: The checkpoint content
+            continuation: The continuation content
+            options: Deduplication options
+
+        Returns:
+            Continuation with any overlapping prefix removed
+        """
+        return deduplicate_continuation(checkpoint, continuation, options)

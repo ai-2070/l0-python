@@ -7,7 +7,7 @@ import pytest
 
 # Load .env file if it exists
 try:
-    from dotenv import load_dotenv  # type: ignore[import-not-found]
+    from dotenv import load_dotenv
 
     env_path = Path(__file__).parent.parent / ".env"
     if env_path.exists():

@@ -757,12 +757,12 @@ from l0 import ObservabilityEvent, ObservabilityEventType
 
 def on_event(event: ObservabilityEvent):
     print(f"[{event.type}] stream={event.stream_id}")
-    print(f"  ts={event.ts}, meta={event.meta}")
+    print(f"  ts={event.ts}, context={event.context}, meta={event.meta}")
 
 result = await l0.run(
     stream=my_stream,
     on_event=on_event,
-    meta={"user_id": "123", "session": "abc"},
+    context={"request_id": "req-123", "user_id": "user-456"},
 )
 ```
 

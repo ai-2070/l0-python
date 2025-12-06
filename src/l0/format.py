@@ -97,6 +97,7 @@ from .formatting import (
     validate_json_output,
     validate_tool,
     wrap,
+    wrap_output_instruction,
 )
 
 
@@ -159,13 +160,21 @@ class Format:
         *,
         label: str = "context",
         delimiter: DelimiterType = "xml",
+        dedent: bool = True,
+        normalize: bool = True,
+        custom_delimiter_start: str | None = None,
+        custom_delimiter_end: str | None = None,
     ) -> str:
         """Wrap content with proper delimiters.
 
         Args:
             content: The content to wrap.
             label: The label for the context section.
-            delimiter: The delimiter type - "xml", "markdown", or "brackets".
+            delimiter: The delimiter type - "xml", "markdown", "brackets", or "none".
+            dedent: Whether to remove common leading whitespace.
+            normalize: Whether to normalize whitespace (collapse multiple newlines).
+            custom_delimiter_start: Custom start delimiter (overrides delimiter type).
+            custom_delimiter_end: Custom end delimiter (overrides delimiter type).
 
         Returns:
             The formatted context string.
@@ -177,7 +186,15 @@ class Format:
             >>> Format.context("Content", delimiter="markdown")
             '# Context\\n\\nContent'
         """
-        return format_context(content, label=label, delimiter=delimiter)
+        return format_context(
+            content,
+            label=label,
+            delimiter=delimiter,
+            dedent=dedent,
+            normalize=normalize,
+            custom_delimiter_start=custom_delimiter_start,
+            custom_delimiter_end=custom_delimiter_end,
+        )
 
     @staticmethod
     def contexts(
@@ -413,6 +430,22 @@ class Format:
             A tuple of (is_valid, error_message).
         """
         return validate_json_output(output)
+
+    @staticmethod
+    def wrap_output(instruction: str) -> str:
+        """Wrap output instruction in clear delimiter.
+
+        Args:
+            instruction: The output format instruction to wrap.
+
+        Returns:
+            The instruction wrapped in <output_format> tags.
+
+        Example:
+            >>> Format.wrap_output("Respond with valid JSON only.")
+            '<output_format>\\nRespond with valid JSON only.\\n</output_format>'
+        """
+        return wrap_output_instruction(instruction)
 
     # ─────────────────────────────────────────────────────────────────────────
     # Tool Formatting

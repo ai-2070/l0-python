@@ -34,6 +34,7 @@ from .continuation import ContinuationConfig
 from .types import Retry, Stream, Timeout
 
 if TYPE_CHECKING:
+    from .adapters import Adapter
     from .events import ObservabilityEvent
     from .guardrails import GuardrailRule
 
@@ -81,7 +82,7 @@ class WrappedCompletions:
             timeout=self._config.timeout,
             adapter=self._config.adapter,
             on_event=self._config.on_event,
-            meta=self._config.meta,
+            context=self._config.context,
             buffer_tool_calls=self._config.buffer_tool_calls,
             continue_from_last_good_token=self._config.continue_from_last_good_token,
             build_continuation_prompt=self._config.build_continuation_prompt,
@@ -115,7 +116,7 @@ class ClientConfig:
         "timeout",
         "adapter",
         "on_event",
-        "meta",
+        "context",
         "buffer_tool_calls",
         "continue_from_last_good_token",
         "build_continuation_prompt",
@@ -128,9 +129,9 @@ class ClientConfig:
         guardrails: list[GuardrailRule] | None = None,
         retry: Retry | None = None,
         timeout: Timeout | None = None,
-        adapter: Any | str | None = None,
+        adapter: "Adapter | str | None" = None,
         on_event: Callable[[ObservabilityEvent], None] | None = None,
-        meta: dict[str, Any] | None = None,
+        context: dict[str, Any] | None = None,
         buffer_tool_calls: bool = False,
         continue_from_last_good_token: ContinuationConfig | bool = False,
         build_continuation_prompt: Callable[[str], str] | None = None,
@@ -141,7 +142,7 @@ class ClientConfig:
         self.timeout = timeout
         self.adapter = adapter
         self.on_event = on_event
-        self.meta = meta
+        self.context = context
         self.buffer_tool_calls = buffer_tool_calls
         self.continue_from_last_good_token = continue_from_last_good_token
         self.build_continuation_prompt = build_continuation_prompt
@@ -204,9 +205,9 @@ class WrappedClient:
         guardrails: list[GuardrailRule] | None = None,
         retry: Retry | None = None,
         timeout: Timeout | None = None,
-        adapter: Any | str | None = None,
+        adapter: "Adapter | str | None" = None,
         on_event: Callable[[ObservabilityEvent], None] | None = None,
-        meta: dict[str, Any] | None = None,
+        context: dict[str, Any] | None = None,
         buffer_tool_calls: bool | None = None,
         continue_from_last_good_token: ContinuationConfig | bool | None = None,
         build_continuation_prompt: Callable[[str], str] | None = None,
@@ -225,7 +226,7 @@ class WrappedClient:
             timeout=timeout if timeout is not None else self._config.timeout,
             adapter=adapter if adapter is not None else self._config.adapter,
             on_event=on_event if on_event is not None else self._config.on_event,
-            meta=meta if meta is not None else self._config.meta,
+            context=context if context is not None else self._config.context,
             buffer_tool_calls=buffer_tool_calls
             if buffer_tool_calls is not None
             else self._config.buffer_tool_calls,
@@ -243,12 +244,12 @@ def wrap_client(
     client: Any,
     *,
     fallbacks: list[Callable[[], Any]] | None = None,
-    guardrails: list[GuardrailRule] | None = None,
+    guardrails: "list[GuardrailRule] | None" = None,
     retry: Retry | None = None,
     timeout: Timeout | None = None,
-    adapter: Any | str | None = None,
+    adapter: "Adapter | str | None" = None,
     on_event: Callable[[ObservabilityEvent], None] | None = None,
-    meta: dict[str, Any] | None = None,
+    context: dict[str, Any] | None = None,
     buffer_tool_calls: bool = False,
     continue_from_last_good_token: ContinuationConfig | bool = True,
     build_continuation_prompt: Callable[[str], str] | None = None,
@@ -263,7 +264,7 @@ def wrap_client(
         timeout: Timeout configuration
         adapter: Adapter hint ("openai", "litellm", or Adapter instance)
         on_event: Observability event callback
-        meta: Metadata attached to all events
+        context: User context attached to all events (request_id, tenant, etc.)
         buffer_tool_calls: Buffer tool calls until complete
         continue_from_last_good_token: Resume from checkpoint on retry (default: True)
         build_continuation_prompt: Callback to modify prompt for continuation
@@ -294,7 +295,7 @@ def wrap_client(
         timeout=timeout,
         adapter=adapter,
         on_event=on_event,
-        meta=meta,
+        context=context,
         buffer_tool_calls=buffer_tool_calls,
         continue_from_last_good_token=continue_from_last_good_token,
         build_continuation_prompt=build_continuation_prompt,

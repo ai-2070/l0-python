@@ -73,7 +73,7 @@ client = l0.wrap(
     timeout=l0.Timeout(initial_token=10.0, inter_token=30.0),
     continue_from_last_good_token=True,  # Resume from checkpoint on failure
     on_event=lambda e: print(f"[{e.type}]"),
-    meta={"user_id": "123"},
+    context={"request_id": "req-123", "user_id": "user-456"},
 )
 ```
 
@@ -97,7 +97,7 @@ text = await result.read()
 | `continue_from_last_good_token` | `bool \| ContinuationConfig` | `False` | Resume from checkpoint on failure |
 | `adapter` | `str \| Adapter` | `None` | Adapter hint or instance |
 | `on_event` | `Callable` | `None` | Observability callback |
-| `meta` | `dict` | `None` | Metadata for events |
+| `context` | `dict` | `None` | User context attached to all events |
 | `build_continuation_prompt` | `Callable[[str], str]` | `None` | Modify prompt for continuation |
 
 **Returns:** 
@@ -106,7 +106,7 @@ text = await result.read()
 
 ---
 
-### run(stream, *, fallbacks, guardrails, retry, timeout, adapter, on_event, meta, continue_from_last_good_token)
+### run(stream, *, fallbacks, guardrails, retry, timeout, adapter, on_event, context, continue_from_last_good_token)
 
 Run L0 with a stream factory. Use when you need **retries or fallbacks** (which require re-creating the stream).
 
@@ -156,8 +156,8 @@ result = await l0.run(
     # Optional: Event callback
     on_event=lambda event: print(f"[{event.type}]"),
 
-    # Optional: Metadata for events
-    meta={"user_id": "123"},
+    # Optional: User context attached to all events
+    context={"request_id": "req-123", "tenant": "acme"},
     
     # Optional: Resume from checkpoint on failure
     continue_from_last_good_token=True,
@@ -197,7 +197,7 @@ print(result.state.duration)      # Duration in seconds
 | `continue_from_last_good_token` | `bool \| ContinuationConfig` | `False` | Resume from checkpoint on failure |
 | `adapter` | `str \| Adapter` | `None` | Adapter hint or instance |
 | `on_event` | `Callable` | `None` | Observability callback |
-| `meta` | `dict` | `None` | Metadata for events |
+| `context` | `dict` | `None` | User context attached to all events |
 | `build_continuation_prompt` | `Callable[[str], str]` | `None` | Modify prompt for continuation |
 
 **Returns:** `Stream` - Async iterator with attached state
@@ -399,7 +399,7 @@ result = await l0.run(
         stream=True,
     ),
     on_event=handle_event,
-    meta={"user_id": "123", "request_id": "abc"},
+    context={"request_id": "req-123", "user_id": "user-456"},
 )
 ```
 
@@ -1237,12 +1237,13 @@ from l0 import EventBus, ObservabilityEvent, ObservabilityEventType
 def my_handler(event: ObservabilityEvent):
     print(f"[{event.type}] stream={event.stream_id}")
     print(f"  ts={event.ts}ms")
-    print(f"  meta={event.meta}")
+    print(f"  context={event.context}")  # User-provided context
+    print(f"  meta={event.meta}")        # Event-specific data
 
 # Create event bus
 bus = EventBus(
     handler=my_handler,
-    meta={"service": "my-app"},
+    context={"service": "my-app", "request_id": "req-123"},
 )
 
 # Access stream ID (UUIDv7)
@@ -1257,8 +1258,8 @@ bus.emit(ObservabilityEventType.CHECKPOINT_SAVED, checkpoint="...", token_count=
 ```python
 result = await l0.run(
     stream=my_stream,
-    on_event=lambda e: print(f"[{e.type}] {e.meta}"),
-    meta={"user_id": "123", "request_id": "abc"},
+    on_event=lambda e: print(f"[{e.type}] context={e.context} meta={e.meta}"),
+    context={"request_id": "req-123", "user_id": "user-456"},
 )
 ```
 
@@ -1270,7 +1271,8 @@ class ObservabilityEvent:
     type: ObservabilityEventType     # Event type
     ts: float                        # Unix epoch MILLISECONDS
     stream_id: str                   # UUIDv7 stream identifier
-    meta: dict[str, Any]             # Event metadata
+    context: dict[str, Any]          # User-provided context (request_id, tenant, etc.)
+    meta: dict[str, Any]             # Event-specific metadata (attempt, reason, etc.)
 ```
 
 ### Event Types

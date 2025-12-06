@@ -117,10 +117,13 @@ def unescape_html(s: str) -> str:
     Example:
         >>> unescape_html('&lt;div&gt;')
         '<div>'
+        >>> unescape_html('&#x27;')  # Also handles hex variant
+        "'"
     """
     # Replace &amp; last to prevent double-decoding (e.g., &amp;lt; -> &lt; -> <)
     return (
         s.replace("&#39;", "'")
+        .replace("&#x27;", "'")  # Hex variant for apostrophe
         .replace("&quot;", '"')
         .replace("&gt;", ">")
         .replace("&lt;", "<")

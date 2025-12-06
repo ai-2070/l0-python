@@ -17,6 +17,42 @@ T = TypeVar("T")
 
 
 @dataclass
+class AggregatedTelemetry:
+    """Aggregated telemetry from parallel operations.
+
+    Attributes:
+        total_tokens: Total tokens used across all operations
+        total_duration: Total duration in seconds
+        total_retries: Total retry attempts
+        total_network_errors: Total network errors
+        total_violations: Total guardrail violations
+        avg_tokens_per_second: Average tokens per second
+        avg_time_to_first_token: Average time to first token in seconds
+    """
+
+    total_tokens: int = 0
+    total_duration: float = 0.0
+    total_retries: int = 0
+    total_network_errors: int = 0
+    total_violations: int = 0
+    avg_tokens_per_second: float = 0.0
+    avg_time_to_first_token: float = 0.0
+
+
+@dataclass
+class RaceResult(Generic[T]):
+    """Result from race operation.
+
+    Attributes:
+        value: The winning result value
+        winner_index: Index of the winning operation (0-based)
+    """
+
+    value: T
+    winner_index: int
+
+
+@dataclass
 class ParallelResult(Generic[T]):
     """Result of parallel execution.
 
@@ -34,6 +70,7 @@ class ParallelResult(Generic[T]):
     success_count: int = 0
     failure_count: int = 0
     duration: float = 0.0
+    aggregated_telemetry: AggregatedTelemetry | None = None
 
     @property
     def all_succeeded(self) -> bool:
@@ -182,7 +219,7 @@ async def race(
     tasks: list[Callable[[], Awaitable[T]]],
     *,
     on_error: Callable[[Exception, int], None] | None = None,
-) -> T:
+) -> RaceResult[T]:
     """Return first successful result, cancel remaining tasks.
 
     Args:
@@ -190,7 +227,7 @@ async def race(
         on_error: Callback when a task fails
 
     Returns:
-        Result from the first task to complete successfully
+        RaceResult containing the value and winner_index (0-based)
 
     Raises:
         RuntimeError: If no tasks provided
@@ -204,7 +241,8 @@ async def race(
             lambda: call_anthropic(prompt),
             lambda: call_google(prompt),
         ])
-        # Uses first successful response
+        print(f"Winner: provider {result.winner_index}")
+        print(f"Response: {result.value}")
         ```
     """
     if not tasks:
@@ -218,6 +256,7 @@ async def race(
         task: i for i, task in enumerate(pending_tasks)
     }
     last_error: Exception | None = None
+    winner_idx: int = -1
 
     try:
         while pending_tasks:
@@ -238,6 +277,7 @@ async def race(
                     # Found a successful result
                     if not found_success:
                         success_result = result
+                        winner_idx = task_to_index.get(task, -1)
                         found_success = True
                 except Exception as e:
                     last_error = e
@@ -249,7 +289,9 @@ async def race(
             if found_success:
                 for p in pending_tasks:
                     p.cancel()
-                return cast(T, success_result)
+                return RaceResult(
+                    value=cast(T, success_result), winner_index=winner_idx
+                )
 
         # All tasks failed
         if last_error:
@@ -332,3 +374,130 @@ async def batched(
             on_progress(completed, total)
 
     return results
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Scoped API
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class Parallel:
+    """Scoped API for parallel execution utilities.
+
+    Provides utilities for running async tasks with concurrency control,
+    racing tasks, sequential execution, and batch processing.
+
+    Usage:
+        ```python
+        from l0 import Parallel
+
+        # Run tasks with concurrency limit
+        result = await Parallel.run(
+            [lambda: fetch(url) for url in urls],
+            concurrency=3,
+        )
+
+        # Race multiple providers
+        winner = await Parallel.race([
+            lambda: call_openai(prompt),
+            lambda: call_anthropic(prompt),
+        ])
+
+        # Process items in batches
+        results = await Parallel.batched(items, handler, batch_size=10)
+
+        # Run tasks sequentially
+        results = await Parallel.sequential(tasks)
+        ```
+    """
+
+    # Re-export types for convenience
+    Result = ParallelResult
+    RaceResult = RaceResult
+    Options = ParallelOptions
+    Telemetry = AggregatedTelemetry
+
+    @staticmethod
+    async def run(
+        tasks: list[Callable[[], Awaitable[T]]],
+        options: ParallelOptions | None = None,
+        *,
+        concurrency: int | None = None,
+        fail_fast: bool = False,
+        on_progress: Callable[[int, int], None] | None = None,
+        on_complete: Callable[[T, int], None] | None = None,
+        on_error: Callable[[Exception, int], None] | None = None,
+    ) -> ParallelResult[T]:
+        """Run tasks with concurrency limit.
+
+        Args:
+            tasks: List of async callables to execute
+            options: ParallelOptions instance (alternative to kwargs)
+            concurrency: Maximum concurrent tasks (default: 5)
+            fail_fast: Stop on first error (default: False)
+            on_progress: Callback for progress updates
+            on_complete: Callback when a task completes
+            on_error: Callback when a task fails
+
+        Returns:
+            ParallelResult with results, errors, and statistics
+        """
+        return await parallel(
+            tasks,
+            options,
+            concurrency=concurrency,
+            fail_fast=fail_fast,
+            on_progress=on_progress,
+            on_complete=on_complete,
+            on_error=on_error,
+        )
+
+    @staticmethod
+    async def race(
+        tasks: list[Callable[[], Awaitable[T]]],
+        *,
+        on_error: Callable[[Exception, int], None] | None = None,
+    ) -> RaceResult[T]:
+        """Return first successful result, cancel remaining tasks.
+
+        Args:
+            tasks: List of async callables to race
+            on_error: Callback when a task fails
+
+        Returns:
+            RaceResult containing the value and winner_index (0-based)
+        """
+        return await race(tasks, on_error=on_error)
+
+    @staticmethod
+    async def sequential(tasks: list[Callable[[], Awaitable[T]]]) -> list[T]:
+        """Run tasks one at a time, in order.
+
+        Args:
+            tasks: List of async callables to execute
+
+        Returns:
+            List of results in the same order as input
+        """
+        return await sequential(tasks)
+
+    @staticmethod
+    async def batched(
+        items: list[T],
+        handler: Callable[[T], Awaitable[T]],
+        batch_size: int = 10,
+        *,
+        on_progress: Callable[[int, int], None] | None = None,
+    ) -> list[T]:
+        """Process items in batches.
+
+        Args:
+            items: List of items to process
+            handler: Async function to apply to each item
+            batch_size: Number of items to process concurrently
+            on_progress: Callback for progress updates
+
+        Returns:
+            List of processed results in the same order as input
+        """
+        return await batched(items, handler, batch_size, on_progress=on_progress)
