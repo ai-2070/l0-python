@@ -694,7 +694,8 @@ def create_branch_step(
         return step.fn(input, context)
 
     def branch_transform(content: str, context: StepContext) -> Any:
-        step = branch_taken.get(id(context), if_true)
+        context_id = id(context)
+        step = branch_taken.pop(context_id, if_true)
         if step.transform:
             return step.transform(content, context)
         return content
