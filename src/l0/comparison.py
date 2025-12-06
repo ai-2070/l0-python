@@ -394,7 +394,7 @@ def get_type(value: Any) -> str:
         value: Value to check
 
     Returns:
-        Type string ("null", "undefined", "array", "object", etc.)
+        Type string ("null", "boolean", "number", "string", "array", "object", "unknown")
     """
     if value is None:
         return "null"
@@ -1136,6 +1136,6 @@ class Compare:
             value: Value to check
 
         Returns:
-            Type string ("null", "undefined", "array", "object", etc.)
+            Type string ("null", "boolean", "number", "string", "array", "object", "unknown")
         """
         return get_type(value)
