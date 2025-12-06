@@ -5,7 +5,6 @@ import pytest
 from l0 import (
     ChunkResult,
     ContextRestorationOptions,
-    ContextRestorationStrategy,
     DocumentChunk,
     DocumentWindow,
     ProcessingStats,

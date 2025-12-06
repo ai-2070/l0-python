@@ -497,16 +497,19 @@ class Monitoring:
         Returns:
             Event handler function.
         """
-        from .otel import create_opentelemetry_handler
+        from .otel import OpenTelemetryConfig, create_opentelemetry_handler
 
-        return create_opentelemetry_handler(
-            tracer=tracer,
-            meter=meter,
+        config = OpenTelemetryConfig(
             service_name=service_name,
             trace_tokens=trace_tokens,
             record_token_content=record_token_content,
             record_guardrail_violations=record_guardrail_violations,
-            default_attributes=default_attributes,
+            default_attributes=default_attributes or {},
+        )
+        return create_opentelemetry_handler(
+            tracer=tracer,
+            meter=meter,
+            config=config,
         )
 
     @staticmethod
@@ -536,15 +539,18 @@ class Monitoring:
         Returns:
             Event handler function.
         """
-        from .sentry import create_sentry_handler
+        from .sentry import SentryConfig, create_sentry_handler
 
-        return create_sentry_handler(
-            sentry=sentry,
+        config = SentryConfig(
             capture_network_errors=capture_network_errors,
             capture_guardrail_violations=capture_guardrail_violations,
-            min_guardrail_severity=min_guardrail_severity,
+            min_guardrail_severity=min_guardrail_severity,  # type: ignore[arg-type]
             breadcrumbs_for_tokens=breadcrumbs_for_tokens,
             enable_tracing=enable_tracing,
-            tags=tags,
+            tags=tags or {},
             environment=environment,
+        )
+        return create_sentry_handler(
+            sentry=sentry,
+            config=config,
         )

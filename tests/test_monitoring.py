@@ -729,7 +729,7 @@ class TestEventNormalization:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Tests for L0Sentry
+# Tests for Sentry
 # ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -769,23 +769,23 @@ class MockSentryClient:
         self.contexts[name] = context
 
 
-class TestL0Sentry:
-    """Tests for L0Sentry class."""
+class TestSentry:
+    """Tests for Sentry class."""
 
     def test_l0_sentry_creation(self):
-        """Test creating L0Sentry instance."""
-        from l0.monitoring import L0Sentry
+        """Test creating Sentry instance."""
+        from l0.monitoring import Sentry
 
         sentry = MockSentryClient()
-        l0_sentry = L0Sentry(sentry)
+        l0_sentry = Sentry(sentry)
         assert l0_sentry is not None
 
     def test_start_stream(self):
         """Test starting a stream."""
-        from l0.monitoring import L0Sentry
+        from l0.monitoring import Sentry
 
         sentry = MockSentryClient()
-        l0_sentry = L0Sentry(sentry)
+        l0_sentry = Sentry(sentry)
         l0_sentry.start_stream()
 
         assert len(sentry.breadcrumbs) == 1
@@ -794,11 +794,11 @@ class TestL0Sentry:
 
     def test_record_token(self):
         """Test recording tokens."""
-        from l0.monitoring import L0Sentry, L0SentryConfig
+        from l0.monitoring import Sentry, SentryConfig
 
         sentry = MockSentryClient()
-        config = L0SentryConfig(breadcrumbs_for_tokens=True)
-        l0_sentry = L0Sentry(sentry, config)
+        config = SentryConfig(breadcrumbs_for_tokens=True)
+        l0_sentry = Sentry(sentry, config)
 
         l0_sentry.record_token("Hello")
         l0_sentry.record_token(" world")
@@ -808,10 +808,10 @@ class TestL0Sentry:
 
     def test_record_first_token(self):
         """Test recording first token timing."""
-        from l0.monitoring import L0Sentry
+        from l0.monitoring import Sentry
 
         sentry = MockSentryClient()
-        l0_sentry = L0Sentry(sentry)
+        l0_sentry = Sentry(sentry)
         l0_sentry.record_first_token(250.5)
 
         assert len(sentry.breadcrumbs) == 1
@@ -820,10 +820,10 @@ class TestL0Sentry:
 
     def test_record_network_error(self):
         """Test recording network errors."""
-        from l0.monitoring import L0Sentry
+        from l0.monitoring import Sentry
 
         sentry = MockSentryClient()
-        l0_sentry = L0Sentry(sentry)
+        l0_sentry = Sentry(sentry)
 
         error = ConnectionError("Connection failed")
         l0_sentry.record_network_error(error, "connection", retried=True)
@@ -836,10 +836,10 @@ class TestL0Sentry:
 
     def test_record_retry(self):
         """Test recording retries."""
-        from l0.monitoring import L0Sentry
+        from l0.monitoring import Sentry
 
         sentry = MockSentryClient()
-        l0_sentry = L0Sentry(sentry)
+        l0_sentry = Sentry(sentry)
 
         l0_sentry.record_retry(attempt=2, reason="rate_limit", is_network_error=False)
 
@@ -848,10 +848,10 @@ class TestL0Sentry:
 
     def test_record_guardrail_violations(self):
         """Test recording guardrail violations."""
-        from l0.monitoring import L0Sentry
+        from l0.monitoring import Sentry
 
         sentry = MockSentryClient()
-        l0_sentry = L0Sentry(sentry)
+        l0_sentry = Sentry(sentry)
 
         violations = [
             {"rule": "pii", "severity": "error", "message": "PII detected"},
@@ -866,10 +866,10 @@ class TestL0Sentry:
 
     def test_record_drift(self):
         """Test recording drift detection."""
-        from l0.monitoring import L0Sentry
+        from l0.monitoring import Sentry
 
         sentry = MockSentryClient()
-        l0_sentry = L0Sentry(sentry)
+        l0_sentry = Sentry(sentry)
 
         l0_sentry.record_drift(detected=True, types=["semantic", "format"])
 
@@ -878,10 +878,10 @@ class TestL0Sentry:
 
     def test_complete_stream(self):
         """Test completing a stream."""
-        from l0.monitoring import L0Sentry
+        from l0.monitoring import Sentry
 
         sentry = MockSentryClient()
-        l0_sentry = L0Sentry(sentry)
+        l0_sentry = Sentry(sentry)
         # Record tokens to set the token count
         for _ in range(100):
             l0_sentry.record_token("x")
@@ -893,10 +893,10 @@ class TestL0Sentry:
 
     def test_record_failure(self):
         """Test recording a failure."""
-        from l0.monitoring import L0Sentry
+        from l0.monitoring import Sentry
 
         sentry = MockSentryClient()
-        l0_sentry = L0Sentry(sentry)
+        l0_sentry = Sentry(sentry)
 
         error = ValueError("Something went wrong")
         l0_sentry.record_failure(error, telemetry=None)
@@ -957,7 +957,7 @@ class TestCreateSentryHandler:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Tests for L0OpenTelemetry
+# Tests for OpenTelemetry
 # ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -994,46 +994,46 @@ class TestNoOpSpan:
         assert span.is_recording() is False
 
 
-class TestL0OpenTelemetry:
-    """Tests for L0OpenTelemetry class."""
+class TestOpenTelemetry:
+    """Tests for OpenTelemetry class."""
 
     def test_create_without_tracer(self):
-        """Test creating L0OpenTelemetry without tracer/meter."""
-        from l0.monitoring import L0OpenTelemetry
+        """Test creating OpenTelemetry without tracer/meter."""
+        from l0.monitoring import OpenTelemetry
 
-        otel = L0OpenTelemetry()
+        otel = OpenTelemetry()
         assert otel is not None
         assert otel.get_active_streams() == 0
 
     def test_create_span_without_tracer(self):
         """Test creating span without tracer returns NoOpSpan."""
-        from l0.monitoring import L0OpenTelemetry, NoOpSpan
+        from l0.monitoring import OpenTelemetry, NoOpSpan
 
-        otel = L0OpenTelemetry()
+        otel = OpenTelemetry()
         span = otel.create_span("test")
         assert isinstance(span, NoOpSpan)
 
     def test_record_token_no_op(self):
         """Test record_token without tracer."""
-        from l0.monitoring import L0OpenTelemetry
+        from l0.monitoring import OpenTelemetry
 
-        otel = L0OpenTelemetry()
+        otel = OpenTelemetry()
         # Should not raise
         otel.record_token(span=None, content="hello")
 
     def test_record_retry_no_op(self):
         """Test record_retry without tracer."""
-        from l0.monitoring import L0OpenTelemetry
+        from l0.monitoring import OpenTelemetry
 
-        otel = L0OpenTelemetry()
+        otel = OpenTelemetry()
         # Should not raise
         otel.record_retry(reason="rate_limit", attempt=1, span=None)
 
     def test_record_network_error_no_op(self):
         """Test record_network_error without tracer."""
-        from l0.monitoring import L0OpenTelemetry
+        from l0.monitoring import OpenTelemetry
 
-        otel = L0OpenTelemetry()
+        otel = OpenTelemetry()
         # Should not raise
         otel.record_network_error(
             error=ConnectionError("test"),
@@ -1043,9 +1043,9 @@ class TestL0OpenTelemetry:
 
     def test_record_guardrail_violation_no_op(self):
         """Test record_guardrail_violation without tracer."""
-        from l0.monitoring import L0OpenTelemetry
+        from l0.monitoring import OpenTelemetry
 
-        otel = L0OpenTelemetry()
+        otel = OpenTelemetry()
         # Should not raise
         otel.record_guardrail_violation(
             violation={"rule": "pii", "severity": "error"},
@@ -1054,9 +1054,9 @@ class TestL0OpenTelemetry:
 
     def test_record_drift_no_op(self):
         """Test record_drift without tracer."""
-        from l0.monitoring import L0OpenTelemetry
+        from l0.monitoring import OpenTelemetry
 
-        otel = L0OpenTelemetry()
+        otel = OpenTelemetry()
         # Should not raise
         otel.record_drift(drift_type="semantic", confidence=0.9, span=None)
 

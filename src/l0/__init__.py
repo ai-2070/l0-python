@@ -139,18 +139,19 @@ from .metrics import (
     reset_global_metrics,
 )
 from .monitoring import (
-    # Types (also available via Monitoring.* where applicable)
-    L0OpenTelemetry,
-    L0OpenTelemetryConfig,
-    L0Sentry,
-    L0SentryConfig,
     # Scoped API
     Monitoring,
+    # OpenTelemetry
+    OpenTelemetry,
     OpenTelemetryConfig,
     OpenTelemetryExporter,
+    OpenTelemetryExporterConfig,
     SemanticAttributes,
+    # Sentry
+    Sentry,
     SentryConfig,
     SentryExporter,
+    SentryExporterConfig,
 )
 from .multimodal import Multimodal
 from .normalize import (
@@ -586,6 +587,8 @@ _submodules = [
 
 # Clean submodules from namespace and sys.modules cache
 _this_module = _sys.modules[__name__]
+_mod: str = ""
+_full: str = ""
 for _mod in _submodules:
     # Remove from namespace if present
     if hasattr(_this_module, _mod):
@@ -763,16 +766,17 @@ __all__ = [
     "enable_debug",
     # Monitoring (scoped API)
     "Monitoring",  # Class with .combine(), .filter(), .exclude(), .debounce(), .batch(), .sample(), .tap(), .opentelemetry(), .sentry()
-    # Monitoring types (also available via Monitoring.* where applicable)
+    # OpenTelemetry
+    "OpenTelemetry",
     "OpenTelemetryConfig",
     "OpenTelemetryExporter",
-    "L0OpenTelemetry",
-    "L0OpenTelemetryConfig",
+    "OpenTelemetryExporterConfig",
+    "SemanticAttributes",
+    # Sentry
+    "Sentry",
     "SentryConfig",
     "SentryExporter",
-    "L0Sentry",
-    "L0SentryConfig",
-    "SemanticAttributes",
+    "SentryExporterConfig",
     # Formatting
     "Format",
     # JSON Schema (scoped API)

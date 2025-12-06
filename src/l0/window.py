@@ -859,7 +859,6 @@ class Window:
         overlap: int = 200,
         strategy: "ChunkingStrategy" = "token",
         concurrency: int = 3,
-        on_progress: "Callable[[int, int], None] | None" = None,
     ) -> "list[ChunkResult[Any]]":
         """Process a document through windowed chunks.
 
@@ -871,7 +870,6 @@ class Window:
             overlap: Overlap between chunks
             strategy: Chunking strategy
             concurrency: Max concurrent chunk processing
-            on_progress: Progress callback (completed, total)
 
         Returns:
             List of ChunkResult objects
