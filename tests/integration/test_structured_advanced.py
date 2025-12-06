@@ -11,14 +11,16 @@ These tests cover:
 Run with: pytest tests/integration/test_structured_advanced.py -v
 """
 
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 import pytest
-from openai import AsyncOpenAI
 from pydantic import BaseModel, Field
 
 import l0
 from tests.conftest import requires_openai
+
+if TYPE_CHECKING:
+    from openai import AsyncOpenAI
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Test Schemas
@@ -77,11 +79,13 @@ class TestNestedStructuredOutput:
     """Tests for nested Pydantic schemas."""
 
     @pytest.fixture
-    def client(self) -> AsyncOpenAI:
+    def client(self) -> "AsyncOpenAI":
+        from openai import AsyncOpenAI
+
         return AsyncOpenAI()
 
     @pytest.mark.asyncio
-    async def test_nested_object(self, client: AsyncOpenAI) -> None:
+    async def test_nested_object(self, client: "AsyncOpenAI") -> None:
         """Test parsing nested objects."""
         result = await l0.structured(
             schema=Person,
@@ -106,7 +110,7 @@ class TestNestedStructuredOutput:
         assert result.data.address.city == "Boston"
 
     @pytest.mark.asyncio
-    async def test_optional_nested_null(self, client: AsyncOpenAI) -> None:
+    async def test_optional_nested_null(self, client: "AsyncOpenAI") -> None:
         """Test optional nested field as null."""
         result = await l0.structured(
             schema=Person,
@@ -138,11 +142,13 @@ class TestArrayStructuredOutput:
     """Tests for array-based structured outputs."""
 
     @pytest.fixture
-    def client(self) -> AsyncOpenAI:
+    def client(self) -> "AsyncOpenAI":
+        from openai import AsyncOpenAI
+
         return AsyncOpenAI()
 
     @pytest.mark.asyncio
-    async def test_array_of_objects(self, client: AsyncOpenAI) -> None:
+    async def test_array_of_objects(self, client: "AsyncOpenAI") -> None:
         """Test parsing array of Pydantic objects."""
         result = await l0.structured_array(
             item_schema=Product,
@@ -168,7 +174,7 @@ class TestArrayStructuredOutput:
         assert result.data[2].in_stock is False
 
     @pytest.mark.asyncio
-    async def test_empty_array(self, client: AsyncOpenAI) -> None:
+    async def test_empty_array(self, client: "AsyncOpenAI") -> None:
         """Test parsing empty array."""
         result = await l0.structured_array(
             item_schema=Product,
@@ -198,11 +204,13 @@ class TestDynamicStructuredOutput:
     """Tests for dynamic schemas using structured_object."""
 
     @pytest.fixture
-    def client(self) -> AsyncOpenAI:
+    def client(self) -> "AsyncOpenAI":
+        from openai import AsyncOpenAI
+
         return AsyncOpenAI()
 
     @pytest.mark.asyncio
-    async def test_structured_object_simple(self, client: AsyncOpenAI) -> None:
+    async def test_structured_object_simple(self, client: "AsyncOpenAI") -> None:
         """Test structured_object with simple schema."""
         result = await l0.structured_object(
             shape={"name": str, "count": int, "active": bool},
@@ -224,7 +232,7 @@ class TestDynamicStructuredOutput:
         assert result.data.active is True
 
     @pytest.mark.asyncio
-    async def test_structured_object_with_defaults(self, client: AsyncOpenAI) -> None:
+    async def test_structured_object_with_defaults(self, client: "AsyncOpenAI") -> None:
         """Test structured_object with default values."""
         result = await l0.structured_object(
             shape={
@@ -261,11 +269,13 @@ class TestStrictModeStructuredOutput:
     """Tests for strict mode validation."""
 
     @pytest.fixture
-    def client(self) -> AsyncOpenAI:
+    def client(self) -> "AsyncOpenAI":
+        from openai import AsyncOpenAI
+
         return AsyncOpenAI()
 
     @pytest.mark.asyncio
-    async def test_strict_mode_valid(self, client: AsyncOpenAI) -> None:
+    async def test_strict_mode_valid(self, client: "AsyncOpenAI") -> None:
         """Test strict mode with valid data (no extra fields)."""
 
         class StrictPerson(BaseModel):
@@ -292,7 +302,9 @@ class TestStrictModeStructuredOutput:
         assert result.data.age == 25
 
     @pytest.mark.asyncio
-    async def test_strict_mode_rejects_extra_fields(self, client: AsyncOpenAI) -> None:
+    async def test_strict_mode_rejects_extra_fields(
+        self, client: "AsyncOpenAI"
+    ) -> None:
         """Test that strict mode rejects extra fields."""
 
         class StrictPerson(BaseModel):
@@ -327,11 +339,13 @@ class TestAutoCorrection:
     """Tests for JSON auto-correction."""
 
     @pytest.fixture
-    def client(self) -> AsyncOpenAI:
+    def client(self) -> "AsyncOpenAI":
+        from openai import AsyncOpenAI
+
         return AsyncOpenAI()
 
     @pytest.mark.asyncio
-    async def test_auto_correct_markdown_wrapped(self, client: AsyncOpenAI) -> None:
+    async def test_auto_correct_markdown_wrapped(self, client: "AsyncOpenAI") -> None:
         """Test auto-correction extracts JSON from markdown."""
 
         class SimpleData(BaseModel):
@@ -356,7 +370,7 @@ class TestAutoCorrection:
         assert result.data.value == 42
 
     @pytest.mark.asyncio
-    async def test_auto_correct_callback(self, client: AsyncOpenAI) -> None:
+    async def test_auto_correct_callback(self, client: "AsyncOpenAI") -> None:
         """Test auto-correction callback is called."""
         corrections_received = []
 
@@ -398,11 +412,13 @@ class TestStructuredRetry:
     """Tests for structured output with retry."""
 
     @pytest.fixture
-    def client(self) -> AsyncOpenAI:
+    def client(self) -> "AsyncOpenAI":
+        from openai import AsyncOpenAI
+
         return AsyncOpenAI()
 
     @pytest.mark.asyncio
-    async def test_structured_with_retry(self, client: AsyncOpenAI) -> None:
+    async def test_structured_with_retry(self, client: "AsyncOpenAI") -> None:
         """Test structured output with retry configuration."""
 
         class DataPoint(BaseModel):
@@ -439,11 +455,13 @@ class TestStructuredStreaming:
     """Tests for structured streaming."""
 
     @pytest.fixture
-    def client(self) -> AsyncOpenAI:
+    def client(self) -> "AsyncOpenAI":
+        from openai import AsyncOpenAI
+
         return AsyncOpenAI()
 
     @pytest.mark.asyncio
-    async def test_structured_stream(self, client: AsyncOpenAI) -> None:
+    async def test_structured_stream(self, client: "AsyncOpenAI") -> None:
         """Test structured_stream for streaming tokens then validating."""
 
         class Quote(BaseModel):
@@ -489,11 +507,13 @@ class TestComplexSchemas:
     """Tests for complex real-world schemas."""
 
     @pytest.fixture
-    def client(self) -> AsyncOpenAI:
+    def client(self) -> "AsyncOpenAI":
+        from openai import AsyncOpenAI
+
         return AsyncOpenAI()
 
     @pytest.mark.asyncio
-    async def test_book_review_with_constraints(self, client: AsyncOpenAI) -> None:
+    async def test_book_review_with_constraints(self, client: "AsyncOpenAI") -> None:
         """Test schema with Field constraints."""
         result = await l0.structured(
             schema=BookReview,
@@ -517,7 +537,7 @@ class TestComplexSchemas:
         assert len(result.data.summary) > 0
 
     @pytest.mark.asyncio
-    async def test_api_response_with_dict_field(self, client: AsyncOpenAI) -> None:
+    async def test_api_response_with_dict_field(self, client: "AsyncOpenAI") -> None:
         """Test schema with dict field."""
         result = await l0.structured(
             schema=APIResponse,
