@@ -389,7 +389,7 @@ async def _internal_run(
                         event_bus.emit(
                             ObservabilityEventType.RESUME_START,
                             checkpoint=pending_checkpoint,
-                            tokenCount=state.token_count,
+                            token_count=state.token_count,
                         )
 
                         # Fire on_resume callback
@@ -417,7 +417,7 @@ async def _internal_run(
                         event_bus.emit(
                             ObservabilityEventType.RESUME_END,
                             checkpoint=pending_checkpoint,
-                            tokenCount=state.token_count,
+                            token_count=state.token_count,
                         )
 
                         event_bus.emit(
@@ -534,7 +534,7 @@ async def _internal_run(
                             assert current_timeout is not None
                             event_bus.emit(
                                 ObservabilityEventType.TIMEOUT_TRIGGERED,
-                                timeoutType=timeout_type,
+                                timeout_type=timeout_type,
                                 elapsedSeconds=current_timeout,
                             )
                             # Fire on_timeout callback
@@ -543,8 +543,8 @@ async def _internal_run(
                             raise TimeoutError(
                                 f"Timeout waiting for {token_desc} token "
                                 f"(timeout={current_timeout}s)",
-                                timeoutType=timeout_type,
-                                timeoutSeconds=current_timeout,
+                                timeout_type=timeout_type,
+                                timeout_seconds=current_timeout,
                             ) from e
 
                         if event.type == EventType.TOKEN and event.text:
@@ -616,7 +616,7 @@ async def _internal_run(
                                 event_bus.emit(
                                     ObservabilityEventType.CHECKPOINT_SAVED,
                                     checkpoint=state.checkpoint,
-                                    tokenCount=state.token_count,
+                                    token_count=state.token_count,
                                 )
                                 # Fire on_checkpoint callback
                                 _fire_callback(
@@ -682,7 +682,7 @@ async def _internal_run(
                             ):
                                 event_bus.emit(
                                     ObservabilityEventType.DRIFT_CHECK_START,
-                                    tokenCount=state.token_count,
+                                    token_count=state.token_count,
                                 )
                                 drift_result = drift_detector.check(
                                     state.content, token_text
@@ -710,7 +710,7 @@ async def _internal_run(
                                     )
                                 event_bus.emit(
                                     ObservabilityEventType.DRIFT_CHECK_END,
-                                    tokenCount=state.token_count,
+                                    token_count=state.token_count,
                                 )
 
                         # Handle tool call buffering
@@ -809,11 +809,11 @@ async def _internal_run(
                                 ErrorContext(
                                     code=ErrorCode.FATAL_GUARDRAIL_VIOLATION,
                                     checkpoint=state.checkpoint,
-                                    tokenCount=state.token_count,
-                                    contentLength=len(state.content),
-                                    model_retryCount=retry_mgr.model_retry_count,
-                                    network_retryCount=retry_mgr.network_retry_count,
-                                    fallbackIndex=fallback_idx,
+                                    token_count=state.token_count,
+                                    content_length=len(state.content),
+                                    model_retry_count=retry_mgr.model_retry_count,
+                                    network_retry_count=retry_mgr.network_retry_count,
+                                    fallback_index=fallback_idx,
                                     context=context,
                                 ),
                             )
@@ -832,11 +832,11 @@ async def _internal_run(
                                 ErrorContext(
                                     code=ErrorCode.GUARDRAIL_VIOLATION,
                                     checkpoint=state.checkpoint,
-                                    tokenCount=state.token_count,
-                                    contentLength=len(state.content),
-                                    model_retryCount=retry_mgr.model_retry_count,
-                                    network_retryCount=retry_mgr.network_retry_count,
-                                    fallbackIndex=fallback_idx,
+                                    token_count=state.token_count,
+                                    content_length=len(state.content),
+                                    model_retry_count=retry_mgr.model_retry_count,
+                                    network_retry_count=retry_mgr.network_retry_count,
+                                    fallback_index=fallback_idx,
                                     context=context,
                                 ),
                             )
@@ -912,7 +912,7 @@ async def _internal_run(
                         event_bus.emit(
                             ObservabilityEventType.CHECKPOINT_SAVED,
                             checkpoint=state.checkpoint,
-                            tokenCount=state.token_count,
+                            token_count=state.token_count,
                         )
                         # Fire on_checkpoint callback
                         _fire_callback(

@@ -400,8 +400,8 @@ async def pipe(
         steps=step_results,
         status=pipeline_status,
         error=pipeline_error,
-        duration=time.time() - start_time,
-        start_time=start_time,
+        duration=int((time.time() - start_time) * 1000),
+        startTime=int(start_time * 1000),
         endTime=int(time.time() * 1000),
         metadata=opts.metadata,
     )
