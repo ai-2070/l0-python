@@ -7,7 +7,7 @@ import inspect
 import time
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Coroutine
+from typing import TYPE_CHECKING, Any, Coroutine, cast
 
 from .adapters import AdaptedEvent, Adapter, Adapters
 from .continuation import ContinuationConfig, deduplicate_continuation, detect_overlap
@@ -441,7 +441,7 @@ async def _internal_run(
                     if inspect.iscoroutine(raw_stream_or_coro):
                         raw_stream = await raw_stream_or_coro
                     else:
-                        raw_stream = raw_stream_or_coro
+                        raw_stream = cast(RawStream, raw_stream_or_coro)
 
                     event_bus.emit(ObservabilityEventType.ADAPTER_WRAP_START)
                     detected_adapter = Adapters.detect(raw_stream, adapter)
