@@ -296,7 +296,9 @@ class TestLifecycleInvariants:
         self, invariants: list[dict[str, str]]
     ) -> None:
         for inv in invariants:
-            assert inv.get("rule"), f"Invariant {inv['id']} should have a rule"
-            assert inv.get("rationale"), (
+            assert "rule" in inv and inv["rule"], (
+                f"Invariant {inv['id']} should have a rule"
+            )
+            assert "rationale" in inv and inv["rationale"], (
                 f"Invariant {inv['id']} should have a rationale"
             )
