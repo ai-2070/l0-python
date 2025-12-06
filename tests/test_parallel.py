@@ -201,7 +201,8 @@ class TestRace:
             return "slow"
 
         result = await race([fast, slow])
-        assert result == "fast"
+        assert result.value == "fast"
+        assert result.winner_index == 0
 
     @pytest.mark.asyncio
     async def test_cancels_remaining(self):
@@ -242,7 +243,7 @@ class TestRace:
             return "success"
 
         result = await race([failing, succeeding])
-        assert result == "success"
+        assert result.value == "success"
 
     @pytest.mark.asyncio
     async def test_all_fail_raises_last(self):
@@ -270,7 +271,7 @@ class TestRace:
             return "success"
 
         result = await race([fast_fail, slow_success])
-        assert result == "success"
+        assert result.value == "success"
 
     @pytest.mark.asyncio
     async def test_on_error_receives_correct_task_index(self):
@@ -292,7 +293,7 @@ class TestRace:
             error_indices.append(index)
 
         result = await race([task0_fail, task1_fail, task2_success], on_error=on_error)
-        assert result == "success"
+        assert result.value == "success"
         # Both failing tasks should report their correct indices
         assert 0 in error_indices
         assert 1 in error_indices

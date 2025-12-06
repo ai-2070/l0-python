@@ -246,7 +246,7 @@ class TestCreatePoolFunction:
         """Should create a pool with options."""
         pool = create_pool(
             worker_count=3,
-            options=PoolOptions(meta={"key": "value"}),
+            meta={"key": "value"},
         )
         assert isinstance(pool, OperationPool)
 
@@ -437,8 +437,8 @@ class TestPoolStatsTracking:
         pool = create_pool(worker_count=1)
 
         async def failing_stream():
-            async for event in create_failing_stream():
-                yield event
+            raise Exception("Stream failed")
+            yield  # Make it an async generator
 
         pool.execute(stream=failing_stream)
         await pool.drain()
@@ -507,7 +507,7 @@ class TestPoolEventCallbacks:
 
         pool = create_pool(
             worker_count=1,
-            options=PoolOptions(on_event=lambda e: events_received.append(e)),
+            on_event=lambda e: events_received.append(e),
         )
 
         async def stream():
@@ -534,7 +534,7 @@ class TestPoolSharedConfig:
         """Should apply shared retry config to operations."""
         pool = create_pool(
             worker_count=1,
-            options=PoolOptions(shared_retry=Retry(attempts=3)),
+            shared_retry=Retry(attempts=3),
         )
 
         async def stream():
@@ -553,9 +553,7 @@ class TestPoolSharedConfig:
         """Should apply shared timeout config to operations."""
         pool = create_pool(
             worker_count=1,
-            options=PoolOptions(
-                shared_timeout=Timeout(initial_token=5000, inter_token=10000)
-            ),
+            shared_timeout=Timeout(initial_token=5000, inter_token=10000),
         )
 
         async def stream():
@@ -573,7 +571,7 @@ class TestPoolSharedConfig:
         """Should attach shared meta to all operations."""
         pool = create_pool(
             worker_count=1,
-            options=PoolOptions(meta={"requestId": "req-123"}),
+            meta={"requestId": "req-123"},
         )
 
         async def stream():

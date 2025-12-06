@@ -362,7 +362,7 @@ class TestPipeFunction:
                 yield Event(type=EventType.TOKEN, text=f"processed: {input_data}")
                 yield Event(type=EventType.COMPLETE)
 
-            return stream()
+            return stream  # Return factory, not result
 
         steps = [PipelineStep(name="process", fn=step_fn)]
 
@@ -386,7 +386,7 @@ class TestPipeFunction:
                 yield Event(type=EventType.TOKEN, text="step1-output")
                 yield Event(type=EventType.COMPLETE)
 
-            return stream()
+            return stream  # Return factory, not result
 
         async def step2(input_data: str, ctx: StepContext):
             call_order.append("step2")
@@ -395,7 +395,7 @@ class TestPipeFunction:
                 yield Event(type=EventType.TOKEN, text="step2-output")
                 yield Event(type=EventType.COMPLETE)
 
-            return stream()
+            return stream  # Return factory, not result
 
         steps = [
             PipelineStep(name="step1", fn=step1),
@@ -416,7 +416,7 @@ class TestPipeFunction:
                 yield Event(type=EventType.TOKEN, text="hello")
                 yield Event(type=EventType.COMPLETE)
 
-            return stream()
+            return stream  # Return factory, not result
 
         steps = [
             PipelineStep(
@@ -444,7 +444,7 @@ class TestPipeFunction:
                 yield Event(type=EventType.TOKEN, text="ran")
                 yield Event(type=EventType.COMPLETE)
 
-            return stream()
+            return stream  # Return factory, not result
 
         steps = [
             PipelineStep(
@@ -471,7 +471,7 @@ class TestPipeFunction:
                 yield Event(type=EventType.TOKEN, text="ran")
                 yield Event(type=EventType.COMPLETE)
 
-            return stream()
+            return stream  # Return factory, not result
 
         steps = [
             PipelineStep(
@@ -498,14 +498,18 @@ class TestPipeFunction:
                 yield Event(type=EventType.TOKEN, text="output")
                 yield Event(type=EventType.COMPLETE)
 
-            return stream()
+            return stream  # Return factory, not result
 
         steps = [
             PipelineStep(name="step1", fn=step_fn),
             PipelineStep(name="step2", fn=step_fn),
         ]
 
-        await pipe(input="test", steps=steps, metadata={"key": "value"})
+        await pipe(
+            steps=steps,
+            input="test",
+            options=PipelineOptions(metadata={"key": "value"}),
+        )
 
         assert len(received_ctx) == 2
 
@@ -529,7 +533,7 @@ class TestPipeFunction:
                 yield Event(type=EventType.TOKEN, text="output")
                 yield Event(type=EventType.COMPLETE)
 
-            return stream()
+            return stream  # Return factory, not result
 
         steps = [
             PipelineStep(name="step1", fn=step_fn),
@@ -537,9 +541,11 @@ class TestPipeFunction:
         ]
 
         await pipe(
-            input="test",
             steps=steps,
-            on_progress=lambda idx, total: progress_calls.append((idx, total)),
+            input="test",
+            options=PipelineOptions(
+                on_progress=lambda idx, total: progress_calls.append((idx, total)),
+            ),
         )
 
         assert (0, 2) in progress_calls
@@ -555,11 +561,15 @@ class TestPipeFunction:
                 yield Event(type=EventType.TOKEN, text="output")
                 yield Event(type=EventType.COMPLETE)
 
-            return stream()
+            return stream  # Return factory, not result
 
         steps = [PipelineStep(name="step1", fn=step_fn)]
 
-        await pipe(input="test", steps=steps, on_complete=on_complete)
+        await pipe(
+            steps=steps,
+            input="test",
+            options=PipelineOptions(on_complete=on_complete),
+        )
 
         on_complete.assert_called_once()
         result = on_complete.call_args[0][0]
@@ -581,9 +591,10 @@ class TestPipelineErrorHandling:
 
         async def failing_step(input_data: str, ctx: StepContext):
             async def stream():
-                yield Event(type=EventType.ERROR, error=Exception("Step failed"))
+                raise Exception("Step failed")
+                yield  # Make it an async generator
 
-            return stream()
+            return stream  # Return factory, not result
 
         async def step2(input_data: str, ctx: StepContext):
             step2_ran.append(True)
@@ -592,7 +603,7 @@ class TestPipelineErrorHandling:
                 yield Event(type=EventType.TOKEN, text="output")
                 yield Event(type=EventType.COMPLETE)
 
-            return stream()
+            return stream  # Return factory, not result
 
         steps = [
             PipelineStep(name="failing", fn=failing_step),
@@ -611,9 +622,10 @@ class TestPipelineErrorHandling:
 
         async def failing_step(input_data: str, ctx: StepContext):
             async def stream():
-                yield Event(type=EventType.ERROR, error=Exception("Step failed"))
+                raise Exception("Step failed")
+                yield  # Make it an async generator
 
-            return stream()
+            return stream  # Return factory, not result
 
         async def step2(input_data: str, ctx: StepContext):
             step2_ran.append(True)
@@ -622,14 +634,18 @@ class TestPipelineErrorHandling:
                 yield Event(type=EventType.TOKEN, text="output")
                 yield Event(type=EventType.COMPLETE)
 
-            return stream()
+            return stream  # Return factory, not result
 
         steps = [
             PipelineStep(name="failing", fn=failing_step),
             PipelineStep(name="step2", fn=step2),
         ]
 
-        result = await pipe(input="test", steps=steps, stop_on_error=False)
+        result = await pipe(
+            steps=steps,
+            input="test",
+            options=PipelineOptions(stop_on_error=False),
+        )
 
         assert result.status == "partial"
         assert len(step2_ran) == 1
@@ -641,9 +657,10 @@ class TestPipelineErrorHandling:
 
         async def failing_step(input_data: str, ctx: StepContext):
             async def stream():
-                yield Event(type=EventType.ERROR, error=Exception("Step failed"))
+                raise Exception("Step failed")
+                yield  # Make it an async generator
 
-            return stream()
+            return stream  # Return factory, not result
 
         steps = [
             PipelineStep(name="failing", fn=failing_step, on_error=on_error),
@@ -660,13 +677,18 @@ class TestPipelineErrorHandling:
 
         async def failing_step(input_data: str, ctx: StepContext):
             async def stream():
-                yield Event(type=EventType.ERROR, error=Exception("Step failed"))
+                raise Exception("Step failed")
+                yield  # Make it an async generator
 
-            return stream()
+            return stream  # Return factory, not result
 
         steps = [PipelineStep(name="failing", fn=failing_step)]
 
-        await pipe(input="test", steps=steps, on_error=on_error)
+        await pipe(
+            steps=steps,
+            input="test",
+            options=PipelineOptions(on_error=on_error),
+        )
 
         on_error.assert_called_once()
 
@@ -691,7 +713,7 @@ class TestPipelineChaining:
                 yield Event(type=EventType.TOKEN, text="step1-output")
                 yield Event(type=EventType.COMPLETE)
 
-            return stream()
+            return stream  # Return factory, not result
 
         async def step2(input_data: str, ctx: StepContext):
             received_inputs.append(input_data)
@@ -700,7 +722,7 @@ class TestPipelineChaining:
                 yield Event(type=EventType.TOKEN, text="step2-output")
                 yield Event(type=EventType.COMPLETE)
 
-            return stream()
+            return stream  # Return factory, not result
 
         steps = [
             PipelineStep(name="step1", fn=step1),
@@ -724,7 +746,7 @@ class TestPipelineChaining:
                 yield Event(type=EventType.TOKEN, text="hello")
                 yield Event(type=EventType.COMPLETE)
 
-            return stream()
+            return stream  # Return factory, not result
 
         async def step2(input_data: str, ctx: StepContext):
             received_inputs.append(input_data)
@@ -732,6 +754,8 @@ class TestPipelineChaining:
             async def stream():
                 yield Event(type=EventType.TOKEN, text="done")
                 yield Event(type=EventType.COMPLETE)
+
+            return stream  # Return factory, not result
 
         steps = [
             PipelineStep(
