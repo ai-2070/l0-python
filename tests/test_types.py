@@ -129,8 +129,8 @@ class TestRetry:
 class TestTimeout:
     def test_default_values(self):
         config = Timeout()
-        assert config.initial_token == 5.0  # seconds
-        assert config.inter_token == 10.0  # seconds
+        assert config.initial_token == 5000  # milliseconds
+        assert config.inter_token == 10000  # milliseconds
 
 
 class TestStream:

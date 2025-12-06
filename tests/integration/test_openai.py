@@ -130,7 +130,7 @@ class TestOpenAIIntegration:
 
         result = l0.wrap(
             stream,
-            timeout=l0.Timeout(initial_token=30.0, inter_token=30.0),
+            timeout=l0.Timeout(initial_token=30000, inter_token=30000),
         )
         text = await result.read()
 

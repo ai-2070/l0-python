@@ -272,7 +272,7 @@ class TestTimeout:
         with pytest.raises(TimeoutError) as exc_info:
             result = await _internal_run(
                 stream=slow_start_stream,
-                timeout=Timeout(initial_token=0.1, inter_token=1.0),
+                timeout=Timeout(initial_token=100, inter_token=1000),
                 retry=Retry(attempts=1, max_retries=1),  # No retries
             )
             async for _ in result:
@@ -296,7 +296,7 @@ class TestTimeout:
         with pytest.raises(TimeoutError) as exc_info:
             result = await _internal_run(
                 stream=stalling_stream,
-                timeout=Timeout(initial_token=1.0, inter_token=0.1),
+                timeout=Timeout(initial_token=1000, inter_token=100),
                 retry=Retry(attempts=1, max_retries=1),  # No retries
             )
             async for _ in result:
@@ -317,7 +317,7 @@ class TestTimeout:
 
         result = await _internal_run(
             stream=fast_stream,
-            timeout=Timeout(initial_token=1.0, inter_token=1.0),
+            timeout=Timeout(initial_token=1000, inter_token=1000),
         )
 
         tokens = []
@@ -378,7 +378,7 @@ class TestTimeout:
 
         result = await _internal_run(
             stream=stalling_then_succeeding_stream,
-            timeout=Timeout(initial_token=1.0, inter_token=0.1),
+            timeout=Timeout(initial_token=1000, inter_token=100),
             retry=Retry(attempts=3, max_retries=3),
             continue_from_last_good_token=True,
         )
