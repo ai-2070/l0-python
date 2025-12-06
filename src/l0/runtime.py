@@ -282,7 +282,13 @@ async def _internal_run(
     pending_checkpoint: str | None = None
 
     logger.debug(f"Starting L0 stream: {event_bus.stream_id}")
-    event_bus.emit(ObservabilityEventType.SESSION_START, sessionId=event_bus.stream_id, attempt=1, isRetry=False, isFallback=False)
+    event_bus.emit(
+        ObservabilityEventType.SESSION_START,
+        sessionId=event_bus.stream_id,
+        attempt=1,
+        isRetry=False,
+        isFallback=False,
+    )
 
     def abort() -> None:
         nonlocal aborted
@@ -444,8 +450,12 @@ async def _internal_run(
 
                     # Set up timeout tracking
                     first_token_received = False
-                    initial_timeout = timeout.initial_token / 1000 if timeout else None  # Convert ms to seconds
-                    inter_timeout = timeout.inter_token / 1000 if timeout else None  # Convert ms to seconds
+                    initial_timeout = (
+                        timeout.initial_token / 1000 if timeout else None
+                    )  # Convert ms to seconds
+                    inter_timeout = (
+                        timeout.inter_token / 1000 if timeout else None
+                    )  # Convert ms to seconds
 
                     if initial_timeout is not None:
                         event_bus.emit(
@@ -779,6 +789,13 @@ async def _internal_run(
                                     toolCallId=tool_call_id,
                                     toolName=tool_name,
                                 )
+                                # Fire on_tool_call callback for consistency with buffered mode
+                                _fire_callback(
+                                    cb.on_tool_call,
+                                    tool_name,
+                                    tool_call_id,
+                                    {"arguments": tc_data.get("arguments", "")},
+                                )
 
                         yield event
 
@@ -891,7 +908,9 @@ async def _internal_run(
                             ObservabilityEventType.FALLBACK_END, index=fallback_idx
                         )
                     event_bus.emit(
-                        ObservabilityEventType.COMPLETE, tokenCount=state.token_count, contentLength=len(state.content)
+                        ObservabilityEventType.COMPLETE,
+                        tokenCount=state.token_count,
+                        contentLength=len(state.content),
                     )
 
                     # Fire on_complete callback
@@ -917,10 +936,14 @@ async def _internal_run(
 
                     # If custom should_retry callback exists, call it with events
                     will_retry = default_should_retry
-                    if default_should_retry and retry_mgr.config.should_retry is not None:
+                    if (
+                        default_should_retry
+                        and retry_mgr.config.should_retry is not None
+                    ):
                         attempt = (
                             retry_mgr.network_retry_count
-                            if error_category in (ErrorCategory.NETWORK, ErrorCategory.TRANSIENT)
+                            if error_category
+                            in (ErrorCategory.NETWORK, ErrorCategory.TRANSIENT)
                             else retry_mgr.model_retry_count
                         )
 
@@ -944,7 +967,9 @@ async def _internal_run(
                             duration_ms = int((time.time() - fn_start_time) * 1000)
 
                             # User can only veto (narrow), not force (widen)
-                            final_should_retry = default_should_retry and bool(user_result)
+                            final_should_retry = default_should_retry and bool(
+                                user_result
+                            )
 
                             # Emit RETRY_FN_RESULT
                             event_bus.emit(
