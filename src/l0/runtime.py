@@ -7,7 +7,7 @@ import inspect
 import time
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Coroutine
 
 from .adapters import AdaptedEvent, Adapter, Adapters
 from .continuation import ContinuationConfig, deduplicate_continuation, detect_overlap
@@ -21,6 +21,7 @@ from .types import (
     CheckIntervals,
     Event,
     EventType,
+    RawStream,
     Retry,
     State,
     Stream,
@@ -309,7 +310,7 @@ async def _internal_run(
             raw_chunks, \
             attempt_number
 
-        streams = [stream] + fallbacks
+        streams: list[StreamFactory] = [stream] + fallbacks
 
         # Use check intervals from config, with continuation override for checkpoint
         checkpoint_interval = intervals.checkpoint
@@ -430,12 +431,17 @@ async def _internal_run(
 
                 try:
                     event_bus.emit(ObservabilityEventType.STREAM_INIT)
-                    raw_stream = stream_fn()
+                    raw_stream_or_coro: RawStream | Coroutine[Any, Any, RawStream] = (
+                        stream_fn()
+                    )
 
                     # Handle both sync and async stream factories
                     # stream_fn() might return a coroutine or an async iterator directly
-                    if inspect.iscoroutine(raw_stream):
-                        raw_stream = await raw_stream
+                    raw_stream: RawStream
+                    if inspect.iscoroutine(raw_stream_or_coro):
+                        raw_stream = await raw_stream_or_coro
+                    else:
+                        raw_stream = raw_stream_or_coro
 
                     event_bus.emit(ObservabilityEventType.ADAPTER_WRAP_START)
                     detected_adapter = Adapters.detect(raw_stream, adapter)

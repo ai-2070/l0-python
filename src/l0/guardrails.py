@@ -151,12 +151,8 @@ class GuardrailEngine:
             state = StateType(
                 content=context.content,
                 completed=context.completed,
+                token_count=context.token_count,
             )
-            # Copy additional fields if State supports them
-            if hasattr(state, "delta"):
-                state.delta = context.delta
-            if hasattr(state, "token_count"):
-                state.token_count = context.token_count
         else:
             state = context
 

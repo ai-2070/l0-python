@@ -86,6 +86,7 @@ def format_json_output(
         >>> format_json_output({"strict": True, "schema": '{ "name": "string" }'})
         'Respond with valid JSON only...\\n\\nExpected JSON schema:\\n{ "name": "string" }'
     """
+    include_instructions = True
     if options is None:
         opts = JsonOutputOptions()
     elif isinstance(options, dict):
@@ -97,7 +98,6 @@ def format_json_output(
         include_instructions = options.get("include_instructions", True)
     else:
         opts = options
-        include_instructions = True
 
     parts = []
 

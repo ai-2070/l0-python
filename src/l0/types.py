@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Generic, TypeVar
+from typing import TYPE_CHECKING, Any, Coroutine, Generic, TypeVar
 
 if TYPE_CHECKING:
     from .events import ObservabilityEvent
@@ -548,7 +548,9 @@ class Retry:
     )
     error_type_delays: ErrorTypeDelays | None = None  # Per-error-type delays
     retry_on: list[RetryableErrorType] | None = None  # Which error types to retry
-    should_retry: Callable[..., bool] | None = None  # Veto callback (sync or async)
+    should_retry: Callable[..., bool | Coroutine[Any, Any, bool]] | None = (
+        None  # Veto callback (sync or async)
+    )
     calculate_delay: Callable[..., float] | None = None  # Custom delay calculation
 
     def __post_init__(self) -> None:

@@ -6,7 +6,7 @@ import asyncio
 import inspect
 import random
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Coroutine
 
 from .errors import NetworkError, NetworkErrorType, categorize_error
 from .logging import logger
@@ -131,11 +131,13 @@ class RetryManager:
             return True
 
         # Call the callback (may be sync or async)
-        result = self.config.should_retry(error, state, attempt, category)
+        result: bool | Coroutine[Any, Any, bool] = self.config.should_retry(
+            error, state, attempt, category
+        )
 
         # Handle async callback
-        if inspect.isawaitable(result):
-            result = await result
+        if inspect.iscoroutine(result):
+            return bool(await result)
 
         return bool(result)
 

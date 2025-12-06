@@ -911,10 +911,12 @@ class NetworkError:
     @staticmethod
     def _get_error_code(error: Exception) -> str | None:
         """Get error code if present (for OSError, etc.)."""
-        if hasattr(error, "errno"):
-            return str(error.errno)
-        if hasattr(error, "code"):
-            return str(error.code)
+        errno = getattr(error, "errno", None)
+        if errno is not None:
+            return str(errno)
+        code = getattr(error, "code", None)
+        if code is not None:
+            return str(code)
         return None
 
     @staticmethod

@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import time
 from dataclasses import dataclass, field
-from typing import Any, Callable, Generic, TypeVar
+from typing import Any, Callable, Generic, TypeVar, cast
 
 from .runtime import _internal_run
 from .types import Stream, StreamFactory
@@ -293,13 +293,20 @@ async def pipe(
                 # 1. Dict with "stream" key (TypeScript-style): {"stream": factory}
                 # 2. Direct stream factory (callable)
                 # 3. Direct async generator (most Pythonic)
-                if (
-                    isinstance(step_result_or_factory, dict)
-                    and "stream" in step_result_or_factory
-                ):
-                    stream_factory = step_result_or_factory["stream"]
+                stream_factory: StreamFactory
+                if isinstance(step_result_or_factory, dict):
+                    if "stream" in step_result_or_factory:
+                        stream_factory = step_result_or_factory["stream"]
+                    else:
+                        raise ValueError(
+                            f"Step {step.name} returned dict without 'stream' key"
+                        )
+                elif callable(step_result_or_factory):
+                    stream_factory = cast(StreamFactory, step_result_or_factory)
                 else:
-                    stream_factory = step_result_or_factory
+                    raise TypeError(
+                        f"Step {step.name} must return a stream factory or dict with 'stream' key"
+                    )
 
                 # Execute L0
                 result: Stream = await _internal_run(stream=stream_factory)

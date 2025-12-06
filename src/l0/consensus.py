@@ -507,12 +507,12 @@ def calculate_structural_similarity(a: Any, b: Any) -> float:
             return 0.0
 
     # Primitives
-    if isinstance(a, str):
+    if isinstance(a, str) and isinstance(b, str):
         if a == b:
             return 1.0
         return _calculate_similarity(a, b)
 
-    if isinstance(a, (int, float)):
+    if isinstance(a, (int, float)) and isinstance(b, (int, float)):
         if a == b:
             return 1.0
         max_diff = max(abs(a), abs(b))
@@ -520,7 +520,7 @@ def calculate_structural_similarity(a: Any, b: Any) -> float:
             return 1.0
         return float(1 - abs(a - b) / max_diff)
 
-    if isinstance(a, bool):
+    if isinstance(a, bool) and isinstance(b, bool):
         return 1.0 if a == b else 0.0
 
     # Array comparison
@@ -572,9 +572,9 @@ def calculate_structural_similarity(a: Any, b: Any) -> float:
         return matches / total
 
     # BaseModel comparison
-    if isinstance(a, BaseModel):
-        a_dict = a.model_dump() if hasattr(a, "model_dump") else {}
-        b_dict = b.model_dump() if hasattr(b, "model_dump") else {}
+    if isinstance(a, BaseModel) and isinstance(b, BaseModel):
+        a_dict = a.model_dump()
+        b_dict = b.model_dump()
         return calculate_structural_similarity(a_dict, b_dict)
 
     # Fallback: string comparison
