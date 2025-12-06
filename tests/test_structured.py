@@ -31,7 +31,9 @@ class PassthroughAdapter:
         """Detect async generators (our test streams)."""
         return hasattr(stream, "__anext__")
 
-    async def wrap(self, stream: Any) -> AsyncIterator[AdaptedEvent[Any]]:
+    async def wrap(
+        self, stream: Any, options: Any = None
+    ) -> AsyncIterator[AdaptedEvent[Any]]:
         """Pass through events wrapped in AdaptedEvent."""
         async for event in stream:
             yield AdaptedEvent(event=event, raw_chunk=None)
@@ -237,7 +239,7 @@ class TestStructured:
         """Test that PARSE_END is emitted even when validation fails."""
         events_emitted = []
 
-        def on_event(event):
+        def on_event(event: Any) -> None:
             events_emitted.append(event.type)
 
         async def invalid_stream():
@@ -316,7 +318,7 @@ class TestStructuredStream:
 
         events_received = []
 
-        def on_event(event):
+        def on_event(event: Any) -> None:
             events_received.append(event.type)
 
         async def json_stream():
@@ -675,4 +677,5 @@ class TestStructuredArray:
         )
 
         assert result.telemetry is not None
+        assert result.telemetry.schema_name is not None
         assert "list[SimpleModel]" in result.telemetry.schema_name

@@ -38,6 +38,7 @@ class TestCreateMemoryEntry:
         before = datetime.now()
         entry = create_memory_entry("user", "Test")
         after = datetime.now()
+        assert entry.timestamp is not None
         assert before <= entry.timestamp <= after
 
 

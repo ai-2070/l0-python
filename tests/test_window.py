@@ -96,23 +96,23 @@ class TestWindowChunk:
 
 class TestDocumentWindow:
     @pytest.fixture
-    def sample_doc(self):
+    def sample_doc(self) -> str:
         return "a" * 4000  # Large enough for multiple chunks
 
     @pytest.fixture
-    def window(self, sample_doc):
+    def window(self, sample_doc: str) -> DocumentWindow:
         return Window.create(sample_doc, size=500, overlap=50)
 
-    def test_create_window(self, window):
+    def test_create_window(self, window: DocumentWindow) -> None:
         assert window.total_chunks > 1
 
-    def test_current(self, window):
+    def test_current(self, window: DocumentWindow) -> None:
         chunk = window.current()
         assert chunk is not None
         assert chunk.index == 0
         assert chunk.is_first
 
-    def test_get(self, window):
+    def test_get(self, window: DocumentWindow) -> None:
         chunk = window.get(0)
         assert chunk is not None
         assert chunk.index == 0
@@ -125,52 +125,52 @@ class TestDocumentWindow:
         assert window.get(-1) is None
         assert window.get(999) is None
 
-    def test_get_all_chunks(self, window):
+    def test_get_all_chunks(self, window: DocumentWindow) -> None:
         chunks = window.get_all_chunks()
         assert len(chunks) == window.total_chunks
 
-    def test_navigation_next(self, window):
+    def test_navigation_next(self, window: DocumentWindow) -> None:
         assert window.current_index == 0
         chunk = window.next()
         assert chunk is not None
         assert window.current_index == 1
 
-    def test_navigation_prev(self, window):
+    def test_navigation_prev(self, window: DocumentWindow) -> None:
         window.next()
         assert window.current_index == 1
         chunk = window.prev()
         assert chunk is not None
         assert window.current_index == 0
 
-    def test_navigation_jump(self, window):
+    def test_navigation_jump(self, window: DocumentWindow) -> None:
         chunk = window.jump(2)
         assert chunk is not None
         assert window.current_index == 2
 
-    def test_navigation_reset(self, window):
+    def test_navigation_reset(self, window: DocumentWindow) -> None:
         window.jump(2)
         chunk = window.reset()
         assert chunk is not None
         assert window.current_index == 0
 
-    def test_has_next(self, window):
+    def test_has_next(self, window: DocumentWindow) -> None:
         assert window.has_next()
         window.jump(window.total_chunks - 1)
         assert not window.has_next()
 
-    def test_has_prev(self, window):
+    def test_has_prev(self, window: DocumentWindow) -> None:
         assert not window.has_prev()
         window.next()
         assert window.has_prev()
 
-    def test_iteration(self, window):
+    def test_iteration(self, window: DocumentWindow) -> None:
         chunks = list(window)
         assert len(chunks) == window.total_chunks
 
-    def test_len(self, window):
+    def test_len(self, window: DocumentWindow) -> None:
         assert len(window) == window.total_chunks
 
-    def test_getitem(self, window):
+    def test_getitem(self, window: DocumentWindow) -> None:
         chunk = window[0]
         assert chunk.index == 0
 
@@ -304,11 +304,11 @@ class TestProcessAll:
         doc = "Test document"
         window = Window.create(doc, size=100)
 
-        async def processor(chunk: DocumentChunk) -> str:
+        async def processor(chunk: DocumentChunk) -> str:  # type: ignore[misc]
             return chunk.content
 
         with pytest.raises(ValueError, match="concurrency must be >= 1"):
-            await window.process_all(processor, concurrency=0)
+            await window.process_all(processor, concurrency=0)  # type: ignore[arg-type]
 
     @pytest.mark.asyncio
     async def test_process_all_negative_concurrency_raises(self):
@@ -316,11 +316,11 @@ class TestProcessAll:
         doc = "Test document"
         window = Window.create(doc, size=100)
 
-        async def processor(chunk: DocumentChunk) -> str:
+        async def processor(chunk: DocumentChunk) -> str:  # type: ignore[misc]
             return chunk.content
 
         with pytest.raises(ValueError, match="concurrency must be >= 1"):
-            await window.process_all(processor, concurrency=-1)
+            await window.process_all(processor, concurrency=-1)  # type: ignore[arg-type]
 
 
 class TestOverlapGreaterThanSize:
@@ -502,9 +502,11 @@ class TestMetadata:
         chunks = window.get_all_chunks()
 
         # Modify one chunk's metadata
+        assert chunks[0].metadata is not None
         chunks[0].metadata["modified"] = True
 
         # Other chunks should not be affected
+        assert chunks[1].metadata is not None
         assert "modified" not in chunks[1].metadata
 
     def test_chunk_metadata_none_by_default(self):
@@ -585,6 +587,7 @@ class TestGetContext:
         # Get context for chunk 2 with no surrounding chunks
         context = window.get_context(2, before=0, after=0)
         chunk = window.get(2)
+        assert chunk is not None
         assert context == chunk.content
 
     def test_get_context_with_before(self):
@@ -593,8 +596,8 @@ class TestGetContext:
         window = Window.create(doc, size=500, overlap=50)
         context = window.get_context(2, before=1, after=0)
         # Should include chunks 1 and 2
-        chunk1 = window.get(1)
         chunk2 = window.get(2)
+        assert chunk2 is not None
         assert len(context) > len(chunk2.content)
 
     def test_get_context_with_after(self):
@@ -605,6 +608,7 @@ class TestGetContext:
         context = window.get_context(1, before=0, after=1)
         # Should include chunks 1 and 2 (with overlap removed)
         chunk1 = window.get(1)
+        assert chunk1 is not None
         # Context should be at least as long as the single chunk
         assert len(context) >= len(chunk1.content)
 
@@ -615,6 +619,7 @@ class TestGetContext:
         context = window.get_context(2, before=1, after=1)
         # Should include chunks 1, 2, and 3
         chunk2 = window.get(2)
+        assert chunk2 is not None
         assert len(context) > len(chunk2.content)
 
     def test_get_context_clamps_to_bounds(self):
@@ -1001,6 +1006,7 @@ class TestContextRestorationOptions:
         assert options.max_attempts == 5
 
         # Test callback
+        assert options.on_restore is not None
         options.on_restore(1, 2)
         assert callback_called == [(1, 2)]
 

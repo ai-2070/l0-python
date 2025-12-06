@@ -1,5 +1,7 @@
 """Tests for l0.consensus module."""
 
+from typing import Any
+
 import pytest
 from pydantic import BaseModel
 
@@ -116,7 +118,7 @@ class TestConsensus:
             return "a"
 
         with pytest.raises(ValueError, match="Unknown strategy"):
-            await Consensus.run([task, task], strategy="invalid")
+            await Consensus.run([task, task], strategy="invalid")  # type: ignore[arg-type]
 
 
 class TestWeightedConsensus:
@@ -662,7 +664,7 @@ class TestObservabilityEvents:
     async def test_emits_events(self):
         events_received = []
 
-        def on_event(event):
+        def on_event(event: Any) -> None:
             events_received.append(event.type.value)
 
         async def task():

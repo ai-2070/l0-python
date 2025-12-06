@@ -1,9 +1,10 @@
 """Tests for L0 multimodal helpers."""
 
+from typing import Any
+
 import pytest
 
 from l0 import ContentType, DataPayload, EventType, Multimodal, Progress
-from l0.types import Event
 
 
 class TestMultimodalEventCreation:
@@ -24,22 +25,26 @@ class TestMultimodalEventCreation:
         assert event.payload.content_type == ContentType.IMAGE
         assert event.payload.mime_type == "image/png"
         assert event.payload.base64 == "abc123"
-        assert event.payload.metadata["width"] == 1024
-        assert event.payload.metadata["height"] == 768
-        assert event.payload.metadata["seed"] == 42
-        assert event.payload.metadata["model"] == "flux-schnell"
+        payload = event.payload
+        assert payload.metadata is not None
+        assert payload.metadata["width"] == 1024
+        assert payload.metadata["height"] == 768
+        assert payload.metadata["seed"] == 42
+        assert payload.metadata["model"] == "flux-schnell"
 
     def test_image_event_with_url(self):
         """Test creating an image event with URL."""
         event = Multimodal.image(url="https://example.com/image.png")
 
         assert event.type == EventType.DATA
+        assert event.payload is not None
         assert event.payload.url == "https://example.com/image.png"
         assert event.payload.base64 is None
 
     def test_image_event_custom_mime_type(self):
         """Test image event with custom MIME type."""
         event = Multimodal.image(base64="abc", mime_type="image/webp")
+        assert event.payload is not None
         assert event.payload.mime_type == "image/webp"
 
     def test_audio_event(self):
@@ -51,11 +56,14 @@ class TestMultimodalEventCreation:
         )
 
         assert event.type == EventType.DATA
+        assert event.payload is not None
         assert event.payload.content_type == ContentType.AUDIO
         assert event.payload.mime_type == "audio/mp3"
         assert event.payload.base64 == "audio_data"
-        assert event.payload.metadata["duration"] == 120.5
-        assert event.payload.metadata["model"] == "whisper"
+        payload = event.payload
+        assert payload.metadata is not None
+        assert payload.metadata["duration"] == 120.5
+        assert payload.metadata["model"] == "whisper"
 
     def test_video_event(self):
         """Test creating a video event."""
@@ -67,12 +75,15 @@ class TestMultimodalEventCreation:
         )
 
         assert event.type == EventType.DATA
+        assert event.payload is not None
         assert event.payload.content_type == ContentType.VIDEO
         assert event.payload.mime_type == "video/mp4"
         assert event.payload.url == "https://example.com/video.mp4"
-        assert event.payload.metadata["width"] == 1920
-        assert event.payload.metadata["height"] == 1080
-        assert event.payload.metadata["duration"] == 60.0
+        payload = event.payload
+        assert payload.metadata is not None
+        assert payload.metadata["width"] == 1920
+        assert payload.metadata["height"] == 1080
+        assert payload.metadata["duration"] == 60.0
 
     def test_file_event(self):
         """Test creating a file event."""
@@ -84,10 +95,13 @@ class TestMultimodalEventCreation:
         )
 
         assert event.type == EventType.DATA
+        assert event.payload is not None
         assert event.payload.content_type == ContentType.FILE
         assert event.payload.mime_type == "application/pdf"
-        assert event.payload.metadata["filename"] == "document.pdf"
-        assert event.payload.metadata["size"] == 1024
+        payload = event.payload
+        assert payload.metadata is not None
+        assert payload.metadata["filename"] == "document.pdf"
+        assert payload.metadata["size"] == 1024
 
     def test_json_event(self):
         """Test creating a JSON event."""
@@ -95,9 +109,11 @@ class TestMultimodalEventCreation:
         event = Multimodal.json(data, model="gpt-4")
 
         assert event.type == EventType.DATA
+        assert event.payload is not None
         assert event.payload.content_type == ContentType.JSON
         assert event.payload.mime_type == "application/json"
         assert event.payload.json == data
+        assert event.payload.metadata is not None
         assert event.payload.metadata["model"] == "gpt-4"
 
     def test_progress_event(self):
@@ -112,11 +128,12 @@ class TestMultimodalEventCreation:
 
         assert event.type == EventType.PROGRESS
         assert event.progress is not None
-        assert event.progress.percent == 50.0
-        assert event.progress.step == 5
-        assert event.progress.total_steps == 10
-        assert event.progress.message == "Processing..."
-        assert event.progress.eta == 30.0
+        progress = event.progress
+        assert progress.percent == 50.0
+        assert progress.step == 5
+        assert progress.total_steps == 10
+        assert progress.message == "Processing..."
+        assert progress.eta == 30.0
 
     def test_complete_event(self):
         """Test creating a complete event."""
@@ -160,8 +177,11 @@ class TestMultimodalEventCreation:
             another_field=42,
         )
 
-        assert event.payload.metadata["custom_field"] == "custom_value"
-        assert event.payload.metadata["another_field"] == 42
+        assert event.payload is not None
+        payload = event.payload
+        assert payload.metadata is not None
+        assert payload.metadata["custom_field"] == "custom_value"
+        assert payload.metadata["another_field"] == 42
 
 
 class TestMultimodalToEvents:
@@ -176,7 +196,7 @@ class TestMultimodalToEvents:
             yield {"type": "progress", "percent": 50}
             yield {"type": "progress", "percent": 100}
 
-        def extract_progress(chunk):
+        def extract_progress(chunk: dict[str, Any]) -> dict[str, Any] | None:
             if chunk["type"] == "progress":
                 return {"percent": chunk["percent"]}
             return None
@@ -190,8 +210,11 @@ class TestMultimodalToEvents:
 
         assert len(events) == 4  # 3 progress + 1 complete
         assert events[0].type == EventType.PROGRESS
+        assert events[0].progress is not None
         assert events[0].progress.percent == 25
+        assert events[1].progress is not None
         assert events[1].progress.percent == 50
+        assert events[2].progress is not None
         assert events[2].progress.percent == 100
         assert events[3].type == EventType.COMPLETE
 
@@ -203,7 +226,7 @@ class TestMultimodalToEvents:
             yield {"type": "image", "base64": "img1", "width": 512}
             yield {"type": "image", "base64": "img2", "width": 1024}
 
-        def extract_data(chunk):
+        def extract_data(chunk: dict[str, Any]) -> DataPayload | None:
             if chunk["type"] == "image":
                 return Multimodal.image(
                     base64=chunk["base64"],
@@ -220,8 +243,10 @@ class TestMultimodalToEvents:
 
         assert len(events) == 3  # 2 data + 1 complete
         assert events[0].type == EventType.DATA
+        assert events[0].payload is not None
         assert events[0].payload.base64 == "img1"
         assert events[0].payload.metadata["width"] == 512
+        assert events[1].payload is not None
         assert events[1].payload.base64 == "img2"
         assert events[2].type == EventType.COMPLETE
 
@@ -233,7 +258,7 @@ class TestMultimodalToEvents:
             yield {"type": "text", "content": "Hello "}
             yield {"type": "text", "content": "World"}
 
-        def extract_text(chunk):
+        def extract_text(chunk: dict[str, Any]) -> str | None:
             if chunk["type"] == "text":
                 return chunk["content"]
             return None
@@ -259,12 +284,12 @@ class TestMultimodalToEvents:
             yield {"type": "progress", "percent": 50}
             yield {"type": "error", "message": "Generation failed"}
 
-        def extract_progress(chunk):
+        def extract_progress(chunk: dict[str, Any]) -> dict[str, Any] | None:
             if chunk["type"] == "progress":
                 return {"percent": chunk["percent"]}
             return None
 
-        def extract_error(chunk):
+        def extract_error(chunk: dict[str, Any]) -> RuntimeError | None:
             if chunk["type"] == "error":
                 return RuntimeError(chunk["message"])
             return None
@@ -290,7 +315,7 @@ class TestMultimodalToEvents:
             yield {"type": "progress", "percent": 25}
             raise RuntimeError("Stream crashed")
 
-        def extract_progress(chunk):
+        def extract_progress(chunk: dict[str, Any]) -> dict[str, Any] | None:
             if chunk["type"] == "progress":
                 return {"percent": chunk["percent"]}
             return None
@@ -305,6 +330,7 @@ class TestMultimodalToEvents:
         assert len(events) == 2  # 1 progress + 1 error
         assert events[0].type == EventType.PROGRESS
         assert events[1].type == EventType.ERROR
+        assert events[1].error is not None
         assert "Stream crashed" in str(events[1].error)
 
     @pytest.mark.asyncio
@@ -314,7 +340,7 @@ class TestMultimodalToEvents:
         async def source_stream():
             yield {"progress": Progress(percent=75, message="Almost done")}
 
-        def extract_progress(chunk):
+        def extract_progress(chunk: dict[str, Any]) -> Progress | None:
             return chunk.get("progress")
 
         events = []
@@ -325,6 +351,7 @@ class TestMultimodalToEvents:
             events.append(event)
 
         assert events[0].type == EventType.PROGRESS
+        assert events[0].progress is not None
         assert events[0].progress.percent == 75
         assert events[0].progress.message == "Almost done"
 
@@ -338,14 +365,14 @@ class TestMultimodalToEvents:
             yield {"type": "progress", "percent": 75}
             yield {"type": "result", "image": "base64data", "seed": 42}
 
-        def extract_progress(chunk):
+        def extract_progress(chunk: dict[str, Any]) -> dict[str, Any] | None:
             if chunk["type"] == "queued":
                 return {"percent": 0, "message": f"Queue position: {chunk['position']}"}
             if chunk["type"] == "progress":
                 return {"percent": chunk["percent"]}
             return None
 
-        def extract_data(chunk):
+        def extract_data(chunk: dict[str, Any]) -> DataPayload | None:
             if chunk["type"] == "result":
                 return Multimodal.image(
                     base64=chunk["image"],
@@ -363,10 +390,14 @@ class TestMultimodalToEvents:
 
         assert len(events) == 5  # 3 progress + 1 data + 1 complete
         assert events[0].type == EventType.PROGRESS
+        assert events[0].progress is not None
         assert events[0].progress.message == "Queue position: 5"
+        assert events[1].progress is not None
         assert events[1].progress.percent == 25
+        assert events[2].progress is not None
         assert events[2].progress.percent == 75
         assert events[3].type == EventType.DATA
+        assert events[3].payload is not None
         assert events[3].payload.metadata["seed"] == 42
         assert events[4].type == EventType.COMPLETE
 
@@ -381,7 +412,7 @@ class TestMultimodalFromStream:
         async def source():
             yield {"image": "data"}
 
-        def extract_data(chunk):
+        def extract_data(chunk: dict[str, Any]) -> DataPayload | None:
             if chunk.get("image"):
                 return Multimodal.image(base64=chunk["image"]).payload
             return None
@@ -464,11 +495,14 @@ class TestMultimodalBinaryEvent:
         assert event.payload.content_type == ContentType.BINARY
         assert event.payload.mime_type == "application/octet-stream"
         assert event.payload.base64 == "YmluYXJ5IGRhdGE="
-        assert event.payload.metadata["size"] == 12
+        payload = event.payload
+        assert payload.metadata is not None
+        assert payload.metadata["size"] == 12
 
     def test_binary_event_with_url(self):
         """Test binary event with URL."""
         event = Multimodal.binary(url="https://example.com/file.bin")
+        assert event.payload is not None
         assert event.payload.url == "https://example.com/file.bin"
 
     def test_binary_event_custom_mime_type(self):
@@ -477,6 +511,7 @@ class TestMultimodalBinaryEvent:
             base64="abc",
             mime_type="application/x-custom",
         )
+        assert event.payload is not None
         assert event.payload.mime_type == "application/x-custom"
 
 
@@ -507,6 +542,7 @@ class TestMultimodalMessageEvent:
         event = Multimodal.message("Hello, how can I help?")
 
         assert event.type == EventType.MESSAGE
+        assert event.data is not None
         assert event.data["value"] == "Hello, how can I help?"
         assert event.data["role"] is None
 
@@ -515,6 +551,7 @@ class TestMultimodalMessageEvent:
         event = Multimodal.message("I need help", role="user")
 
         assert event.type == EventType.MESSAGE
+        assert event.data is not None
         assert event.data["value"] == "I need help"
         assert event.data["role"] == "user"
 
@@ -550,7 +587,9 @@ class TestModuleLevelHelpers:
         )
 
         assert event.type == EventType.DATA
+        assert event.payload is not None
         assert event.payload.content_type == ContentType.IMAGE
+        assert event.payload.metadata is not None
         assert event.payload.metadata["width"] == 512
 
     def test_create_audio_event(self):
@@ -564,7 +603,9 @@ class TestModuleLevelHelpers:
         )
 
         assert event.type == EventType.DATA
+        assert event.payload is not None
         assert event.payload.content_type == ContentType.AUDIO
+        assert event.payload.metadata is not None
         assert event.payload.metadata["duration"] == 5.0
 
     def test_create_video_event(self):
@@ -579,7 +620,9 @@ class TestModuleLevelHelpers:
         )
 
         assert event.type == EventType.DATA
+        assert event.payload is not None
         assert event.payload.content_type == ContentType.VIDEO
+        assert event.payload.metadata is not None
         assert event.payload.metadata["duration"] == 60.0
 
     def test_create_progress_event(self):
@@ -594,6 +637,7 @@ class TestModuleLevelHelpers:
         )
 
         assert event.type == EventType.PROGRESS
+        assert event.progress is not None
         assert event.progress.percent == 75
         assert event.progress.step == 3
 
@@ -611,6 +655,7 @@ class TestModuleLevelHelpers:
 
         event = create_message_event("tool response", role="assistant")
         assert event.type == EventType.MESSAGE
+        assert event.data is not None
         assert event.data["value"] == "tool response"
         assert event.data["role"] == "assistant"
 
@@ -638,6 +683,7 @@ class TestModuleLevelHelpers:
         data = {"key": "value"}
         event = create_json_event(data, model="gpt-4")
         assert event.type == EventType.DATA
+        assert event.payload is not None
         assert event.payload.content_type == ContentType.JSON
         assert event.payload.json == data
 
@@ -670,12 +716,12 @@ class TestToEventsWithMessages:
             yield {"type": "message", "content": "tool call", "role": "assistant"}
             yield {"type": "text", "content": "response"}
 
-        def extract_text(chunk):
+        def extract_text(chunk: dict[str, Any]) -> str | None:
             if chunk["type"] == "text":
                 return chunk["content"]
             return None
 
-        def extract_message(chunk):
+        def extract_message(chunk: dict[str, Any]) -> dict[str, Any] | None:
             if chunk["type"] == "message":
                 return {"value": chunk["content"], "role": chunk["role"]}
             return None
@@ -690,6 +736,7 @@ class TestToEventsWithMessages:
 
         assert len(events) == 3  # 1 message + 1 token + 1 complete
         assert events[0].type == EventType.MESSAGE
+        assert events[0].data is not None
         assert events[0].data["value"] == "tool call"
         assert events[0].data["role"] == "assistant"
         assert events[1].type == EventType.TOKEN
@@ -704,12 +751,12 @@ class TestToEventsWithMessages:
             # Chunk that matches multiple handlers - text should win
             yield {"type": "both", "text": "hello", "message": "msg"}
 
-        def extract_text(chunk):
+        def extract_text(chunk: dict[str, Any]) -> str | None:
             if "text" in chunk:
                 return chunk["text"]
             return None
 
-        def extract_message(chunk):
+        def extract_message(chunk: dict[str, Any]) -> dict[str, Any] | None:
             if "message" in chunk:
                 return {"value": chunk["message"]}
             return None
@@ -736,12 +783,12 @@ class TestToEventsWithMessages:
             yield {"type": "tool", "call": "search()"}
             yield {"type": "text", "content": "world"}
 
-        def extract_text(chunk):
+        def extract_text(chunk: dict[str, Any]) -> str | None:
             if chunk["type"] == "text":
                 return chunk["content"]
             return None
 
-        def extract_message(chunk):
+        def extract_message(chunk: dict[str, Any]) -> dict[str, Any] | None:
             if chunk["type"] == "tool":
                 return {"value": chunk["call"], "role": "assistant"}
             return None
@@ -772,12 +819,12 @@ class TestToMultimodalEvents:
             yield {"type": "progress", "percent": 50}
             yield {"type": "image", "base64": "abc123", "width": 512}
 
-        def extract_progress(chunk):
+        def extract_progress(chunk: dict[str, Any]) -> dict[str, Any] | None:
             if chunk["type"] == "progress":
                 return {"percent": chunk["percent"]}
             return None
 
-        def extract_data(chunk):
+        def extract_data(chunk: dict[str, Any]) -> DataPayload | None:
             if chunk["type"] == "image":
                 return Multimodal.image(
                     base64=chunk["base64"],
@@ -795,8 +842,10 @@ class TestToMultimodalEvents:
 
         assert len(events) == 3  # 1 progress + 1 data + 1 complete
         assert events[0].type == EventType.PROGRESS
+        assert events[0].progress is not None
         assert events[0].progress.percent == 50
         assert events[1].type == EventType.DATA
+        assert events[1].payload is not None
         assert events[1].payload.base64 == "abc123"
 
 

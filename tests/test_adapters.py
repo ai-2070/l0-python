@@ -10,36 +10,43 @@ from l0.types import Event, EventType
 
 
 class MockDelta:
-    def __init__(self, content=None, tool_calls=None):
+    def __init__(self, content: str | None = None, tool_calls: list[Any] | None = None):
         self.content = content
         self.tool_calls = tool_calls
 
 
 class MockToolCallFunction:
-    def __init__(self, name=None, arguments=None):
+    def __init__(self, name: str | None = None, arguments: str | None = None):
         self.name = name
         self.arguments = arguments
 
 
 class MockToolCall:
-    def __init__(self, id=None, name=None, arguments=None):
+    def __init__(
+        self,
+        id: str | None = None,
+        name: str | None = None,
+        arguments: str | None = None,
+    ):
         self.id = id
         self.function = MockToolCallFunction(name, arguments)
 
 
 class MockChoice:
-    def __init__(self, delta=None):
+    def __init__(self, delta: MockDelta | None = None):
         self.delta = delta
 
 
 class MockUsage:
-    def __init__(self, prompt_tokens=0, completion_tokens=0):
+    def __init__(self, prompt_tokens: int = 0, completion_tokens: int = 0):
         self.prompt_tokens = prompt_tokens
         self.completion_tokens = completion_tokens
 
 
 class MockChunk:
-    def __init__(self, choices=None, usage=None):
+    def __init__(
+        self, choices: list[MockChoice] | None = None, usage: MockUsage | None = None
+    ):
         self.choices = choices or []
         self.usage = usage
 
@@ -207,11 +214,15 @@ class TestAdaptersRegister:
         class CustomAdapter:
             name = "custom"
 
-            def detect(self, stream):
+            def detect(self, stream: Any) -> bool:
                 return hasattr(stream, "_custom_marker")
 
-            async def wrap(self, stream):
-                yield Event(type=EventType.COMPLETE)
+            async def wrap(
+                self, stream: Any, options: Any = None
+            ) -> AsyncIterator[Any]:
+                from l0.adapters import AdaptedEvent
+
+                yield AdaptedEvent(event=Event(type=EventType.COMPLETE), raw_chunk=None)
 
         Adapters.register(CustomAdapter())
 
@@ -233,7 +244,7 @@ class TestAdaptersList:
 
     def test_list_default(self):
         """Test listing default adapters."""
-        names = Adapters.list()
+        names = Adapters.registered()
         assert names == ["openai", "event"]
 
     def test_list_after_register(self):
@@ -245,11 +256,15 @@ class TestAdaptersList:
             def detect(self, stream: Any) -> bool:
                 return False
 
-            async def wrap(self, stream: Any) -> AsyncIterator[Event]:
-                yield Event(type=EventType.COMPLETE)
+            async def wrap(
+                self, stream: Any, options: Any = None
+            ) -> AsyncIterator[Any]:
+                from l0.adapters import AdaptedEvent
+
+                yield AdaptedEvent(event=Event(type=EventType.COMPLETE), raw_chunk=None)
 
         Adapters.register(FakeAdapter())
-        names = Adapters.list()
+        names = Adapters.registered()
         assert names == ["fake", "openai", "event"]
 
 
@@ -271,15 +286,19 @@ class TestAdaptersUnregister:
             def detect(self, stream: Any) -> bool:
                 return False
 
-            async def wrap(self, stream: Any) -> AsyncIterator[Event]:
-                yield Event(type=EventType.COMPLETE)
+            async def wrap(
+                self, stream: Any, options: Any = None
+            ) -> AsyncIterator[Any]:
+                from l0.adapters import AdaptedEvent
+
+                yield AdaptedEvent(event=Event(type=EventType.COMPLETE), raw_chunk=None)
 
         Adapters.register(FakeAdapter())
-        assert "fake" in Adapters.list()
+        assert "fake" in Adapters.registered()
 
         result = Adapters.unregister("fake")
         assert result is True
-        assert "fake" not in Adapters.list()
+        assert "fake" not in Adapters.registered()
 
     def test_unregister_nonexistent(self):
         """Test unregistering a non-existent adapter."""
@@ -298,19 +317,19 @@ class TestAdaptersClear:
 
     def test_clear(self):
         """Test clearing all adapters."""
-        assert len(Adapters.list()) > 0
+        assert len(Adapters.registered()) > 0
         Adapters.clear()
-        assert Adapters.list() == []
+        assert Adapters.registered() == []
 
 
 class TestAdaptersReset:
     def test_reset_restores_default(self):
         """Test that reset restores default adapters."""
         Adapters.clear()
-        assert Adapters.list() == []
+        assert Adapters.registered() == []
 
         Adapters.reset()
-        assert Adapters.list() == ["openai", "event"]
+        assert Adapters.registered() == ["openai", "event"]
 
     def test_reset_removes_custom(self):
         """Test that reset removes custom adapters."""
@@ -321,14 +340,18 @@ class TestAdaptersReset:
             def detect(self, stream: Any) -> bool:
                 return False
 
-            async def wrap(self, stream: Any) -> AsyncIterator[Event]:
-                yield Event(type=EventType.COMPLETE)
+            async def wrap(
+                self, stream: Any, options: Any = None
+            ) -> AsyncIterator[Any]:
+                from l0.adapters import AdaptedEvent
+
+                yield AdaptedEvent(event=Event(type=EventType.COMPLETE), raw_chunk=None)
 
         Adapters.register(FakeAdapter())
-        assert "fake" in Adapters.list()
+        assert "fake" in Adapters.registered()
 
         Adapters.reset()
-        assert Adapters.list() == ["openai", "event"]
+        assert Adapters.registered() == ["openai", "event"]
 
 
 class TestAdaptersFactories:

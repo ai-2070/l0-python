@@ -106,7 +106,7 @@ class TestLiteLLMIntegration:
 
         events_received = []
 
-        def on_event(event):
+        def on_event(event: l0.ObservabilityEvent) -> None:
             events_received.append(event.type)
 
         stream = await litellm.acompletion(
@@ -209,5 +209,5 @@ class TestLiteLLMStructuredOutput:
             adapter="litellm",
         )
 
-        assert result.name == "Alice"
-        assert result.age == 30
+        assert result.data.name == "Alice"
+        assert result.data.age == 30

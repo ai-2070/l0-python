@@ -1,6 +1,7 @@
 """Tests for l0.guardrails module."""
 
 import time
+from typing import Any
 
 import pytest
 
@@ -931,7 +932,7 @@ class TestGuardrailEngine:
 
         violations_received = []
 
-        def on_violation(v):
+        def on_violation(v: GuardrailViolation) -> None:
             violations_received.append(v)
 
         engine = create_guardrail_engine([json_rule()], on_violation=on_violation)
@@ -977,6 +978,7 @@ class TestGuardrailContext:
         assert ctx.delta == "new content"
         assert ctx.token_count == 100
         assert ctx.metadata == {"key": "value"}
+        assert ctx.previous_violations is not None
         assert len(ctx.previous_violations) == 1
 
 
@@ -1221,7 +1223,7 @@ class TestAsyncGuardrailCheck:
         engine = create_guardrail_engine([json_rule()])
         results = []
 
-        def on_complete(result):
+        def on_complete(result: Any) -> None:
             results.append(result)
 
         ctx = GuardrailContext(
@@ -1245,7 +1247,7 @@ class TestAsyncGuardrailCheck:
         engine = create_guardrail_engine([json_rule()])
         results = []
 
-        def on_complete(result):
+        def on_complete(result: Any) -> None:
             results.append(result)
 
         ctx = GuardrailContext(

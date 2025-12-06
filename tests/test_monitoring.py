@@ -1,6 +1,7 @@
 """Tests for L0 monitoring system."""
 
 from datetime import datetime, timezone
+from typing import Any
 
 import pytest
 
@@ -229,6 +230,7 @@ class TestMonitor:
         telemetry = monitor.get_telemetry("stream-4")
         assert telemetry is not None
         assert telemetry.error.occurred is True
+        assert telemetry.error.message is not None
         assert "Something went wrong" in telemetry.error.message
         assert telemetry.error.category == ErrorCategory.MODEL
 
@@ -734,28 +736,36 @@ class TestEventNormalization:
 class MockSentryClient:
     """Mock Sentry client for testing."""
 
-    def __init__(self):
-        self.exceptions = []
-        self.messages = []
-        self.breadcrumbs = []
-        self.tags = {}
-        self.contexts = {}
+    def __init__(self) -> None:
+        self.exceptions: list[dict] = []
+        self.messages: list[dict] = []
+        self.breadcrumbs: list[dict] = []
+        self.tags: dict[str, str] = {}
+        self.extras: dict[str, Any] = {}
+        self.contexts: dict[str, dict] = {}
 
-    def capture_exception(self, error=None, **kwargs):
+    def capture_exception(
+        self, error: Exception | None = None, **kwargs: Any
+    ) -> str | None:
         self.exceptions.append({"error": error, **kwargs})
         return "mock-event-id"
 
-    def capture_message(self, message, level=None, **kwargs):
+    def capture_message(
+        self, message: str, level: str | None = None, **kwargs: Any
+    ) -> str | None:
         self.messages.append({"message": message, "level": level, **kwargs})
         return "mock-event-id"
 
-    def add_breadcrumb(self, **kwargs):
+    def add_breadcrumb(self, **kwargs: Any) -> None:
         self.breadcrumbs.append(kwargs)
 
-    def set_tag(self, key, value):
+    def set_tag(self, key: str, value: str) -> None:
         self.tags[key] = value
 
-    def set_context(self, name, context):
+    def set_extra(self, key: str, value: Any) -> None:
+        self.extras[key] = value
+
+    def set_context(self, name: str, context: dict[str, Any]) -> None:
         self.contexts[name] = context
 
 
@@ -872,7 +882,9 @@ class TestL0Sentry:
 
         sentry = MockSentryClient()
         l0_sentry = L0Sentry(sentry)
-        l0_sentry._token_count = 100
+        # Record tokens to set the token count
+        for _ in range(100):
+            l0_sentry.record_token("x")
 
         l0_sentry.complete_stream(token_count=100)
 

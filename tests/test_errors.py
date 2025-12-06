@@ -365,7 +365,7 @@ class TestCreateNetworkError:
         enhanced = NetworkError.create(original, analysis)
 
         assert hasattr(enhanced, "analysis")
-        assert enhanced.analysis == analysis
+        assert getattr(enhanced, "analysis") == analysis
         assert "connection_dropped" in str(enhanced)
 
 

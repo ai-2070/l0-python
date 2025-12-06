@@ -1,7 +1,7 @@
 """L0 - Reliability layer for AI/LLM streaming."""
 
 from collections.abc import AsyncIterator, Callable
-from typing import Any
+from typing import Any, Protocol, overload, runtime_checkable
 
 from ._utils import (
     CorrectionType,
@@ -292,6 +292,48 @@ from .window import (
 # ─────────────────────────────────────────────────────────────────────────────
 # Public API
 # ─────────────────────────────────────────────────────────────────────────────
+
+
+# Protocol for OpenAI-style clients (has .chat.completions)
+@runtime_checkable
+class _OpenAILikeClient(Protocol):
+    """Protocol matching OpenAI/LiteLLM client structure."""
+
+    @property
+    def chat(self) -> Any: ...
+
+
+# Overloads for wrap() to provide accurate return types
+@overload
+def wrap(
+    client_or_stream: _OpenAILikeClient,
+    *,
+    guardrails: list[GuardrailRule] | None = None,
+    retry: Retry | None = None,
+    timeout: Timeout | None = None,
+    adapter: Any | str | None = None,
+    on_event: Callable[[ObservabilityEvent], None] | None = None,
+    meta: dict[str, Any] | None = None,
+    buffer_tool_calls: bool = False,
+    continue_from_last_good_token: "ContinuationConfig | bool" = False,
+    build_continuation_prompt: Callable[[str], str] | None = None,
+) -> WrappedClient: ...
+
+
+@overload
+def wrap(
+    client_or_stream: AsyncIterator[Any],
+    *,
+    guardrails: list[GuardrailRule] | None = None,
+    retry: Retry | None = None,
+    timeout: Timeout | None = None,
+    adapter: Any | str | None = None,
+    on_event: Callable[[ObservabilityEvent], None] | None = None,
+    meta: dict[str, Any] | None = None,
+    buffer_tool_calls: bool = False,
+    continue_from_last_good_token: "ContinuationConfig | bool" = False,
+    build_continuation_prompt: Callable[[str], str] | None = None,
+) -> "LazyStream[Any]": ...
 
 
 def wrap(

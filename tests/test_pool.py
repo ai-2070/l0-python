@@ -36,7 +36,9 @@ class PassthroughAdapter:
         """Detect async generators (our test streams)."""
         return hasattr(stream, "__anext__")
 
-    async def wrap(self, stream: Any) -> AsyncIterator[AdaptedEvent[Any]]:
+    async def wrap(
+        self, stream: Any, options: Any = None
+    ) -> AsyncIterator[AdaptedEvent[Any]]:
         """Pass through events wrapped in AdaptedEvent."""
         async for event in stream:
             yield AdaptedEvent(event=event, raw_chunk=None)
@@ -182,7 +184,7 @@ class TestPooledOperation:
         )
 
         assert op.stream is stream
-        assert len(op.fallbacks) == 1
+        assert op.fallbacks is not None and len(op.fallbacks) == 1
         assert op.retry is retry
 
 

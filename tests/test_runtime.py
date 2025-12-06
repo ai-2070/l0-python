@@ -22,7 +22,9 @@ class PassthroughAdapter:
         """Detect async generators (our test streams)."""
         return hasattr(stream, "__anext__")
 
-    async def wrap(self, stream: Any) -> AsyncIterator[AdaptedEvent[Any]]:
+    async def wrap(
+        self, stream: Any, options: Any = None
+    ) -> AsyncIterator[AdaptedEvent[Any]]:
         """Pass through events wrapped in AdaptedEvent."""
         async for event in stream:
             yield AdaptedEvent(event=event, raw_chunk=None)
@@ -92,8 +94,8 @@ class TestLazyWrap:
             yield Event(type=EventType.COMPLETE)
 
         # No double await!
+        tokens = []
         async with l0.wrap(my_stream()) as result:
-            tokens = []
             async for event in result:
                 if event.is_token:
                     tokens.append(event.text)
@@ -230,7 +232,7 @@ class TestFallback:
         """Test that FALLBACK_END is emitted when fallback succeeds."""
         events_received = []
 
-        def on_event(event):
+        def on_event(event: Any) -> None:
             events_received.append(event.type.value)
 
         async def failing_stream():

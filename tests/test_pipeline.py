@@ -41,7 +41,9 @@ class PassthroughAdapter:
         """Detect async generators (our test streams)."""
         return hasattr(stream, "__anext__")
 
-    async def wrap(self, stream: Any) -> AsyncIterator[AdaptedEvent[Any]]:
+    async def wrap(
+        self, stream: Any, options: Any = None
+    ) -> AsyncIterator[AdaptedEvent[Any]]:
         """Pass through events wrapped in AdaptedEvent."""
         async for event in stream:
             yield AdaptedEvent(event=event, raw_chunk=None)
@@ -166,7 +168,7 @@ class TestPipelineStep:
         """Should create a basic step."""
         step = PipelineStep(
             name="test-step",
-            fn=lambda input, ctx: stream_factory(input),
+            fn=lambda input, ctx: stream_factory(input),  # type: ignore[arg-type]
         )
 
         assert step.name == "test-step"
@@ -178,8 +180,8 @@ class TestPipelineStep:
         """Should create a step with transform."""
         step = PipelineStep(
             name="transform-step",
-            fn=lambda input, ctx: stream_factory(input),
-            transform=lambda content, ctx: content.upper(),
+            fn=lambda input, ctx: stream_factory(input),  # type: ignore[arg-type]
+            transform=lambda content, ctx: content.upper(),  # type: ignore[arg-type]
         )
 
         assert step.transform is not None
@@ -188,8 +190,8 @@ class TestPipelineStep:
         """Should create a step with condition."""
         step = PipelineStep(
             name="conditional-step",
-            fn=lambda input, ctx: stream_factory(input),
-            condition=lambda input, ctx: len(input) > 5,
+            fn=lambda input, ctx: stream_factory(input),  # type: ignore[arg-type]
+            condition=lambda input, ctx: len(input) > 5,  # type: ignore[arg-type]
         )
 
         assert step.condition is not None
@@ -201,9 +203,9 @@ class TestPipelineStep:
 
         step = PipelineStep(
             name="callback-step",
-            fn=lambda input, ctx: stream_factory(input),
-            on_error=on_error,
-            on_complete=on_complete,
+            fn=lambda input, ctx: stream_factory(input),  # type: ignore[arg-type]
+            on_error=on_error,  # type: ignore[arg-type]
+            on_complete=on_complete,  # type: ignore[arg-type]
         )
 
         assert step.on_error is on_error
@@ -319,8 +321,8 @@ class TestPipeline:
     def test_create_pipeline_with_steps(self):
         """Should create a pipeline with steps."""
         steps = [
-            PipelineStep(name="step1", fn=lambda x, ctx: stream_factory(x)),
-            PipelineStep(name="step2", fn=lambda x, ctx: stream_factory(x)),
+            PipelineStep(name="step1", fn=lambda x, ctx: stream_factory(x)),  # type: ignore[arg-type]
+            PipelineStep(name="step2", fn=lambda x, ctx: stream_factory(x)),  # type: ignore[arg-type]
         ]
 
         pipeline = Pipeline(steps=steps)
@@ -338,7 +340,7 @@ class TestPipeline:
         """Should add a step to pipeline."""
         pipeline = Pipeline(steps=[])
 
-        step = PipelineStep(name="new-step", fn=lambda x, ctx: stream_factory(x))
+        step = PipelineStep(name="new-step", fn=lambda x, ctx: stream_factory(x))  # type: ignore[arg-type]
         pipeline.add_step(step)
 
         assert len(pipeline.steps) == 1

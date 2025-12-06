@@ -125,6 +125,7 @@ class TestSimpleJSONSchemaAdapter:
 
         result = adapter.validate(schema, "hello")
         assert result.valid is True
+        assert isinstance(result, JSONSchemaValidationSuccess)
         assert result.data == "hello"
 
         result = adapter.validate(schema, 123)
@@ -219,6 +220,8 @@ class TestSimpleJSONSchemaAdapter:
 
         result = adapter.validate(schema, {"name": "Alice"})
         assert result.valid is False
+        assert isinstance(result, JSONSchemaValidationFailure)
+        assert result.errors is not None
         assert any("age" in e.path for e in result.errors)
 
     def test_validate_nested_properties(self):

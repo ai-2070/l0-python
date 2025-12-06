@@ -507,6 +507,7 @@ class TestFormatToolsSeparator:
         result = format_tools(tools, {"style": "natural"})
         # Should not have exactly 30 equals (the old value)
         # Check that 30 equals followed by newline is not present without more equals
+        assert isinstance(result, str)
         lines = result.split("\n")
         for line in lines:
             if line.strip() and all(c == "=" for c in line.strip()):

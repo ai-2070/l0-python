@@ -2,7 +2,8 @@
 
 import shutil
 import tempfile
-from pathlib import Path
+from collections.abc import Generator
+from typing import cast
 
 import pytest
 
@@ -13,10 +14,12 @@ from l0.eventsourcing import (
     FileEventStore,
     InMemoryEventStore,
     RecordedEventType,
+    StorageAdapterConfig,
     deserialize_error,
     generate_stream_id,
     serialize_error,
 )
+from l0.eventsourcing.types import CompleteEvent, TokenEvent
 
 
 class TestGenerateStreamId:
@@ -56,9 +59,9 @@ class TestSerializeError:
         deserialized = deserialize_error(serialized)
 
         assert hasattr(deserialized, "stack")
-        assert deserialized.stack == serialized.stack
-        assert "ValueError" in deserialized.stack
-        assert "test with traceback" in deserialized.stack
+        assert deserialized.stack == serialized.stack  # type: ignore[attr-defined]
+        assert "ValueError" in deserialized.stack  # type: ignore[attr-defined]
+        assert "test with traceback" in deserialized.stack  # type: ignore[attr-defined]
 
     def test_serialize_error_captures_stack_outside_except_block(self):
         """Test that stack trace is captured from error, not ambient state."""
@@ -81,11 +84,11 @@ class TestSerializeError:
 
 class TestInMemoryEventStore:
     @pytest.fixture
-    def store(self):
+    def store(self) -> InMemoryEventStore:
         return InMemoryEventStore()
 
     @pytest.mark.asyncio
-    async def test_append_and_get_events(self, store):
+    async def test_append_and_get_events(self, store: InMemoryEventStore) -> None:
         from l0.eventsourcing.types import TokenEvent, now_ms
 
         stream_id = "test-stream"
@@ -97,10 +100,10 @@ class TestInMemoryEventStore:
         assert len(events) == 1
         assert events[0].stream_id == stream_id
         assert events[0].seq == 0
-        assert events[0].event.value == "Hello"
+        assert cast(TokenEvent, events[0].event).value == "Hello"
 
     @pytest.mark.asyncio
-    async def test_exists(self, store):
+    async def test_exists(self, store: InMemoryEventStore) -> None:
         from l0.eventsourcing.types import TokenEvent, now_ms
 
         stream_id = "test-stream"
@@ -111,7 +114,7 @@ class TestInMemoryEventStore:
         assert await store.exists(stream_id) is True
 
     @pytest.mark.asyncio
-    async def test_delete(self, store):
+    async def test_delete(self, store: InMemoryEventStore) -> None:
         from l0.eventsourcing.types import TokenEvent, now_ms
 
         stream_id = "test-stream"
@@ -122,7 +125,7 @@ class TestInMemoryEventStore:
         assert await store.exists(stream_id) is False
 
     @pytest.mark.asyncio
-    async def test_list_streams(self, store):
+    async def test_list_streams(self, store: InMemoryEventStore) -> None:
         from l0.eventsourcing.types import TokenEvent, now_ms
 
         event = TokenEvent(ts=now_ms(), value="Hello", index=0)
@@ -134,7 +137,7 @@ class TestInMemoryEventStore:
         assert "stream-2" in streams
 
     @pytest.mark.asyncio
-    async def test_get_last_event(self, store):
+    async def test_get_last_event(self, store: InMemoryEventStore) -> None:
         from l0.eventsourcing.types import TokenEvent, now_ms
 
         stream_id = "test-stream"
@@ -143,10 +146,10 @@ class TestInMemoryEventStore:
 
         last = await store.get_last_event(stream_id)
         assert last is not None
-        assert last.event.value == "B"
+        assert cast(TokenEvent, last.event).value == "B"
 
     @pytest.mark.asyncio
-    async def test_get_events_after(self, store):
+    async def test_get_events_after(self, store: InMemoryEventStore) -> None:
         from l0.eventsourcing.types import TokenEvent, now_ms
 
         stream_id = "test-stream"
@@ -156,28 +159,28 @@ class TestInMemoryEventStore:
 
         events = await store.get_events_after(stream_id, 0)
         assert len(events) == 2
-        assert events[0].event.value == "B"
-        assert events[1].event.value == "C"
+        assert cast(TokenEvent, events[0].event).value == "B"
+        assert cast(TokenEvent, events[1].event).value == "C"
 
-    def test_clear(self, store):
+    def test_clear(self, store: InMemoryEventStore) -> None:
         store._streams["test"] = []
         store.clear()
         assert store.get_stream_count() == 0
 
-    def test_get_counts(self, store):
+    def test_get_counts(self, store: InMemoryEventStore) -> None:
         assert store.get_stream_count() == 0
         assert store.get_total_event_count() == 0
 
 
 class TestFileEventStore:
     @pytest.fixture
-    def temp_dir(self):
+    def temp_dir(self) -> Generator[str, None, None]:
         path = tempfile.mkdtemp()
         yield path
         shutil.rmtree(path)
 
     @pytest.fixture
-    def store(self, temp_dir):
+    def store(self, temp_dir: str) -> FileEventStore:
         return FileEventStore(base_path=temp_dir)
 
     def test_validate_stream_id_valid(self):
@@ -192,7 +195,7 @@ class TestFileEventStore:
             FileEventStore.validate_stream_id("")
 
     @pytest.mark.asyncio
-    async def test_append_and_get_events(self, store):
+    async def test_append_and_get_events(self, store: FileEventStore) -> None:
         from l0.eventsourcing.types import TokenEvent, now_ms
 
         stream_id = "test-stream"
@@ -202,10 +205,10 @@ class TestFileEventStore:
         events = await store.get_events(stream_id)
 
         assert len(events) == 1
-        assert events[0].event.value == "Hello"
+        assert cast(TokenEvent, events[0].event).value == "Hello"
 
     @pytest.mark.asyncio
-    async def test_exists(self, store):
+    async def test_exists(self, store: FileEventStore) -> None:
         from l0.eventsourcing.types import TokenEvent, now_ms
 
         stream_id = "test-stream"
@@ -216,7 +219,7 @@ class TestFileEventStore:
         assert await store.exists(stream_id) is True
 
     @pytest.mark.asyncio
-    async def test_delete(self, store):
+    async def test_delete(self, store: FileEventStore) -> None:
         from l0.eventsourcing.types import TokenEvent, now_ms
 
         stream_id = "test-stream"
@@ -227,7 +230,7 @@ class TestFileEventStore:
         assert await store.exists(stream_id) is False
 
     @pytest.mark.asyncio
-    async def test_list_streams(self, store):
+    async def test_list_streams(self, store: FileEventStore) -> None:
         from l0.eventsourcing.types import TokenEvent, now_ms
 
         event = TokenEvent(ts=now_ms(), value="Hello", index=0)
@@ -239,7 +242,7 @@ class TestFileEventStore:
         assert "stream-2" in streams
 
     @pytest.mark.asyncio
-    async def test_snapshot(self, store):
+    async def test_snapshot(self, store: FileEventStore) -> None:
         from l0.eventsourcing.types import Snapshot
 
         snapshot = Snapshot(
@@ -261,15 +264,17 @@ class TestFileEventStore:
 
 class TestEventRecorder:
     @pytest.fixture
-    def store(self):
+    def store(self) -> InMemoryEventStore:
         return InMemoryEventStore()
 
     @pytest.fixture
-    def recorder(self, store):
+    def recorder(self, store: InMemoryEventStore) -> EventRecorder:
         return EventRecorder(store, "test-stream")
 
     @pytest.mark.asyncio
-    async def test_record_start(self, recorder, store):
+    async def test_record_start(
+        self, recorder: EventRecorder, store: InMemoryEventStore
+    ) -> None:
         await recorder.record_start({"model": "gpt-4"})
 
         events = await store.get_events("test-stream")
@@ -277,26 +282,32 @@ class TestEventRecorder:
         assert events[0].event.type == RecordedEventType.START
 
     @pytest.mark.asyncio
-    async def test_record_token(self, recorder, store):
+    async def test_record_token(
+        self, recorder: EventRecorder, store: InMemoryEventStore
+    ) -> None:
         await recorder.record_token("Hello", 0)
         await recorder.record_token(" world", 1)
 
         events = await store.get_events("test-stream")
         assert len(events) == 2
-        assert events[0].event.value == "Hello"
-        assert events[1].event.value == " world"
+        assert cast(TokenEvent, events[0].event).value == "Hello"
+        assert cast(TokenEvent, events[1].event).value == " world"
 
     @pytest.mark.asyncio
-    async def test_record_complete(self, recorder, store):
+    async def test_record_complete(
+        self, recorder: EventRecorder, store: InMemoryEventStore
+    ) -> None:
         await recorder.record_complete("Hello world", 2)
 
         events = await store.get_events("test-stream")
         assert len(events) == 1
         assert events[0].event.type == RecordedEventType.COMPLETE
-        assert events[0].event.content == "Hello world"
+        assert cast(CompleteEvent, events[0].event).content == "Hello world"
 
     @pytest.mark.asyncio
-    async def test_record_error(self, recorder, store):
+    async def test_record_error(
+        self, recorder: EventRecorder, store: InMemoryEventStore
+    ) -> None:
         await recorder.record_error(
             ValueError("test error"),
             failure_type="validation",
@@ -308,7 +319,9 @@ class TestEventRecorder:
         assert events[0].event.type == RecordedEventType.ERROR
 
     @pytest.mark.asyncio
-    async def test_record_checkpoint(self, recorder, store):
+    async def test_record_checkpoint(
+        self, recorder: EventRecorder, store: InMemoryEventStore
+    ) -> None:
         await recorder.record_checkpoint(5, "Hello world")
 
         events = await store.get_events("test-stream")
@@ -316,7 +329,9 @@ class TestEventRecorder:
         assert events[0].event.type == RecordedEventType.CHECKPOINT
 
     @pytest.mark.asyncio
-    async def test_record_retry(self, recorder, store):
+    async def test_record_retry(
+        self, recorder: EventRecorder, store: InMemoryEventStore
+    ) -> None:
         await recorder.record_retry("rate_limit", 1, True)
 
         events = await store.get_events("test-stream")
@@ -324,7 +339,9 @@ class TestEventRecorder:
         assert events[0].event.type == RecordedEventType.RETRY
 
     @pytest.mark.asyncio
-    async def test_record_fallback(self, recorder, store):
+    async def test_record_fallback(
+        self, recorder: EventRecorder, store: InMemoryEventStore
+    ) -> None:
         await recorder.record_fallback(1)
 
         events = await store.get_events("test-stream")
@@ -332,7 +349,7 @@ class TestEventRecorder:
         assert events[0].event.type == RecordedEventType.FALLBACK
 
     @pytest.mark.asyncio
-    async def test_seq_increments(self, recorder):
+    async def test_seq_increments(self, recorder: EventRecorder) -> None:
         assert recorder.seq == 0
         await recorder.record_token("A", 0)
         assert recorder.seq == 1
@@ -342,11 +359,11 @@ class TestEventRecorder:
 
 class TestEventReplayer:
     @pytest.fixture
-    def store(self):
+    def store(self) -> InMemoryEventStore:
         return InMemoryEventStore()
 
     @pytest.mark.asyncio
-    async def test_replay_tokens(self, store):
+    async def test_replay_tokens(self, store: InMemoryEventStore) -> None:
         recorder = EventRecorder(store, "test-stream")
         await recorder.record_start({})
         await recorder.record_token("Hello", 0)
@@ -362,7 +379,7 @@ class TestEventReplayer:
         assert tokens == ["Hello", " ", "world"]
 
     @pytest.mark.asyncio
-    async def test_replay_to_state(self, store):
+    async def test_replay_to_state(self, store: InMemoryEventStore) -> None:
         recorder = EventRecorder(store, "test-stream")
         await recorder.record_start({})
         await recorder.record_token("Hello", 0)
@@ -377,7 +394,7 @@ class TestEventReplayer:
         assert state.completed is True
 
     @pytest.mark.asyncio
-    async def test_replay_with_retries(self, store):
+    async def test_replay_with_retries(self, store: InMemoryEventStore) -> None:
         recorder = EventRecorder(store, "test-stream")
         await recorder.record_start({})
         await recorder.record_retry("rate_limit", 1, True)
@@ -391,7 +408,9 @@ class TestEventReplayer:
         assert state.network_retry_count == 1
 
     @pytest.mark.asyncio
-    async def test_replay_continuation_rewinds_token_count(self, store):
+    async def test_replay_continuation_rewinds_token_count(
+        self, store: InMemoryEventStore
+    ) -> None:
         """Test that continuation events properly rewind token_count."""
         recorder = EventRecorder(store, "test-stream")
         await recorder.record_start({})
@@ -413,7 +432,9 @@ class TestEventReplayer:
         assert state.completed is True
 
     @pytest.mark.asyncio
-    async def test_replay_result_continuation_rewinds_token_count(self, store):
+    async def test_replay_result_continuation_rewinds_token_count(
+        self, store: InMemoryEventStore
+    ) -> None:
         """Test that ReplayResult also rewinds token_count on continuation."""
         from l0.eventsourcing.replayer import replay
 
@@ -784,7 +805,7 @@ class TestStorageAdapters:
             unregister_storage_adapter,
         )
 
-        def custom_factory(config):
+        def custom_factory(config: StorageAdapterConfig) -> InMemoryEventStore:
             return InMemoryEventStore()
 
         register_storage_adapter("custom", custom_factory)
