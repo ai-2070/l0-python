@@ -511,12 +511,20 @@ async def _internal_run(
                                     "arguments": tool_args,
                                 },
                             )
-                            # Fire on_tool_call callback
+                            # Fire on_tool_call callback with parsed arguments
+                            parsed_args: dict[str, Any] = {}
+                            if tool_args:
+                                try:
+                                    import json
+
+                                    parsed_args = json.loads(tool_args)
+                                except (json.JSONDecodeError, TypeError):
+                                    parsed_args = {"_raw": tool_args}
                             _fire_callback(
                                 cb.on_tool_call,
                                 tool_name,
                                 tool_call_id,
-                                {"arguments": tool_args},
+                                parsed_args,
                             )
 
                             # Emit TOOL_COMPLETED (tool call passed through)
@@ -778,12 +786,21 @@ async def _internal_run(
                                     toolCallId=tool_call_id,
                                     toolName=tool_name,
                                 )
-                                # Fire on_tool_call callback for consistency with buffered mode
+                                # Fire on_tool_call callback with parsed arguments
+                                raw_args = tc_data.get("arguments", "")
+                                parsed_tc_args: dict[str, Any] = {}
+                                if raw_args:
+                                    try:
+                                        import json
+
+                                        parsed_tc_args = json.loads(raw_args)
+                                    except (json.JSONDecodeError, TypeError):
+                                        parsed_tc_args = {"_raw": raw_args}
                                 _fire_callback(
                                     cb.on_tool_call,
                                     tool_name,
                                     tool_call_id,
-                                    {"arguments": tc_data.get("arguments", "")},
+                                    parsed_tc_args,
                                 )
 
                         yield event

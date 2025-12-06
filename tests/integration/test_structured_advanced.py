@@ -87,7 +87,7 @@ class TestNestedStructuredOutput:
     @pytest.mark.asyncio
     async def test_nested_object(self, client: "AsyncOpenAI") -> None:
         """Test parsing nested objects."""
-        result = await l0.structured(
+        result = await l0.structured_output(
             schema=Person,
             stream=lambda: client.chat.completions.create(
                 model="gpt-4o-mini",
@@ -112,7 +112,7 @@ class TestNestedStructuredOutput:
     @pytest.mark.asyncio
     async def test_optional_nested_null(self, client: "AsyncOpenAI") -> None:
         """Test optional nested field as null."""
-        result = await l0.structured(
+        result = await l0.structured_output(
             schema=Person,
             stream=lambda: client.chat.completions.create(
                 model="gpt-4o-mini",
@@ -282,7 +282,7 @@ class TestStrictModeStructuredOutput:
             name: str
             age: int
 
-        result = await l0.structured(
+        result = await l0.structured_output(
             schema=StrictPerson,
             stream=lambda: client.chat.completions.create(
                 model="gpt-4o-mini",
@@ -312,7 +312,7 @@ class TestStrictModeStructuredOutput:
             age: int
 
         with pytest.raises(ValueError, match="validation failed"):
-            await l0.structured(
+            await l0.structured_output(
                 schema=StrictPerson,
                 stream=lambda: client.chat.completions.create(
                     model="gpt-4o-mini",
@@ -351,7 +351,7 @@ class TestAutoCorrection:
         class SimpleData(BaseModel):
             value: int
 
-        result = await l0.structured(
+        result = await l0.structured_output(
             schema=SimpleData,
             stream=lambda: client.chat.completions.create(
                 model="gpt-4o-mini",
@@ -381,7 +381,7 @@ class TestAutoCorrection:
             corrections_received.append(info)
 
         # Ask for response that might need correction
-        result = await l0.structured(
+        result = await l0.structured_output(
             schema=SimpleData,
             stream=lambda: client.chat.completions.create(
                 model="gpt-4o-mini",
@@ -425,7 +425,7 @@ class TestStructuredRetry:
             x: int
             y: int
 
-        result = await l0.structured(
+        result = await l0.structured_output(
             schema=DataPoint,
             stream=lambda: client.chat.completions.create(
                 model="gpt-4o-mini",
@@ -515,7 +515,7 @@ class TestComplexSchemas:
     @pytest.mark.asyncio
     async def test_book_review_with_constraints(self, client: "AsyncOpenAI") -> None:
         """Test schema with Field constraints."""
-        result = await l0.structured(
+        result = await l0.structured_output(
             schema=BookReview,
             stream=lambda: client.chat.completions.create(
                 model="gpt-4o-mini",
@@ -539,7 +539,7 @@ class TestComplexSchemas:
     @pytest.mark.asyncio
     async def test_api_response_with_dict_field(self, client: "AsyncOpenAI") -> None:
         """Test schema with dict field."""
-        result = await l0.structured(
+        result = await l0.structured_output(
             schema=APIResponse,
             stream=lambda: client.chat.completions.create(
                 model="gpt-4o-mini",

@@ -193,7 +193,7 @@ class TestLiteLLMStructuredOutput:
             age: int
 
         # structured() needs lambda for potential retries
-        result = await l0.structured(
+        result = await l0.structured_output(
             schema=Person,
             stream=lambda: litellm.acompletion(
                 model="gpt-4o-mini",

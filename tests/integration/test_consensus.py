@@ -207,20 +207,31 @@ class TestStructuredConsensus:
     @pytest.mark.asyncio
     async def test_structured_person_consensus(self, client: "AsyncOpenAI") -> None:
         """Test consensus with structured Person output."""
+        import re
+
+        def extract_json(text: str) -> str:
+            """Extract JSON from potentially markdown-wrapped response."""
+            # Try to extract from markdown code block
+            match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", text)
+            if match:
+                return match.group(1).strip()
+            # Otherwise return as-is (might be pure JSON)
+            return text.strip()
 
         async def get_person():
-            stream = await client.chat.completions.create(
+            response = await client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[
                     {
                         "role": "user",
-                        "content": 'Return JSON: {"name": "Alice", "age": 30}',
+                        "content": 'Return only valid JSON, no markdown: {"name": "Alice", "age": 30}',
                     }
                 ],
-                max_tokens=30,
+                max_tokens=50,
             )
-            content = stream.choices[0].message.content
-            return Person.model_validate_json(content)
+            content = response.choices[0].message.content or ""
+            json_str = extract_json(content)
+            return Person.model_validate_json(json_str)
 
         result = await Consensus.run(
             [get_person, get_person],

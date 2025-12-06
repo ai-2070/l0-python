@@ -13,6 +13,8 @@ from ..guardrails import (
     JsonAnalysis,
     LatexAnalysis,
     MarkdownAnalysis,
+    custom_pattern_rule,
+    pattern_rule,
 )
 
 # Alias for convenience
@@ -32,4 +34,6 @@ __all__ = [
     "JsonAnalysis",
     "LatexAnalysis",
     "MarkdownAnalysis",
+    "custom_pattern_rule",
+    "pattern_rule",
 ]

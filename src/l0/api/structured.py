@@ -16,6 +16,9 @@ from ..structured import (
     structured_stream,
 )
 
+# Alias to avoid module shadowing (l0.structured is a module file)
+structured_output = structured
+
 __all__ = [
     "MINIMAL_STRUCTURED",
     "RECOMMENDED_STRUCTURED",
@@ -27,6 +30,7 @@ __all__ = [
     "StructuredStreamResult",
     "StructuredTelemetry",
     "structured",
+    "structured_output",
     "structured_array",
     "structured_object",
     "structured_stream",

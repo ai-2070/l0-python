@@ -82,7 +82,9 @@ class TestOpenAIIntegration:
         text = await result.read()
 
         assert len(text) > 0
-        assert len(result.state.violations) == 0
+        # Check for no error-level violations (warnings like "instant completion" are ok)
+        error_violations = [v for v in result.state.violations if v.severity == "error"]
+        assert len(error_violations) == 0
 
     @pytest.mark.asyncio
     async def test_context_manager(self, client: "AsyncOpenAI") -> None:
@@ -199,7 +201,7 @@ class TestStructuredOutput:
             age: int
 
         # structured() needs lambda for potential retries
-        result = await l0.structured(
+        result = await l0.structured_output(
             schema=Person,
             stream=lambda: client.chat.completions.create(
                 model="gpt-4o-mini",

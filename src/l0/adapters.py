@@ -131,8 +131,24 @@ class OpenAIAdapter:
 
     def detect(self, stream: Any) -> bool:
         """Detect OpenAI or LiteLLM streams."""
+        import inspect
+
         type_name = type(stream).__module__
-        return "openai" in type_name or "litellm" in type_name
+
+        # Check direct module match
+        if "openai" in type_name or "litellm" in type_name:
+            return True
+
+        # Check for coroutines from openai/litellm (unawaited streams)
+        if inspect.iscoroutine(stream):
+            # Check the coroutine's code object for openai/litellm origin
+            coro_module = getattr(stream, "cr_code", None)
+            if coro_module:
+                code_file = getattr(coro_module, "co_filename", "")
+                if "openai" in code_file or "litellm" in code_file:
+                    return True
+
+        return False
 
     async def wrap(
         self,
