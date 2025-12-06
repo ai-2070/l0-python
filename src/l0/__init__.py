@@ -3,10 +3,14 @@
 This module uses lazy imports to avoid loading all submodules on import.
 """
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
+from typing import Any as _Any
 
 # Version is always available
 from .version import __version__
+
+# Clean up version module from namespace
+del version  # type: ignore[name-defined]  # noqa: F821
 
 # Define what can be imported - used by __getattr__ for lazy loading
 _API_MODULES = {
@@ -230,10 +234,10 @@ _API_MODULES = {
 }
 
 # Cache for imported modules
-_imported: dict[str, Any] = {}
+_imported: dict[str, _Any] = {}
 
 
-def __getattr__(name: str) -> Any:
+def __getattr__(name: str) -> _Any:
     """Lazy import handler."""
     if name in _API_MODULES:
         module_path = _API_MODULES[name]
@@ -504,7 +508,7 @@ class _OpenAILikeClient(_Protocol):
     """Protocol matching OpenAI/LiteLLM client structure."""
 
     @property
-    def chat(self) -> Any: ...
+    def chat(self) -> _Any: ...
 
 
 @_overload
@@ -514,9 +518,9 @@ def wrap(
     guardrails: "list[GuardrailRule] | None" = None,
     retry: "Retry | None" = None,
     timeout: "Timeout | None" = None,
-    adapter: Any | str | None = None,
+    adapter: _Any | str | None = None,
     on_event: "_Callable[[ObservabilityEvent], None] | None" = None,
-    meta: dict[str, Any] | None = None,
+    meta: dict[str, _Any] | None = None,
     buffer_tool_calls: bool = False,
     continue_from_last_good_token: "ContinuationConfig | bool" = False,
     build_continuation_prompt: "_Callable[[str], str] | None" = None,
@@ -525,33 +529,33 @@ def wrap(
 
 @_overload
 def wrap(
-    client_or_stream: _AsyncIterator[Any],
+    client_or_stream: _AsyncIterator[_Any],
     *,
     guardrails: "list[GuardrailRule] | None" = None,
     retry: "Retry | None" = None,
     timeout: "Timeout | None" = None,
-    adapter: Any | str | None = None,
+    adapter: _Any | str | None = None,
     on_event: "_Callable[[ObservabilityEvent], None] | None" = None,
-    meta: dict[str, Any] | None = None,
+    meta: dict[str, _Any] | None = None,
     buffer_tool_calls: bool = False,
     continue_from_last_good_token: "ContinuationConfig | bool" = False,
     build_continuation_prompt: "_Callable[[str], str] | None" = None,
-) -> "LazyStream[Any]": ...
+) -> "LazyStream[_Any]": ...
 
 
 def wrap(
-    client_or_stream: Any,
+    client_or_stream: _Any,
     *,
     guardrails: "list[GuardrailRule] | None" = None,
     retry: "Retry | None" = None,
     timeout: "Timeout | None" = None,
-    adapter: Any | str | None = None,
+    adapter: _Any | str | None = None,
     on_event: "_Callable[[ObservabilityEvent], None] | None" = None,
-    meta: dict[str, Any] | None = None,
+    meta: dict[str, _Any] | None = None,
     buffer_tool_calls: bool = False,
     continue_from_last_good_token: "ContinuationConfig | bool" = False,
     build_continuation_prompt: "_Callable[[str], str] | None" = None,
-) -> "WrappedClient | LazyStream[Any]":
+) -> "WrappedClient | LazyStream[_Any]":
     """Wrap an OpenAI/LiteLLM client or raw stream with L0 reliability.
 
     This is the preferred API. Pass a client for full retry support,
@@ -647,7 +651,7 @@ async def run(
     check_intervals: "CheckIntervals | None" = None,
     adapter: "Adapter | str | None" = None,
     on_event: "_Callable[[ObservabilityEvent], None] | None" = None,
-    meta: dict[str, Any] | None = None,
+    meta: dict[str, _Any] | None = None,
     buffer_tool_calls: bool = False,
     continue_from_last_good_token: "ContinuationConfig | bool" = False,
     build_continuation_prompt: "_Callable[[str], str] | None" = None,
@@ -664,8 +668,8 @@ async def run(
     on_timeout: "_Callable[[str, float], None] | None" = None,
     on_abort: "_Callable[[int, int], None] | None" = None,
     on_drift: "_Callable[[list[str], float | None], None] | None" = None,
-    on_tool_call: "_Callable[[str, str, dict[str, Any]], None] | None" = None,
-) -> "Stream[Any]":
+    on_tool_call: "_Callable[[str, str, dict[str, _Any]], None] | None" = None,
+) -> "Stream[_Any]":
     """Run L0 with a stream factory (supports retries and fallbacks).
 
     Use this when you need retry/fallback support, which requires re-creating
