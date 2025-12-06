@@ -343,6 +343,11 @@ async def _internal_run(
 
             while True:
                 if aborted:
+                    event_bus.emit(
+                        ObservabilityEventType.ABORT_COMPLETED,
+                        tokenCount=state.token_count,
+                        contentLength=len(state.content),
+                    )
                     return
 
                 # Increment attempt number (1-based for callbacks)
@@ -502,6 +507,11 @@ async def _internal_run(
 
                     while True:
                         if aborted:
+                            event_bus.emit(
+                                ObservabilityEventType.ABORT_COMPLETED,
+                                tokenCount=state.token_count,
+                                contentLength=len(state.content),
+                            )
                             return
 
                         # Determine which timeout to use
