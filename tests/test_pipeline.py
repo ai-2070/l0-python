@@ -401,9 +401,9 @@ class TestStepResult:
             raw_content="raw content",
             status="success",
             error=None,
-            duration=1.5,
-            start_time=1000.0,
-            end_time=1001.5,
+            duration=1500,
+            startTime=1000000,
+            endTime=1001500,
             token_count=10,
         )
         assert result.step_name == "test_step"
@@ -413,7 +413,7 @@ class TestStepResult:
         assert result.raw_content == "raw content"
         assert result.status == "success"
         assert result.error is None
-        assert result.duration == 1.5
+        assert result.duration == 1500
         assert result.token_count == 10
 
     def test_step_result_with_error(self) -> None:
@@ -483,16 +483,16 @@ class TestPipelineResult:
             steps=[],
             status="success",
             error=None,
-            duration=2.5,
-            start_time=1000.0,
-            end_time=1002.5,
+            duration=2500,
+            startTime=1000000,
+            endTime=1002500,
             metadata={},
         )
         assert result.name == "test_pipeline"
         assert result.output == "final output"
         assert result.status == "success"
         assert result.error is None
-        assert result.duration == 2.5
+        assert result.duration == 2500
 
     def test_pipeline_result_error(self) -> None:
         """Test PipelineResult with error."""
