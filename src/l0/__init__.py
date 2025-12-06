@@ -81,9 +81,12 @@ from .errors import (
     RecoveryStrategy,
 )
 from .event_sourcing import (
+    # Types (also available via EventSourcing.*)
     EventEnvelope,
     EventRecorder,
     EventReplayer,
+    # Scoped API
+    EventSourcing,
     EventStore,
     EventStoreWithSnapshots,
     InMemoryEventStore,
@@ -96,13 +99,6 @@ from .event_sourcing import (
     SerializedError,
     Snapshot,
     StreamMetadata,
-    compare_replays,
-    create_event_recorder,
-    create_event_replayer,
-    create_in_memory_event_store,
-    generate_stream_id,
-    get_stream_metadata,
-    replay,
 )
 from .events import EventBus, ObservabilityEvent, ObservabilityEventType
 from .format import Format
@@ -808,7 +804,9 @@ __all__ = [
     "RuntimeStates",
     "StateTransition",
     "create_state_machine",
-    # Event Sourcing (record/replay)
+    # Event Sourcing (scoped API)
+    "EventSourcing",  # Class with .replay(), .get_metadata(), .compare(), .create_store(), .create_recorder(), .create_replayer(), .generate_stream_id()
+    # Event Sourcing types (also available via EventSourcing.*)
     "EventStore",
     "EventStoreWithSnapshots",
     "InMemoryEventStore",
@@ -824,13 +822,6 @@ __all__ = [
     "ReplayedState",
     "ReplayComparison",
     "StreamMetadata",
-    "replay",
-    "compare_replays",
-    "get_stream_metadata",
-    "generate_stream_id",
-    "create_in_memory_event_store",
-    "create_event_recorder",
-    "create_event_replayer",
     # Metrics
     "Metrics",
     "MetricsSnapshot",

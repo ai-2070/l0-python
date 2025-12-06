@@ -944,3 +944,131 @@ def create_event_recorder(
 def create_event_replayer(event_store: EventStore) -> EventReplayer:
     """Create an event replayer."""
     return EventReplayer(event_store)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Scoped API
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class EventSourcing:
+    """Scoped API for event sourcing utilities.
+
+    Provides utilities for recording and replaying L0 streams for testing,
+    debugging, and deterministic reproduction of executions.
+
+    Usage:
+        ```python
+        from l0 import EventSourcing
+
+        # Create an in-memory store
+        store = EventSourcing.create_store()
+
+        # Create a recorder
+        recorder = EventSourcing.create_recorder(store)
+
+        # Record events
+        await recorder.record_start({"prompt": "test"})
+        await recorder.record_token("Hello", 0)
+        await recorder.record_complete("Hello", 1)
+
+        # Replay the stream
+        result = await EventSourcing.replay(recorder.stream_id, store)
+        async for event in result.stream:
+            print(event)
+
+        # Get stream metadata
+        meta = await EventSourcing.get_metadata(store, recorder.stream_id)
+        ```
+    """
+
+    # Re-export types for convenience
+    Store = EventStore
+    StoreWithSnapshots = EventStoreWithSnapshots
+    InMemoryStore = InMemoryEventStore
+    Recorder = EventRecorder
+    Replayer = EventReplayer
+    RecordedEvent = RecordedEvent
+    RecordedEventType = RecordedEventType
+    EventEnvelope = EventEnvelope
+    Snapshot = Snapshot
+    SerializedError = SerializedError
+    ReplayedState = ReplayedState
+    ReplayResult = ReplayResult
+    ReplayCallbacks = ReplayCallbacks
+    ReplayComparison = ReplayComparison
+    StreamMetadata = StreamMetadata
+
+    @staticmethod
+    def generate_stream_id() -> str:
+        """Generate a unique stream ID."""
+        return generate_stream_id()
+
+    @staticmethod
+    async def replay(
+        stream_id: str,
+        event_store: EventStore,
+        *,
+        speed: float = 0,
+        fire_callbacks: bool = True,
+        from_seq: int = 0,
+        to_seq: int | None = None,
+    ) -> ReplayResult:
+        """Replay an L0 stream from stored events.
+
+        This is a PURE replay - no network calls, no live computation.
+        All events come from the event store.
+
+        Args:
+            stream_id: The stream ID to replay.
+            event_store: The event store containing the stream.
+            speed: Playback speed (0 = instant, 1 = real-time).
+            fire_callbacks: Whether to fire callbacks during replay.
+            from_seq: Start from this sequence.
+            to_seq: Stop at this sequence (None = no limit).
+
+        Returns:
+            ReplayResult with stream, state, and metadata.
+        """
+        return await replay(
+            stream_id,
+            event_store,
+            speed=speed,
+            fire_callbacks=fire_callbacks,
+            from_seq=from_seq,
+            to_seq=to_seq,
+        )
+
+    @staticmethod
+    async def get_metadata(
+        event_store: EventStore,
+        stream_id: str,
+    ) -> StreamMetadata | None:
+        """Get stream metadata without full replay."""
+        return await get_stream_metadata(event_store, stream_id)
+
+    @staticmethod
+    def compare(a: State, b: State) -> ReplayComparison:
+        """Compare two replay results for equality.
+
+        Useful for testing determinism.
+        """
+        return compare_replays(a, b)
+
+    @staticmethod
+    def create_store() -> InMemoryEventStore:
+        """Create an in-memory event store."""
+        return create_in_memory_event_store()
+
+    @staticmethod
+    def create_recorder(
+        event_store: EventStore,
+        stream_id: str | None = None,
+    ) -> EventRecorder:
+        """Create an event recorder."""
+        return create_event_recorder(event_store, stream_id)
+
+    @staticmethod
+    def create_replayer(event_store: EventStore) -> EventReplayer:
+        """Create an event replayer."""
+        return create_event_replayer(event_store)
