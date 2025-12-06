@@ -16,6 +16,7 @@ from uuid6 import uuid7
 class ObservabilityEventType(str, Enum):
     # Session
     SESSION_START = "SESSION_START"
+    ATTEMPT_START = "ATTEMPT_START"
     SESSION_END = "SESSION_END"
     SESSION_SUMMARY = "SESSION_SUMMARY"
 

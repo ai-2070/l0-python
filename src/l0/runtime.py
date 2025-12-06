@@ -349,6 +349,14 @@ async def _internal_run(
                 attempt_number += 1
                 is_retry = attempt_number > 1 and not is_fallback
 
+                # Emit ATTEMPT_START for retry attempts (not initial or fallback)
+                if is_retry:
+                    event_bus.emit(
+                        ObservabilityEventType.ATTEMPT_START,
+                        attempt=attempt_number,
+                        is_fallback=is_fallback,
+                    )
+
                 # Fire on_start callback
                 _fire_callback(cb.on_start, attempt_number, is_retry, is_fallback)
 

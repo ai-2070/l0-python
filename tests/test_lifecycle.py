@@ -357,8 +357,8 @@ class TestLifecycleRetryFlow:
     """
 
     @pytest.mark.asyncio
-    async def test_retry_attempt_before_second_session_start(self):
-        """Should emit RETRY_ATTEMPT before second SESSION_START on guardrail retry."""
+    async def test_attempt_start_emitted_on_retry(self):
+        """Should emit ATTEMPT_START on retry attempts (not SESSION_START again)."""
         collector = create_event_collector()
         attempt_count = 0
 
@@ -396,24 +396,20 @@ class TestLifecycleRetryFlow:
 
         types = collector.get_event_types()
 
-        # Find the RETRY_ATTEMPT event
-        retry_index = (
-            types.index(ObservabilityEventType.RETRY_ATTEMPT.value)
-            if ObservabilityEventType.RETRY_ATTEMPT.value in types
-            else -1
-        )
-        assert retry_index > -1
+        # SESSION_START should only appear once (at the beginning)
+        session_start_count = types.count(ObservabilityEventType.SESSION_START.value)
+        assert session_start_count == 1
 
-        # Find SESSION_START event (Python emits only 1 per session)
-        session_start_indices = [
-            i
-            for i, t in enumerate(types)
-            if t == ObservabilityEventType.SESSION_START.value
-        ]
-        assert len(session_start_indices) == 1
+        # ATTEMPT_START should appear for the retry attempt
+        attempt_start_count = types.count(ObservabilityEventType.ATTEMPT_START.value)
+        assert attempt_start_count == 1
 
-        # RETRY_ATTEMPT should be after SESSION_START
-        assert retry_index > session_start_indices[0]
+        # Find the indices
+        session_start_idx = types.index(ObservabilityEventType.SESSION_START.value)
+        attempt_start_idx = types.index(ObservabilityEventType.ATTEMPT_START.value)
+
+        # ATTEMPT_START should come after SESSION_START
+        assert attempt_start_idx > session_start_idx
 
     @pytest.mark.asyncio
     async def test_on_start_marked_as_retry_on_second_attempt(self):
@@ -564,6 +560,16 @@ class TestLifecycleRetryFlow:
         assert retry_event.data.get("attempt") is not None
         assert retry_event.data.get("reason") is not None
 
+        # Also verify ATTEMPT_START event data
+        attempt_starts = collector.get_events_of_type(
+            ObservabilityEventType.ATTEMPT_START.value
+        )
+        assert len(attempt_starts) == 1
+
+        attempt_start_event = attempt_starts[0]
+        assert attempt_start_event.data.get("attempt") == 2
+        assert attempt_start_event.data.get("is_fallback") is False
+
     @pytest.mark.asyncio
     async def test_multiple_retries_correct_order(self):
         """Should handle multiple retries in correct order."""
@@ -605,13 +611,22 @@ class TestLifecycleRetryFlow:
         session_starts = collector.get_events_of_type(
             ObservabilityEventType.SESSION_START.value
         )
+        attempt_starts = collector.get_events_of_type(
+            ObservabilityEventType.ATTEMPT_START.value
+        )
         retry_attempts = collector.get_events_of_type(
             ObservabilityEventType.RETRY_ATTEMPT.value
         )
 
-        # Should have 1 session start (Python emits SESSION_START once per session)
-        # The on_start callback is fired per attempt instead
+        # Should have 1 session start (emitted once at the beginning)
         assert len(session_starts) == 1
+
+        # Should have 2 ATTEMPT_START events (one for each retry attempt)
+        assert len(attempt_starts) == 2
+
+        # Verify attempt numbers are correct
+        assert attempt_starts[0].data.get("attempt") == 2
+        assert attempt_starts[1].data.get("attempt") == 3
 
         # Should have 2 retry attempts
         assert len(retry_attempts) == 2
