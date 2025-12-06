@@ -543,50 +543,67 @@ async def run(
 # Legacy alias
 l0 = run
 
-# Clean up namespace - remove submodule references to avoid pollution
-# Users should import from the submodules directly if needed (e.g., from l0.adapters import ...)
-del _utils
-del adapters
-del client
-del comparison
-del consensus
-del continuation
-del drift
-del errors
-del event_sourcing
-del events
-del format
-del guardrails
-del json_schema
-del logging
-del metrics
-del monitoring
-del multimodal
-del normalize
-del parallel
-del pipeline
-del pool
-del runtime
-del state_machine
-del stream
-del structured
-del types
-del version
-del window
+# ─────────────────────────────────────────────────────────────────────────────
+# Namespace Cleanup
+# ─────────────────────────────────────────────────────────────────────────────
+# Remove submodule references to avoid namespace pollution.
+# Users should import from submodules directly if needed (e.g., from l0.adapters import ...)
 
-# Also clean up submodules that may have been imported transitively
 import sys as _sys
 
-for _submod_name in ("formatting", "retry", "state"):
-    _submod_full = f"l0.{_submod_name}"
-    if _submod_full in _sys.modules and _submod_name in dir():
-        delattr(_sys.modules[__name__], _submod_name)
-del _sys
-del _submod_name  # type: ignore[possibly-undefined]
-del _submod_full  # type: ignore[possibly-undefined]
+# List of all submodules to clean from namespace
+_submodules = [
+    "_utils",
+    "adapters",
+    "client",
+    "comparison",
+    "consensus",
+    "continuation",
+    "drift",
+    "errors",
+    "event_sourcing",
+    "events",
+    "format",
+    "guardrails",
+    "json_schema",
+    "logging",
+    "metrics",
+    "monitoring",
+    "multimodal",
+    "normalize",
+    "parallel",
+    "pipeline",
+    "pool",
+    "runtime",
+    "state_machine",
+    "stream",
+    "structured",
+    "types",
+    "version",
+    "window",
+    # Transitive imports that may leak
+    "formatting",
+    "retry",
+    "state",
+]
+
+# Clean submodules from namespace and sys.modules cache
+_this_module = _sys.modules[__name__]
+for _mod in _submodules:
+    # Remove from namespace if present
+    if hasattr(_this_module, _mod):
+        delattr(_this_module, _mod)
+    # Clean from sys.modules cache
+    _full = f"{__name__}.{_mod}"
+    if _full in _sys.modules:
+        del _sys.modules[_full]
 
 # Hide wrap_client (internal, use wrap() instead)
-del wrap_client
+if hasattr(_this_module, "wrap_client"):
+    delattr(_this_module, "wrap_client")
+
+# Clean up cleanup variables
+del _sys, _submodules, _this_module, _mod, _full
 
 __all__ = [
     # Version
