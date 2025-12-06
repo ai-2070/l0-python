@@ -463,7 +463,7 @@ class ErrorTypeDelayDefaults:
     runtime_killed: float = 2.0
     background_throttle: float = 5.0
     dns_error: float = 3.0
-    ssl_error: float = 2.0
+    ssl_error: float = 0.0  # SSL errors are config issues, don't retry
     timeout: float = 1.0
     unknown: float = 1.0
 
