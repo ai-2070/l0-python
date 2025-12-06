@@ -142,8 +142,9 @@ class EventCollector:
                     ts=event.ts,
                     data={
                         "stream_id": event.stream_id,
-                        "meta": event.meta,
-                        **event.meta,
+                        "context": event.context,  # User-provided metadata
+                        "meta": event.meta,  # Event-specific data
+                        **event.meta,  # Also spread meta for backwards compat
                     },
                 )
             )
@@ -1334,8 +1335,8 @@ class TestLifecycleTimestampOrdering:
             assert event.data.get("stream_id") == stream_id
 
     @pytest.mark.asyncio
-    async def test_user_meta_in_events(self):
-        """Should include user meta in all observability events."""
+    async def test_user_context_in_events(self):
+        """Should include user context in all observability events."""
         collector = create_event_collector()
 
         async def stream():
@@ -1344,17 +1345,19 @@ class TestLifecycleTimestampOrdering:
 
         result = await _internal_run(
             stream=stream,
-            meta={"requestId": "req-123", "userId": "user-456"},
+            context={"requestId": "req-123", "userId": "user-456"},
             on_event=collector.handler,
         )
 
         async for _ in result:
             pass
 
-        # Get all observability events (those with meta)
-        obs_events = [e for e in collector.events if e.data.get("meta")]
+        # Get all observability events (those with context)
+        obs_events = [e for e in collector.events if e.data.get("context")]
+
+        assert len(obs_events) > 0, "Expected observability events with context"
 
         for event in obs_events:
-            meta = event.data.get("meta", {})
-            assert meta.get("requestId") == "req-123"
-            assert meta.get("userId") == "user-456"
+            context = event.data.get("context", {})
+            assert context.get("requestId") == "req-123"
+            assert context.get("userId") == "user-456"

@@ -930,7 +930,7 @@ class LazyStream(Generic[_LazyStreamChunkT]):
         "_timeout",
         "_adapter",
         "_on_event",
-        "_meta",
+        "_context",
         "_buffer_tool_calls",
         "_runner",
         "_started",
@@ -944,7 +944,7 @@ class LazyStream(Generic[_LazyStreamChunkT]):
         timeout: Timeout | None = None,
         adapter: "Adapter | str | None" = None,
         on_event: Callable[[ObservabilityEvent], None] | None = None,
-        meta: dict[str, Any] | None = None,
+        context: dict[str, Any] | None = None,
         buffer_tool_calls: bool = False,
     ) -> None:
         self._stream = stream
@@ -952,7 +952,7 @@ class LazyStream(Generic[_LazyStreamChunkT]):
         self._timeout = timeout
         self._adapter = adapter
         self._on_event = on_event
-        self._meta = meta
+        self._context = context
         self._buffer_tool_calls = buffer_tool_calls
         self._runner: Stream[_LazyStreamChunkT] | None = None
         self._started = False
@@ -977,7 +977,7 @@ class LazyStream(Generic[_LazyStreamChunkT]):
                 timeout=self._timeout,
                 adapter=self._adapter,
                 on_event=self._on_event,
-                meta=self._meta,
+                context=self._context,
                 buffer_tool_calls=self._buffer_tool_calls,
             )
             self._started = True

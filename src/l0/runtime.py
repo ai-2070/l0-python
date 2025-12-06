@@ -190,7 +190,7 @@ async def _internal_run(
     check_intervals: CheckIntervals | None = None,
     adapter: Adapter | str | None = None,
     on_event: Callable[[ObservabilityEvent], None] | None = None,
-    meta: dict[str, Any] | None = None,
+    context: dict[str, Any] | None = None,
     buffer_tool_calls: bool = False,
     continue_from_last_good_token: ContinuationConfig | bool = False,
     build_continuation_prompt: Callable[[str], str] | None = None,
@@ -222,7 +222,7 @@ async def _internal_run(
         check_intervals: Optional check intervals for guardrails/drift/checkpoint
         adapter: Optional adapter hint ("openai", "litellm", or Adapter instance)
         on_event: Optional callback for observability events
-        meta: Optional metadata attached to all events
+        context: Optional user context attached to all events (request_id, tenant, etc.)
         buffer_tool_calls: Buffer tool call arguments until complete (default: False)
         continue_from_last_good_token: Resume from checkpoint on retry (default: False)
         build_continuation_prompt: Callback to modify prompt for continuation
@@ -281,7 +281,7 @@ async def _internal_run(
 
     state = create_state()
     retry_mgr = RetryManager(retry)
-    event_bus = EventBus(on_event, meta=meta)
+    event_bus = EventBus(on_event, context=context)
     errors: list[Exception] = []
     aborted = False
     raw_chunks: list[Any] = []  # Collect raw chunks from provider

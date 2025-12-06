@@ -26,14 +26,14 @@ class PoolOptions:
         shared_timeout: Timeout configuration applied to all operations
         shared_guardrails: Guardrails applied to all operations
         on_event: Callback for observability events
-        meta: Metadata attached to all events
+        context: User context attached to all events
     """
 
     shared_retry: Retry | None = None
     shared_timeout: Timeout | None = None
     shared_guardrails: list["GuardrailRule"] | None = None
     on_event: Callable[["ObservabilityEvent"], None] | None = None
-    meta: dict[str, Any] | None = None
+    context: dict[str, Any] | None = None
 
 
 @dataclass
@@ -169,7 +169,7 @@ class OperationPool(Generic[T]):
                         retry=retry,
                         timeout=timeout,
                         on_event=self._options.on_event,
-                        meta=self._options.meta,
+                        context=self._options.context,
                     )
 
                     # Consume the stream to completion and collect state
@@ -352,7 +352,7 @@ def create_pool(
     shared_timeout: Timeout | None = None,
     shared_guardrails: list["GuardrailRule"] | None = None,
     on_event: Callable[["ObservabilityEvent"], None] | None = None,
-    meta: dict[str, Any] | None = None,
+    context: dict[str, Any] | None = None,
 ) -> OperationPool[Any]:
     """Create an operation pool for dynamic workload management.
 
@@ -366,7 +366,7 @@ def create_pool(
         shared_timeout: Timeout config applied to all operations
         shared_guardrails: Guardrails applied to all operations
         on_event: Callback for observability events
-        meta: Metadata attached to all events
+        context: User context attached to all events
 
     Returns:
         OperationPool instance
@@ -401,6 +401,6 @@ def create_pool(
         shared_timeout=shared_timeout,
         shared_guardrails=shared_guardrails,
         on_event=on_event,
-        meta=meta,
+        context=context,
     )
     return OperationPool(worker_count=worker_count, options=options)

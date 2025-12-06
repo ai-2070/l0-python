@@ -533,7 +533,7 @@ def wrap(
     timeout: "Timeout | None" = None,
     adapter: _Any | str | None = None,
     on_event: "_Callable[[ObservabilityEvent], None] | None" = None,
-    meta: dict[str, _Any] | None = None,
+    context: dict[str, _Any] | None = None,
     buffer_tool_calls: bool = False,
     continue_from_last_good_token: "ContinuationConfig | bool" = False,
     build_continuation_prompt: "_Callable[[str], str] | None" = None,
@@ -549,7 +549,7 @@ def wrap(
     timeout: "Timeout | None" = None,
     adapter: _Any | str | None = None,
     on_event: "_Callable[[ObservabilityEvent], None] | None" = None,
-    meta: dict[str, _Any] | None = None,
+    context: dict[str, _Any] | None = None,
     buffer_tool_calls: bool = False,
     continue_from_last_good_token: "ContinuationConfig | bool" = False,
     build_continuation_prompt: "_Callable[[str], str] | None" = None,
@@ -564,7 +564,7 @@ def wrap(
     timeout: "Timeout | None" = None,
     adapter: _Any | str | None = None,
     on_event: "_Callable[[ObservabilityEvent], None] | None" = None,
-    meta: dict[str, _Any] | None = None,
+    context: dict[str, _Any] | None = None,
     buffer_tool_calls: bool = False,
     continue_from_last_good_token: "ContinuationConfig | bool" = False,
     build_continuation_prompt: "_Callable[[str], str] | None" = None,
@@ -581,7 +581,7 @@ def wrap(
         timeout: Timeout configuration
         adapter: Adapter hint ("openai", "litellm", or Adapter instance)
         on_event: Observability event callback
-        meta: Metadata attached to all events
+        context: User context attached to all events (request_id, tenant, etc.)
         buffer_tool_calls: Buffer tool calls until complete (default: False)
         continue_from_last_good_token: Resume from checkpoint on retry (default: False)
         build_continuation_prompt: Callback to modify prompt for continuation
@@ -636,7 +636,7 @@ def wrap(
             timeout=timeout,
             adapter=adapter,
             on_event=on_event,
-            meta=meta,
+            context=context,
             buffer_tool_calls=buffer_tool_calls,
             continue_from_last_good_token=continue_from_last_good_token,
             build_continuation_prompt=build_continuation_prompt,
@@ -648,7 +648,7 @@ def wrap(
             timeout=timeout,
             adapter=adapter,
             on_event=on_event,
-            meta=meta,
+            context=context,
             buffer_tool_calls=buffer_tool_calls,
         )
 
@@ -664,7 +664,7 @@ async def run(
     check_intervals: "CheckIntervals | None" = None,
     adapter: "Adapter | str | None" = None,
     on_event: "_Callable[[ObservabilityEvent], None] | None" = None,
-    meta: dict[str, _Any] | None = None,
+    context: dict[str, _Any] | None = None,
     buffer_tool_calls: bool = False,
     continue_from_last_good_token: "ContinuationConfig | bool" = False,
     build_continuation_prompt: "_Callable[[str], str] | None" = None,
@@ -698,7 +698,7 @@ async def run(
         check_intervals: Optional check intervals for guardrails/drift/checkpoint
         adapter: Optional adapter hint ("openai", "litellm", or Adapter instance)
         on_event: Optional callback for observability events
-        meta: Optional metadata attached to all events
+        context: Optional user context attached to all events (request_id, tenant, etc.)
         buffer_tool_calls: Buffer tool call arguments until complete (default: False)
         continue_from_last_good_token: Resume from checkpoint on retry (default: False)
         build_continuation_prompt: Callback to modify prompt for continuation
@@ -761,7 +761,7 @@ async def run(
         check_intervals=check_intervals,
         adapter=adapter,
         on_event=on_event,
-        meta=meta,
+        context=context,
         buffer_tool_calls=buffer_tool_calls,
         continue_from_last_good_token=continue_from_last_good_token,
         build_continuation_prompt=build_continuation_prompt,

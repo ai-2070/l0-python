@@ -144,7 +144,12 @@ class ObservabilityEvent:
     type: ObservabilityEventType
     ts: float
     stream_id: str
-    meta: dict[str, Any] = field(default_factory=dict)
+    context: dict[str, Any] = field(
+        default_factory=dict
+    )  # User-provided metadata (request_id, tenant, etc.)
+    meta: dict[str, Any] = field(
+        default_factory=dict
+    )  # Event-specific data (attempt, reason, etc.)
 
 
 class EventBus:
@@ -153,11 +158,11 @@ class EventBus:
     def __init__(
         self,
         handler: Callable[[ObservabilityEvent], None] | None = None,
-        meta: dict[str, Any] | None = None,
+        context: dict[str, Any] | None = None,
     ):
         self._handler = handler
         self._stream_id = str(uuid7())
-        self._meta = meta or {}
+        self._context = context or {}
 
     @property
     def stream_id(self) -> str:
@@ -171,6 +176,7 @@ class EventBus:
             type=event_type,
             ts=time.time() * 1000,
             stream_id=self._stream_id,
-            meta={**self._meta, **event_meta},
+            context=self._context.copy(),
+            meta=event_meta,
         )
         self._handler(event)
