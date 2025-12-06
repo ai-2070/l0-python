@@ -4,8 +4,9 @@ These tests require OPENAI_API_KEY to be set in environment or .env file.
 Run with: pytest tests/integration -v
 """
 
+from typing import TYPE_CHECKING
+
 import pytest
-from openai import AsyncOpenAI
 from pydantic import BaseModel
 
 import l0 as l0
@@ -13,18 +14,23 @@ import l0 as l0
 # Import the marker from conftest
 from tests.conftest import requires_openai
 
+if TYPE_CHECKING:
+    from openai import AsyncOpenAI
+
 
 @requires_openai
 class TestOpenAIIntegration:
     """Integration tests using real OpenAI API."""
 
     @pytest.fixture
-    def client(self) -> AsyncOpenAI:
+    def client(self) -> "AsyncOpenAI":
         """Create OpenAI client."""
+        from openai import AsyncOpenAI
+
         return AsyncOpenAI()
 
     @pytest.mark.asyncio
-    async def test_basic_wrap(self, client: AsyncOpenAI) -> None:
+    async def test_basic_wrap(self, client: "AsyncOpenAI") -> None:
         """Test basic l0.wrap() with OpenAI."""
         stream = client.chat.completions.create(
             model="gpt-4o-mini",
@@ -42,7 +48,7 @@ class TestOpenAIIntegration:
         assert result.state.completed
 
     @pytest.mark.asyncio
-    async def test_streaming_events(self, client: AsyncOpenAI) -> None:
+    async def test_streaming_events(self, client: "AsyncOpenAI") -> None:
         """Test streaming individual events."""
         stream = client.chat.completions.create(
             model="gpt-4o-mini",
@@ -63,7 +69,7 @@ class TestOpenAIIntegration:
         assert any(c in full_text for c in ["1", "2", "3"])
 
     @pytest.mark.asyncio
-    async def test_with_guardrails(self, client: AsyncOpenAI) -> None:
+    async def test_with_guardrails(self, client: "AsyncOpenAI") -> None:
         """Test streaming with guardrails."""
         stream = client.chat.completions.create(
             model="gpt-4o-mini",
@@ -79,7 +85,7 @@ class TestOpenAIIntegration:
         assert len(result.state.violations) == 0
 
     @pytest.mark.asyncio
-    async def test_context_manager(self, client: AsyncOpenAI) -> None:
+    async def test_context_manager(self, client: "AsyncOpenAI") -> None:
         """Test async context manager pattern."""
         stream = client.chat.completions.create(
             model="gpt-4o-mini",
@@ -97,7 +103,7 @@ class TestOpenAIIntegration:
         assert len(tokens) > 0
 
     @pytest.mark.asyncio
-    async def test_observability_callback(self, client: AsyncOpenAI) -> None:
+    async def test_observability_callback(self, client: "AsyncOpenAI") -> None:
         """Test observability event callback."""
         events_received = []
 
@@ -119,7 +125,7 @@ class TestOpenAIIntegration:
         assert l0.ObservabilityEventType.COMPLETE in events_received
 
     @pytest.mark.asyncio
-    async def test_with_timeout(self, client: AsyncOpenAI) -> None:
+    async def test_with_timeout(self, client: "AsyncOpenAI") -> None:
         """Test that fast responses don't timeout."""
         stream = client.chat.completions.create(
             model="gpt-4o-mini",
@@ -142,11 +148,13 @@ class TestRunWithFallbacks:
     """Test l0.run() with fallbacks (requires lambda for retries)."""
 
     @pytest.fixture
-    def client(self) -> AsyncOpenAI:
+    def client(self) -> "AsyncOpenAI":
+        from openai import AsyncOpenAI
+
         return AsyncOpenAI()
 
     @pytest.mark.asyncio
-    async def test_fallback_succeeds(self, client: AsyncOpenAI) -> None:
+    async def test_fallback_succeeds(self, client: "AsyncOpenAI") -> None:
         """Test that fallback works when using valid models."""
         # run() needs lambdas for retry/fallback support
         result = await l0.run(
@@ -177,11 +185,13 @@ class TestStructuredOutput:
     """Test structured output with real API."""
 
     @pytest.fixture
-    def client(self) -> AsyncOpenAI:
+    def client(self) -> "AsyncOpenAI":
+        from openai import AsyncOpenAI
+
         return AsyncOpenAI()
 
     @pytest.mark.asyncio
-    async def test_structured_json(self, client: AsyncOpenAI) -> None:
+    async def test_structured_json(self, client: "AsyncOpenAI") -> None:
         """Test structured output parsing."""
 
         class Person(BaseModel):
