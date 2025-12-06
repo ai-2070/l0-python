@@ -5,10 +5,13 @@ from __future__ import annotations
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass, field
 from enum import Enum
+from types import TracebackType
 from typing import TYPE_CHECKING, Any, Coroutine, Generic, TypeVar
 
 if TYPE_CHECKING:
+    from .errors import NetworkError
     from .events import ObservabilityEvent
+    from .guardrails import GuardrailViolation
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Type Aliases for Stream Factories
@@ -257,7 +260,7 @@ class State:
     model_retry_count: int = 0
     network_retry_count: int = 0
     fallback_index: int = 0
-    violations: list[Any] = field(default_factory=list)
+    violations: "list[GuardrailViolation]" = field(default_factory=list)
     drift_detected: bool = False
     completed: bool = False
     aborted: bool = False
@@ -265,7 +268,7 @@ class State:
     last_token_at: float | None = None
     duration: float | None = None
     resumed: bool = False  # Whether stream was resumed from checkpoint
-    network_errors: list[Any] = field(default_factory=list)
+    network_errors: "list[NetworkError]" = field(default_factory=list)
     # Multimodal state
     data_outputs: list[DataPayload] = field(default_factory=list)
     last_progress: Progress | None = None
@@ -826,7 +829,12 @@ class Stream(Generic[_StreamChunkT]):
     async def __aenter__(self) -> "Stream[_StreamChunkT]":
         return self
 
-    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> bool:
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> bool:
         self.abort()
         return False  # Don't suppress exceptions
 
@@ -1017,7 +1025,12 @@ class LazyStream(Generic[_LazyStreamChunkT]):
         await self._ensure_started()
         return self
 
-    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> bool:
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> bool:
         self.abort()
         return False
 
