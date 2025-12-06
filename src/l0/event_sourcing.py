@@ -492,8 +492,9 @@ class EventReplayer:
                 break
 
             # Simulate timing if speed > 0
+            # Timestamps are in milliseconds, convert to seconds for asyncio.sleep
             if speed > 0 and last_ts is not None:
-                delay = (envelope.event.ts - last_ts) / speed
+                delay = (envelope.event.ts - last_ts) / 1000 / speed
                 if delay > 0:
                     await asyncio.sleep(delay)
 
@@ -729,8 +730,9 @@ async def replay(
             data = event.data
 
             # Simulate timing if speed > 0
+            # Timestamps are in milliseconds, convert to seconds for asyncio.sleep
             if speed > 0 and last_ts is not None:
-                delay = (event.ts - last_ts) / speed
+                delay = (event.ts - last_ts) / 1000 / speed
                 if delay > 0:
                     await asyncio.sleep(delay)
             last_ts = event.ts
