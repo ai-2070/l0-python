@@ -399,3 +399,62 @@ def check_drift(content: str) -> DriftResult:
     """
     detector = DriftDetector()
     return detector.check(content)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Scoped API
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class Drift:
+    """Scoped API for drift detection utilities.
+
+    Provides detection for various types of model derailment including
+    tone shifts, meta commentary, repetition, entropy spikes, and format collapse.
+
+    Usage:
+        ```python
+        from l0 import Drift
+
+        # Quick check for drift
+        result = Drift.check("Some content to check")
+        if result.detected:
+            print(f"Drift types: {result.types}")
+
+        # Create a detector for streaming
+        detector = Drift.create_detector()
+        for token in stream:
+            result = detector.check(content, delta=token)
+            if result.detected:
+                handle_drift(result)
+        ```
+    """
+
+    # Re-export types for convenience
+    Result = DriftResult
+    Config = DriftConfig
+    Detector = DriftDetector
+
+    @staticmethod
+    def check(content: str) -> DriftResult:
+        """Quick check for drift without creating detector instance.
+
+        Args:
+            content: Content to check
+
+        Returns:
+            Drift detection result
+        """
+        return check_drift(content)
+
+    @staticmethod
+    def create_detector(config: DriftConfig | None = None) -> DriftDetector:
+        """Create a drift detector with configuration.
+
+        Args:
+            config: Detection configuration
+
+        Returns:
+            Configured drift detector
+        """
+        return create_drift_detector(config)

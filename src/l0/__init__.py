@@ -53,18 +53,20 @@ from .consensus import (
     consensus,
 )
 from .continuation import (
+    # Scoped API
+    Continuation,
+    # Types (also available via Continuation.*)
     ContinuationConfig,
     DeduplicationOptions,
     OverlapResult,
-    deduplicate_continuation,
-    detect_overlap,
 )
 from .drift import (
+    # Scoped API
+    Drift,
+    # Types (also available via Drift.*)
     DriftConfig,
     DriftDetector,
     DriftResult,
-    check_drift,
-    create_drift_detector,
 )
 from .errors import (
     # L0 Error (with scoped API: .categorize(), .is_retryable(), .is_error(), .get_category())
@@ -159,10 +161,14 @@ from .normalize import (
     WhitespaceOptions,
 )
 from .parallel import (
+    # Types (also available via Parallel.*)
     AggregatedTelemetry,
+    # Scoped API
+    Parallel,
     ParallelOptions,
     ParallelResult,
     RaceResult,
+    # Legacy functions (kept for convenience)
     batched,
     parallel,
     race,
@@ -678,15 +684,18 @@ __all__ = [
     # JSON types (also available via JSON.*)
     "AutoCorrectResult",
     "CorrectionType",
-    # Parallel
-    "parallel",
-    "race",
-    "sequential",
-    "batched",
+    # Parallel (scoped API + legacy functions)
+    "Parallel",  # Class with .run(), .race(), .sequential(), .batched()
+    # Parallel types (also available via Parallel.*)
     "ParallelResult",
     "ParallelOptions",
     "RaceResult",
     "AggregatedTelemetry",
+    # Parallel legacy functions (kept for convenience)
+    "parallel",
+    "race",
+    "sequential",
+    "batched",
     # Pool (dynamic workload)
     "OperationPool",
     "PoolOptions",
@@ -743,9 +752,9 @@ __all__ = [
     "l0_with_window",
     # Debug
     "enable_debug",
-    # Monitoring (OpenTelemetry, Sentry)
-    "create_opentelemetry_handler",
-    "create_sentry_handler",
+    # Monitoring (scoped API)
+    "Monitoring",  # Class with .combine(), .filter(), .exclude(), .debounce(), .batch(), .sample(), .tap(), .opentelemetry(), .sentry()
+    # Monitoring types (also available via Monitoring.* where applicable)
     "OpenTelemetryConfig",
     "OpenTelemetryExporter",
     "L0OpenTelemetry",
@@ -755,8 +764,6 @@ __all__ = [
     "L0Sentry",
     "L0SentryConfig",
     "SemanticAttributes",
-    # Event handler utilities (scoped API)
-    "Monitoring",  # Class with .combine(), .filter(), .exclude(), .debounce(), .batch(), .sample(), .tap()
     # Formatting
     "Format",
     # JSON Schema (scoped API)
@@ -774,18 +781,18 @@ __all__ = [
     "ContentType",
     "DataPayload",
     "Progress",
-    # Continuation (checkpoint resumption)
+    # Continuation (scoped API)
+    "Continuation",  # Class with .detect_overlap(), .deduplicate()
+    # Continuation types (also available via Continuation.*)
     "ContinuationConfig",
     "DeduplicationOptions",
     "OverlapResult",
-    "detect_overlap",
-    "deduplicate_continuation",
-    # Drift detection
+    # Drift (scoped API)
+    "Drift",  # Class with .check(), .create_detector()
+    # Drift types (also available via Drift.*)
     "DriftDetector",
     "DriftConfig",
     "DriftResult",
-    "check_drift",
-    "create_drift_detector",
     # State machine
     "StateMachine",
     "RuntimeState",
