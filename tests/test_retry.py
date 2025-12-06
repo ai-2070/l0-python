@@ -1,5 +1,7 @@
 """Tests for l0.retry module."""
 
+from typing import Any
+
 import pytest
 
 from l0.retry import RetryContext, RetryManager, _error_to_retryable_type
@@ -9,6 +11,7 @@ from l0.types import (
     ErrorTypeDelays,
     Retry,
     RetryableErrorType,
+    State,
 )
 
 
@@ -286,7 +289,9 @@ class TestRetryManager:
         """Async should_retry should respect custom callback."""
         callback_calls = []
 
-        def custom_should_retry(error, state, attempt, category):
+        def custom_should_retry(
+            error: Exception, state: State, attempt: int, category: ErrorCategory
+        ) -> bool:
             callback_calls.append((error, attempt, category))
             return attempt < 2  # Only retry first 2 attempts
 
@@ -310,7 +315,9 @@ class TestRetryManager:
     async def test_should_retry_async_with_async_callback(self):
         """Async callbacks should be properly awaited."""
 
-        async def async_should_retry(error, state, attempt, category):
+        async def async_should_retry(
+            error: Exception, state: State, attempt: int, category: ErrorCategory
+        ) -> bool:
             return attempt < 1
 
         mgr = RetryManager(Retry(should_retry=async_should_retry))

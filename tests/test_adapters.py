@@ -1,7 +1,7 @@
 """Tests for l0.adapters module."""
 
 from collections.abc import AsyncIterator
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -640,8 +640,10 @@ class TestToL0EventsWithMessages:
         events = []
         async for event in to_l0_events_with_messages(
             mock_stream(),
-            extract_text=lambda c: c["content"] if c["type"] == "text" else None,
-            extract_message=lambda c: c["tool_call"] if c["type"] == "tool" else None,
+            extract_text=lambda c: str(c["content"]) if c["type"] == "text" else None,
+            extract_message=lambda c: cast(dict[str, Any], c["tool_call"])
+            if c["type"] == "tool"
+            else None,
         ):
             events.append(event)
 
@@ -670,18 +672,20 @@ class TestToMultimodalL0Events:
         events = []
         async for event in to_multimodal_l0_events(
             mock_stream(),
-            extract_text=lambda c: c["content"] if c["type"] == "text" else None,
+            extract_text=lambda c: str(c["content"]) if c["type"] == "text" else None,
             extract_data=lambda c: (
                 DataPayload(
                     content_type=ContentType.IMAGE,
                     mime_type="image/png",
-                    base64=c["data"],
+                    base64=str(c["data"]),
                 )
                 if c["type"] == "image"
                 else None
             ),
             extract_progress=lambda c: (
-                Progress(percent=c["percent"]) if c["type"] == "progress" else None
+                Progress(percent=float(c["percent"]))
+                if c["type"] == "progress"
+                else None
             ),
         ):
             events.append(event)
@@ -758,14 +762,17 @@ class TestCreateEventHelpers:
             height=600,
         )
         assert event.type == EventType.DATA
+        assert event.payload is not None
         assert event.payload.content_type == ContentType.IMAGE
         assert event.payload.url == "https://example.com/image.png"
+        assert event.payload.metadata is not None
         assert event.payload.metadata["width"] == 800
         assert event.payload.metadata["height"] == 600
 
     def test_create_image_event_with_base64(self):
         """Test creating image event with base64 data."""
         event = create_image_event(base64="abc123==", mime_type="image/jpeg")
+        assert event.payload is not None
         assert event.payload.base64 == "abc123=="
         assert event.payload.mime_type == "image/jpeg"
 
@@ -776,8 +783,10 @@ class TestCreateEventHelpers:
             duration=120.5,
         )
         assert event.type == EventType.DATA
+        assert event.payload is not None
         assert event.payload.content_type == ContentType.AUDIO
         assert event.payload.url == "https://example.com/audio.mp3"
+        assert event.payload.metadata is not None
         assert event.payload.metadata["duration"] == 120.5
 
     def test_create_audio_event_with_base64(self):
@@ -786,6 +795,7 @@ class TestCreateEventHelpers:
             base64="audio_data==",
             mime_type="audio/wav",
         )
+        assert event.payload is not None
         assert event.payload.base64 == "audio_data=="
         assert event.payload.mime_type == "audio/wav"
 
@@ -825,12 +835,14 @@ class TestAdaptersHelperMethods:
         """Test Adapters.image_event helper."""
         event = Adapters.image_event(url="https://example.com/img.png")
         assert event.type == EventType.DATA
+        assert event.payload is not None
         assert event.payload.content_type == ContentType.IMAGE
 
     def test_audio_event(self):
         """Test Adapters.audio_event helper."""
         event = Adapters.audio_event(url="https://example.com/audio.mp3")
         assert event.type == EventType.DATA
+        assert event.payload is not None
         assert event.payload.content_type == ContentType.AUDIO
 
 

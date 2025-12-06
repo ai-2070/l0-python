@@ -1,5 +1,6 @@
 """Tests for l0.client module - wrapped client functionality."""
 
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -68,14 +69,16 @@ class TestWrappedCompletions:
         return completions
 
     @pytest.fixture
-    def mock_client(self):
+    def mock_client(self) -> Any:
         return MagicMock(spec=WrappedClient)
 
     @pytest.fixture
-    def config(self):
+    def config(self) -> ClientConfig:
         return ClientConfig()
 
-    def test_init(self, mock_client, mock_completions, config):
+    def test_init(
+        self, mock_client: Any, mock_completions: Any, config: ClientConfig
+    ) -> None:
         wrapped = WrappedCompletions(mock_client, mock_completions, config)
         assert wrapped._client == mock_client
         assert wrapped._completions == mock_completions
@@ -83,8 +86,8 @@ class TestWrappedCompletions:
 
     @pytest.mark.asyncio
     async def test_create_non_streaming_passthrough(
-        self, mock_client, mock_completions, config
-    ):
+        self, mock_client: Any, mock_completions: Any, config: ClientConfig
+    ) -> None:
         """Non-streaming requests should pass through to underlying client."""
         mock_completions.create.return_value = {"content": "response"}
         wrapped = WrappedCompletions(mock_client, mock_completions, config)
@@ -104,8 +107,8 @@ class TestWrappedCompletions:
 
     @pytest.mark.asyncio
     async def test_create_streaming_uses_l0(
-        self, mock_client, mock_completions, config
-    ):
+        self, mock_client: Any, mock_completions: Any, config: ClientConfig
+    ) -> None:
         """Streaming requests should use L0 runtime."""
 
         async def mock_stream():
@@ -132,20 +135,20 @@ class TestWrappedCompletions:
 
 class TestWrappedChat:
     @pytest.fixture
-    def mock_chat(self):
+    def mock_chat(self) -> Any:
         chat = MagicMock()
         chat.completions = MagicMock()
         return chat
 
     @pytest.fixture
-    def mock_client(self):
+    def mock_client(self) -> Any:
         return MagicMock(spec=WrappedClient)
 
     @pytest.fixture
-    def config(self):
+    def config(self) -> ClientConfig:
         return ClientConfig()
 
-    def test_init(self, mock_client, mock_chat, config):
+    def test_init(self, mock_client: Any, mock_chat: Any, config: ClientConfig) -> None:
         wrapped = WrappedChat(mock_client, mock_chat, config)
         assert wrapped._client == mock_client
         assert wrapped._chat == mock_chat
@@ -155,34 +158,40 @@ class TestWrappedChat:
 
 class TestWrappedClient:
     @pytest.fixture
-    def mock_underlying_client(self):
+    def mock_underlying_client(self) -> Any:
         client = MagicMock()
         client.chat = MagicMock()
         client.chat.completions = MagicMock()
         return client
 
     @pytest.fixture
-    def config(self):
+    def config(self) -> ClientConfig:
         return ClientConfig()
 
-    def test_init_with_chat(self, mock_underlying_client, config):
+    def test_init_with_chat(
+        self, mock_underlying_client: Any, config: ClientConfig
+    ) -> None:
         wrapped = WrappedClient(mock_underlying_client, config)
         assert wrapped._client == mock_underlying_client
         assert wrapped._config == config
         assert hasattr(wrapped, "chat")
         assert isinstance(wrapped.chat, WrappedChat)
 
-    def test_init_without_chat(self, config):
+    def test_init_without_chat(self, config: ClientConfig) -> None:
         client = MagicMock(spec=[])  # No chat attribute
         wrapped = WrappedClient(client, config)
         assert wrapped._client == client
         assert not hasattr(wrapped, "chat") or wrapped.chat is None
 
-    def test_unwrapped_property(self, mock_underlying_client, config):
+    def test_unwrapped_property(
+        self, mock_underlying_client: Any, config: ClientConfig
+    ) -> None:
         wrapped = WrappedClient(mock_underlying_client, config)
         assert wrapped.unwrapped == mock_underlying_client
 
-    def test_with_options_creates_new_client(self, mock_underlying_client, config):
+    def test_with_options_creates_new_client(
+        self, mock_underlying_client: Any, config: ClientConfig
+    ) -> None:
         wrapped = WrappedClient(mock_underlying_client, config)
         new_retry = Retry(attempts=10)
 
@@ -193,7 +202,9 @@ class TestWrappedClient:
         # Original unchanged
         assert wrapped._config.retry == config.retry
 
-    def test_with_options_inherits_unspecified(self, mock_underlying_client):
+    def test_with_options_inherits_unspecified(
+        self, mock_underlying_client: Any
+    ) -> None:
         original_config = ClientConfig(
             retry=Retry(attempts=5),
             timeout=Timeout(initial_token=10000, inter_token=5000),
@@ -212,7 +223,9 @@ class TestWrappedClient:
         assert new_wrapped._config.adapter == original_config.adapter
         assert new_wrapped._config.context == original_config.context
 
-    def test_with_options_all_parameters(self, mock_underlying_client, config):
+    def test_with_options_all_parameters(
+        self, mock_underlying_client: Any, config: ClientConfig
+    ) -> None:
         wrapped = WrappedClient(mock_underlying_client, config)
 
         new_fallbacks = [lambda: "fb"]
@@ -250,25 +263,25 @@ class TestWrappedClient:
 
 class TestWrapClient:
     @pytest.fixture
-    def mock_client(self):
+    def mock_client(self) -> Any:
         client = MagicMock()
         client.chat = MagicMock()
         client.chat.completions = MagicMock()
         return client
 
-    def test_wrap_returns_wrapped_client(self, mock_client):
+    def test_wrap_returns_wrapped_client(self, mock_client: Any) -> None:
         wrapped = wrap_client(mock_client)
         assert isinstance(wrapped, WrappedClient)
         assert wrapped.unwrapped == mock_client
 
-    def test_wrap_with_default_options(self, mock_client):
+    def test_wrap_with_default_options(self, mock_client: Any) -> None:
         wrapped = wrap_client(mock_client)
         # Default retry is applied
         assert wrapped._config.retry is not None
         # Default continue_from_last_good_token is True per wrap_client signature
         assert wrapped._config.continue_from_last_good_token is True
 
-    def test_wrap_with_custom_options(self, mock_client):
+    def test_wrap_with_custom_options(self, mock_client: Any) -> None:
         retry = Retry(attempts=5)
         timeout = Timeout(initial_token=10000, inter_token=5000)
         context = {"tenant_id": "abc"}
@@ -288,14 +301,14 @@ class TestWrapClient:
         assert wrapped._config.context == context
         assert wrapped._config.buffer_tool_calls is True
 
-    def test_wrap_with_guardrails(self, mock_client):
+    def test_wrap_with_guardrails(self, mock_client: Any) -> None:
         from l0.guardrails import zero_output_rule
 
         rules = [zero_output_rule()]
         wrapped = wrap_client(mock_client, guardrails=rules)
         assert wrapped._config.guardrails == rules
 
-    def test_wrap_with_fallbacks(self, mock_client):
+    def test_wrap_with_fallbacks(self, mock_client: Any) -> None:
         fallback1 = MagicMock()
         fallback2 = MagicMock()
         fallbacks = [lambda: fallback1, lambda: fallback2]
@@ -303,16 +316,16 @@ class TestWrapClient:
         wrapped = wrap_client(mock_client, fallbacks=fallbacks)
         assert wrapped._config.fallbacks == fallbacks
 
-    def test_wrap_with_on_event_callback(self, mock_client):
-        events = []
+    def test_wrap_with_on_event_callback(self, mock_client: Any) -> None:
+        events: list[Any] = []
 
-        def on_event(event):
+        def on_event(event: Any) -> None:
             events.append(event)
 
         wrapped = wrap_client(mock_client, on_event=on_event)
         assert wrapped._config.on_event == on_event
 
-    def test_wrap_with_continuation_config(self, mock_client):
+    def test_wrap_with_continuation_config(self, mock_client: Any) -> None:
         from l0.continuation import ContinuationConfig
 
         continuation = ContinuationConfig(
@@ -326,7 +339,7 @@ class TestWrapClient:
         )
         assert wrapped._config.continue_from_last_good_token == continuation
 
-    def test_wrap_with_custom_continuation_prompt(self, mock_client):
+    def test_wrap_with_custom_continuation_prompt(self, mock_client: Any) -> None:
         def build_prompt(content: str) -> str:
             return f"Please continue from: {content}"
 
@@ -341,7 +354,7 @@ class TestWrappedClientIntegration:
     """Integration tests for the wrapped client flow."""
 
     @pytest.fixture
-    def mock_openai_client(self):
+    def mock_openai_client(self) -> Any:
         """Create a mock that mimics AsyncOpenAI structure."""
         client = MagicMock()
         client.chat = MagicMock()
@@ -350,7 +363,7 @@ class TestWrappedClientIntegration:
         return client
 
     @pytest.mark.asyncio
-    async def test_non_streaming_flow(self, mock_openai_client):
+    async def test_non_streaming_flow(self, mock_openai_client: Any) -> None:
         """Test that non-streaming calls pass through correctly."""
         mock_openai_client.chat.completions.create.return_value = MagicMock(
             choices=[MagicMock(message=MagicMock(content="Hello!"))]
@@ -365,10 +378,10 @@ class TestWrappedClientIntegration:
         )
 
         mock_openai_client.chat.completions.create.assert_called_once()
-        assert result.choices[0].message.content == "Hello!"
+        assert result.choices[0].message.content == "Hello!"  # type: ignore[union-attr]
 
     @pytest.mark.asyncio
-    async def test_chained_with_options(self, mock_openai_client):
+    async def test_chained_with_options(self, mock_openai_client: Any) -> None:
         """Test that with_options creates independent configurations."""
         wrapped = wrap_client(mock_openai_client, retry=Retry(attempts=3))
 
@@ -377,14 +390,15 @@ class TestWrappedClientIntegration:
 
         # Create variant with different timeout
         with_timeout = wrapped.with_options(
-            timeout=Timeout(initial_token=20.0, inter_token=15.0)
+            timeout=Timeout(initial_token=20000, inter_token=15000)
         )
 
         # All three should be independent
         assert wrapped._config.retry.attempts == 3
         assert high_retry._config.retry.attempts == 10
         assert with_timeout._config.retry.attempts == 3
-        assert with_timeout._config.timeout.initial_token == 20.0
+        assert with_timeout._config.timeout is not None
+        assert with_timeout._config.timeout.initial_token == 20000
 
     def test_slots_optimization(self):
         """Verify __slots__ are used for memory efficiency."""

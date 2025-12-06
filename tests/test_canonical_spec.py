@@ -13,7 +13,7 @@ from typing import Any
 
 import pytest
 
-from l0.errors import Error, ErrorCode, ErrorCategory, ErrorContext
+from l0.errors import Error, ErrorCategory, ErrorCode, ErrorContext
 
 
 def load_spec() -> dict[str, Any]:
@@ -170,7 +170,6 @@ class TestL0ErrorToJSON:
         assert "fallback_index" not in keys
 
 
-
 class TestErrorCodeToCategoryMapping:
     """Tests for error code to category mapping."""
 
@@ -194,7 +193,9 @@ class TestErrorCodeToCategoryMapping:
         ]
         for code in codes:
             error = Error("test", ErrorContext(code=code))
-            assert error.category == ErrorCategory.CONTENT, f"{code} should map to CONTENT"
+            assert error.category == ErrorCategory.CONTENT, (
+                f"{code} should map to CONTENT"
+            )
 
     def test_maps_internal_codes_to_internal_category(self) -> None:
         codes = [
@@ -204,7 +205,9 @@ class TestErrorCodeToCategoryMapping:
         ]
         for code in codes:
             error = Error("test", ErrorContext(code=code))
-            assert error.category == ErrorCategory.INTERNAL, f"{code} should map to INTERNAL"
+            assert error.category == ErrorCategory.INTERNAL, (
+                f"{code} should map to INTERNAL"
+            )
 
     def test_maps_provider_codes_to_provider_category(self) -> None:
         codes = [
@@ -213,7 +216,9 @@ class TestErrorCodeToCategoryMapping:
         ]
         for code in codes:
             error = Error("test", ErrorContext(code=code))
-            assert error.category == ErrorCategory.PROVIDER, f"{code} should map to PROVIDER"
+            assert error.category == ErrorCategory.PROVIDER, (
+                f"{code} should map to PROVIDER"
+            )
 
 
 class TestAllErrorCodesExist:
@@ -239,7 +244,9 @@ class TestObservabilityEvents:
         from l0.events import ObservabilityEventType
 
         for event in spec_events:
-            assert hasattr(ObservabilityEventType, event), f"ObservabilityEventType.{event} should exist"
+            assert hasattr(ObservabilityEventType, event), (
+                f"ObservabilityEventType.{event} should exist"
+            )
 
     def test_event_values_match_keys(self) -> None:
         from l0.events import ObservabilityEventType
@@ -268,7 +275,9 @@ class TestLifecycleInvariants:
     def invariants(self) -> list[dict[str, str]]:
         return SPEC["lifecycleInvariants"]["invariants"]
 
-    def test_documents_all_critical_invariants(self, invariants: list[dict[str, str]]) -> None:
+    def test_documents_all_critical_invariants(
+        self, invariants: list[dict[str, str]]
+    ) -> None:
         invariant_ids = [i["id"] for i in invariants]
         expected = [
             "session-start-once",
@@ -283,8 +292,11 @@ class TestLifecycleInvariants:
         for inv_id in expected:
             assert inv_id in invariant_ids, f"Invariant {inv_id} should be documented"
 
-    def test_invariants_have_rule_and_rationale(self, invariants: list[dict[str, str]]) -> None:
+    def test_invariants_have_rule_and_rationale(
+        self, invariants: list[dict[str, str]]
+    ) -> None:
         for inv in invariants:
-            assert inv.get("rule"), f"Invariant {inv[id]} should have a rule"
-            assert inv.get("rationale"), f"Invariant {inv[id]} should have a rationale"
-
+            assert inv.get("rule"), f"Invariant {inv['id']} should have a rule"
+            assert inv.get("rationale"), (
+                f"Invariant {inv['id']} should have a rationale"
+            )

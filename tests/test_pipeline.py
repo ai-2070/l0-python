@@ -800,7 +800,7 @@ class TestPipeExecution:
         """Test pipe with timeout."""
         import asyncio
 
-        async def slow_step(input, ctx):
+        async def slow_step(input: Any, ctx: StepContext) -> Any:
             await asyncio.sleep(10)
             return make_stream("output")
 
@@ -846,17 +846,17 @@ class TestParallelPipelines:
         p3 = MagicMock(spec=Pipeline)
 
         # Mock run methods
-        async def run1(input):
+        async def run1(input: Any) -> PipelineResult[str]:
             return PipelineResult(
                 name="p1", output="result1", steps=[], status="success"
             )
 
-        async def run2(input):
+        async def run2(input: Any) -> PipelineResult[str]:
             return PipelineResult(
                 name="p2", output="result2", steps=[], status="success"
             )
 
-        async def run3(input):
+        async def run3(input: Any) -> PipelineResult[str]:
             return PipelineResult(
                 name="p3", output="result3", steps=[], status="success"
             )
@@ -865,7 +865,7 @@ class TestParallelPipelines:
         p2.run = run2
         p3.run = run3
 
-        def combiner(results):
+        def combiner(results: list[PipelineResult[str]]) -> dict[str, str | None]:
             return {f"p{i + 1}": r.output for i, r in enumerate(results)}
 
         result = await parallel_pipelines([p1, p2, p3], "input", combiner)
