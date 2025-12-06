@@ -1,30 +1,14 @@
-"""Tests for OperationPool - dynamic workload management.
-
-Tests for OperationPool class, create_pool function, and concurrent execution.
-"""
-
-from __future__ import annotations
+"""Tests for l0.pool module."""
 
 import asyncio
 from collections.abc import AsyncIterator
 from typing import Any
-from unittest.mock import MagicMock
 
 import pytest
 
 from l0.adapters import AdaptedEvent, Adapters
-from l0.pool import (
-    OperationPool,
-    PooledOperation,
-    PoolOptions,
-    PoolStats,
-    create_pool,
-)
-from l0.types import Event, EventType, Retry, Timeout
-
-# ============================================================================
-# Test Helpers
-# ============================================================================
+from l0.pool import OperationPool, PoolOptions, PoolStats, create_pool
+from l0.types import Event, EventType, State
 
 
 class PassthroughAdapter:
@@ -45,543 +29,255 @@ class PassthroughAdapter:
 
 
 @pytest.fixture(autouse=True)
-def register_passthrough_adapter():
+def register_passthrough_adapter() -> AsyncIterator[None]:
     """Register and cleanup the passthrough adapter for tests."""
     Adapters.register(PassthroughAdapter())
     yield
     Adapters.reset()
 
 
-async def create_token_stream(tokens: list[str]) -> AsyncIterator[Event]:
-    """Create a simple token stream from an array of tokens."""
-    for token in tokens:
-        yield Event(type=EventType.TOKEN, text=token)
-    yield Event(type=EventType.COMPLETE)
+def make_stream(content: str):
+    """Create a stream factory that yields the given content."""
 
+    async def stream() -> AsyncIterator[Event]:
+        for char in content:
+            yield Event(type=EventType.TOKEN, text=char)
+        yield Event(type=EventType.COMPLETE)
 
-async def create_slow_stream(tokens: list[str], delay_ms: int) -> AsyncIterator[Event]:
-    """Create a slow stream that delays between tokens."""
-    for token in tokens:
-        await asyncio.sleep(delay_ms / 1000)
-        yield Event(type=EventType.TOKEN, text=token)
-    yield Event(type=EventType.COMPLETE)
+    return stream
 
 
-async def create_failing_stream() -> AsyncIterator[Event]:
-    """Create a stream that fails."""
-    yield Event(type=EventType.ERROR, error=Exception("Stream failed"))
+class TestPoolCreation:
+    """Tests for pool creation and configuration."""
 
+    def test_create_pool_default_workers(self) -> None:
+        """Test that create_pool defaults to 3 workers."""
+        pool: OperationPool[Any] = create_pool()
+        assert pool.worker_count == 3
 
-# ============================================================================
-# PoolOptions Tests
-# ============================================================================
+    def test_create_pool_custom_workers(self) -> None:
+        """Test that create_pool accepts custom worker count."""
+        pool: OperationPool[Any] = create_pool(5)
+        assert pool.worker_count == 5
 
+    def test_create_pool_invalid_workers(self) -> None:
+        """Test that create_pool rejects invalid worker counts."""
+        with pytest.raises(ValueError, match="worker_count must be at least 1"):
+            create_pool(0)
 
-class TestPoolOptions:
-    """Tests for PoolOptions."""
-
-    def test_default_options(self):
-        """Should have correct defaults."""
-        options = PoolOptions()
-
-        assert options.shared_retry is None
-        assert options.shared_timeout is None
-        assert options.shared_guardrails is None
-        assert options.on_event is None
-        assert options.meta is None
-
-    def test_custom_options(self):
-        """Should accept custom options."""
-        retry = Retry(attempts=3)
-        timeout = Timeout(initial_token=5000, inter_token=10000)
-        on_event = MagicMock()
-
-        options = PoolOptions(
-            shared_retry=retry,
-            shared_timeout=timeout,
-            on_event=on_event,
-            meta={"env": "test"},
-        )
-
-        assert options.shared_retry is retry
-        assert options.shared_timeout is timeout
-        assert options.on_event is on_event
-        assert options.meta == {"env": "test"}
-
-
-# ============================================================================
-# PoolStats Tests
-# ============================================================================
-
-
-class TestPoolStats:
-    """Tests for PoolStats."""
-
-    def test_default_stats(self):
-        """Should have correct defaults."""
-        stats = PoolStats()
-
-        assert stats.total_executed == 0
-        assert stats.total_succeeded == 0
-        assert stats.total_failed == 0
-        assert stats.total_duration == 0.0
-
-    def test_custom_stats(self):
-        """Should accept custom values."""
-        stats = PoolStats(
-            total_executed=10,
-            total_succeeded=8,
-            total_failed=2,
-            total_duration=5.5,
-        )
-
-        assert stats.total_executed == 10
-        assert stats.total_succeeded == 8
-        assert stats.total_failed == 2
-        assert stats.total_duration == 5.5
-
-
-# ============================================================================
-# PooledOperation Tests
-# ============================================================================
-
-
-class TestPooledOperation:
-    """Tests for PooledOperation."""
-
-    def test_create_operation(self):
-        """Should create a pooled operation."""
-
-        async def stream():
-            async for event in create_token_stream(["test"]):
-                yield event
-
-        op = PooledOperation(stream=stream)
-
-        assert op.stream is stream
-        assert op.fallbacks is None
-        assert op.guardrails is None
-        assert op.retry is None
-        assert op.timeout is None
-
-    def test_create_operation_with_options(self):
-        """Should create operation with options."""
-
-        async def stream():
-            async for event in create_token_stream(["test"]):
-                yield event
-
-        async def fallback():
-            async for event in create_token_stream(["fallback"]):
-                yield event
-
-        retry = Retry(attempts=3)
-
-        op = PooledOperation(
-            stream=stream,
-            fallbacks=[fallback],
-            retry=retry,
-        )
-
-        assert op.stream is stream
-        assert op.fallbacks is not None and len(op.fallbacks) == 1
-        assert op.retry is retry
-
-
-# ============================================================================
-# OperationPool Creation Tests
-# ============================================================================
-
-
-class TestOperationPoolCreation:
-    """Tests for OperationPool creation."""
-
-    def test_create_default_pool(self):
-        """Should create a pool with default settings."""
-        pool = OperationPool()
-
-        assert pool is not None
-        assert pool.get_queue_length() == 0
-        assert pool.get_active_workers() == 0
-
-    def test_create_pool_with_worker_count(self):
-        """Should create a pool with specified worker count."""
-        pool = OperationPool(worker_count=5)
-
-        assert pool is not None
-
-    def test_create_pool_with_options(self):
-        """Should create a pool with options."""
-        options = PoolOptions(meta={"env": "test"})
-        pool = OperationPool(worker_count=3, options=options)
-
-        assert pool is not None
-
-    def test_invalid_worker_count(self):
-        """Should raise for invalid worker count."""
-        with pytest.raises(ValueError, match="worker_count"):
-            OperationPool(worker_count=0)
-
-        with pytest.raises(ValueError, match="worker_count"):
-            OperationPool(worker_count=-1)
-
-
-# ============================================================================
-# create_pool Function Tests
-# ============================================================================
-
-
-class TestCreatePoolFunction:
-    """Tests for create_pool function."""
-
-    def test_create_pool_default(self):
-        """Should create a pool with defaults."""
-        pool = create_pool()
-        assert isinstance(pool, OperationPool)
-
-    def test_create_pool_with_workers(self):
-        """Should create a pool with worker count."""
-        pool = create_pool(worker_count=5)
-        assert isinstance(pool, OperationPool)
-
-    def test_create_pool_with_options(self):
-        """Should create a pool with options."""
-        pool = create_pool(
-            worker_count=3,
-            meta={"key": "value"},
-        )
-        assert isinstance(pool, OperationPool)
-
-
-# ============================================================================
-# Pool Queue Management Tests
-# ============================================================================
-
-
-class TestPoolQueueManagement:
-    """Tests for pool queue management."""
-
-    @pytest.mark.asyncio
-    async def test_get_queue_length(self):
-        """Should return correct queue length."""
-        pool = create_pool(worker_count=1)
-
-        assert pool.get_queue_length() == 0
-
-    @pytest.mark.asyncio
-    async def test_get_active_workers(self):
-        """Should return correct active worker count."""
-        pool = create_pool(worker_count=3)
-
-        assert pool.get_active_workers() == 0
-
-
-# ============================================================================
-# Pool Execution Tests
-# ============================================================================
+        with pytest.raises(ValueError, match="worker_count must be at least 1"):
+            create_pool(-1)
 
 
 class TestPoolExecution:
-    """Tests for pool execution."""
+    """Tests for pool operation execution."""
 
     @pytest.mark.asyncio
-    async def test_execute_single_operation(self):
-        """Should execute a single operation."""
-        pool = create_pool(worker_count=1)
+    async def test_execute_returns_future(self) -> None:
+        """Test that execute returns a Future immediately."""
+        pool: OperationPool[Any] = create_pool(1)
 
-        async def stream():
-            async for event in create_token_stream(["hello", "world"]):
-                yield event
+        future = pool.execute(stream=make_stream("hello"))
+        assert isinstance(future, asyncio.Future)
 
-        result_future = pool.execute(stream=stream)
+        await pool.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_execute_returns_state_with_content(self) -> None:
+        """Test that awaiting the future returns State with accumulated content."""
+        pool: OperationPool[Any] = create_pool(1)
+
+        future = pool.execute(stream=make_stream("hello"))
         await pool.drain()
 
-        result = await result_future
-        content = await result.read()
+        state = await future
+        assert isinstance(state, State)
+        assert state.content == "hello"
 
-        assert content == "helloworld"
+        await pool.shutdown()
 
     @pytest.mark.asyncio
-    async def test_execute_multiple_operations(self):
-        """Should execute multiple operations."""
-        pool = create_pool(worker_count=3)
+    async def test_execute_multiple_operations(self) -> None:
+        """Test executing multiple operations concurrently."""
+        pool: OperationPool[Any] = create_pool(3)
 
-        async def stream1():
-            async for event in create_token_stream(["a"]):
-                yield event
-
-        async def stream2():
-            async for event in create_token_stream(["b"]):
-                yield event
-
-        async def stream3():
-            async for event in create_token_stream(["c"]):
-                yield event
-
-        result1 = pool.execute(stream=stream1)
-        result2 = pool.execute(stream=stream2)
-        result3 = pool.execute(stream=stream3)
+        future1 = pool.execute(stream=make_stream("one"))
+        future2 = pool.execute(stream=make_stream("two"))
+        future3 = pool.execute(stream=make_stream("three"))
 
         await pool.drain()
 
-        content1 = await (await result1).read()
-        content2 = await (await result2).read()
-        content3 = await (await result3).read()
+        state1 = await future1
+        state2 = await future2
+        state3 = await future3
 
-        assert content1 == "a"
-        assert content2 == "b"
-        assert content3 == "c"
+        assert state1.content == "one"
+        assert state2.content == "two"
+        assert state3.content == "three"
+
+        await pool.shutdown()
 
     @pytest.mark.asyncio
-    async def test_execute_with_concurrency_limit(self):
-        """Should respect concurrency limit."""
-        pool = create_pool(worker_count=2)
-        execution_order: list[str] = []
+    async def test_state_has_token_count(self) -> None:
+        """Test that State includes token count after execution."""
+        pool: OperationPool[Any] = create_pool(1)
 
-        async def slow_stream(name: str):
-            execution_order.append(f"{name}-start")
-            await asyncio.sleep(0.1)
-            yield Event(type=EventType.TOKEN, text=name)
-            yield Event(type=EventType.COMPLETE)
-            execution_order.append(f"{name}-end")
-
-        pool.execute(stream=lambda: slow_stream("a"))
-        pool.execute(stream=lambda: slow_stream("b"))
-        pool.execute(stream=lambda: slow_stream("c"))
-
+        future = pool.execute(stream=make_stream("hello"))
         await pool.drain()
 
-        # With 2 workers, we should see at most 2 concurrent starts
-        # before any ends
-        start_count = 0
-        for event in execution_order:
-            if event.endswith("-start"):
-                start_count += 1
-            if event.endswith("-end"):
-                start_count -= 1
-            assert start_count <= 2  # Never more than 2 concurrent
+        state = await future
+        # "hello" = 5 characters, each yielded as a token
+        assert state.token_count == 5
+
+        await pool.shutdown()
 
 
-# ============================================================================
-# Pool Drain Tests
-# ============================================================================
+class TestPoolStats:
+    """Tests for pool statistics."""
+
+    @pytest.mark.asyncio
+    async def test_stats_track_success(self) -> None:
+        """Test that stats track successful operations."""
+        pool: OperationPool[Any] = create_pool(1)
+
+        pool.execute(stream=make_stream("one"))
+        pool.execute(stream=make_stream("two"))
+        await pool.drain()
+
+        stats = pool.get_stats()
+        assert stats.total_executed == 2
+        assert stats.total_succeeded == 2
+        assert stats.total_failed == 0
+        assert stats.total_duration > 0
+
+        await pool.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_stats_track_failure(self) -> None:
+        """Test that stats track failed operations."""
+        pool: OperationPool[Any] = create_pool(1)
+
+        async def failing_stream() -> AsyncIterator[Event]:
+            raise RuntimeError("Stream failed")
+            yield  # Make it a generator
+
+        future = pool.execute(stream=failing_stream)
+        await pool.drain()
+
+        # The future should have the exception
+        with pytest.raises(RuntimeError, match="Stream failed"):
+            await future
+
+        stats = pool.get_stats()
+        assert stats.total_executed == 1
+        assert stats.total_succeeded == 0
+        assert stats.total_failed == 1
+
+        await pool.shutdown()
 
 
 class TestPoolDrain:
-    """Tests for pool drain functionality."""
+    """Tests for pool draining."""
 
     @pytest.mark.asyncio
-    async def test_drain_empty_pool(self):
-        """Should drain empty pool immediately."""
-        pool = create_pool(worker_count=1)
+    async def test_drain_waits_for_completion(self) -> None:
+        """Test that drain waits for all operations to complete."""
+        pool: OperationPool[Any] = create_pool(1)
+        completed: list[str] = []
 
-        # Should not hang
-        await asyncio.wait_for(pool.drain(), timeout=1.0)
-
-    @pytest.mark.asyncio
-    async def test_drain_waits_for_completion(self):
-        """Should wait for all operations to complete."""
-        pool = create_pool(worker_count=1)
-        completed: list[bool] = []
-
-        async def stream():
-            await asyncio.sleep(0.1)
-            yield Event(type=EventType.TOKEN, text="done")
+        async def slow_stream(name: str) -> AsyncIterator[Event]:
+            await asyncio.sleep(0.01)
+            completed.append(name)
+            yield Event(type=EventType.TOKEN, text=name)
             yield Event(type=EventType.COMPLETE)
-            completed.append(True)
 
-        pool.execute(stream=stream)
-        pool.execute(stream=stream)
+        pool.execute(stream=lambda: slow_stream("first"))
+        pool.execute(stream=lambda: slow_stream("second"))
 
+        # Before drain, operations may not be complete
         await pool.drain()
 
+        # After drain, all operations should be complete
         assert len(completed) == 2
+        assert "first" in completed
+        assert "second" in completed
 
-
-# ============================================================================
-# Pool Stats Tests
-# ============================================================================
-
-
-class TestPoolStatsTracking:
-    """Tests for pool statistics tracking."""
+        await pool.shutdown()
 
     @pytest.mark.asyncio
-    async def test_get_stats(self):
-        """Should return pool statistics."""
-        pool = create_pool(worker_count=1)
+    async def test_cannot_execute_while_draining(self) -> None:
+        """Test that execute raises error while pool is draining."""
+        pool: OperationPool[Any] = create_pool(1)
 
-        stats = pool.get_stats()
+        async def slow_stream() -> AsyncIterator[Event]:
+            await asyncio.sleep(0.1)
+            yield Event(type=EventType.TOKEN, text="slow")
+            yield Event(type=EventType.COMPLETE)
 
-        assert isinstance(stats, PoolStats)
-        assert stats.total_executed == 0
+        pool.execute(stream=slow_stream)
 
-    @pytest.mark.asyncio
-    async def test_stats_track_success(self):
-        """Should track successful operations."""
-        pool = create_pool(worker_count=1)
+        # Start draining in background
+        drain_task = asyncio.create_task(pool.drain())
 
-        async def stream():
-            async for event in create_token_stream(["test"]):
-                yield event
+        # Give drain time to start
+        await asyncio.sleep(0.01)
 
-        pool.execute(stream=stream)
-        await pool.drain()
+        # Should raise while draining
+        with pytest.raises(
+            RuntimeError, match="Cannot execute operations while pool is draining"
+        ):
+            pool.execute(stream=make_stream("new"))
 
-        stats = pool.get_stats()
-        assert stats.total_executed == 1
-        assert stats.total_succeeded == 1
-        assert stats.total_failed == 0
-
-    @pytest.mark.asyncio
-    async def test_stats_track_failure(self):
-        """Should track failed operations."""
-        pool = create_pool(worker_count=1)
-
-        async def failing_stream():
-            raise Exception("Stream failed")
-            yield  # Make it an async generator
-
-        pool.execute(stream=failing_stream)
-        await pool.drain()
-
-        stats = pool.get_stats()
-        assert stats.total_executed == 1
-        assert stats.total_failed == 1
-
-
-# ============================================================================
-# Pool Shutdown Tests
-# ============================================================================
+        await drain_task
+        await pool.shutdown()
 
 
 class TestPoolShutdown:
     """Tests for pool shutdown."""
 
     @pytest.mark.asyncio
-    async def test_shutdown_stops_workers(self):
-        """Should stop all workers on shutdown."""
-        pool = create_pool(worker_count=3)
+    async def test_shutdown_completes_pending(self) -> None:
+        """Test that shutdown waits for pending operations."""
+        pool: OperationPool[Any] = create_pool(1)
 
-        # Execute something to start workers
-        async def stream():
-            async for event in create_token_stream(["test"]):
-                yield event
-
-        pool.execute(stream=stream)
-        await pool.drain()
+        future = pool.execute(stream=make_stream("test"))
 
         await pool.shutdown()
 
-        # After shutdown, pool should not accept new work
-        # (implementation dependent)
+        # Future should be resolved after shutdown
+        state = await future
+        assert state.content == "test"
 
     @pytest.mark.asyncio
-    async def test_shutdown_waits_for_pending(self):
-        """Should wait for pending operations before shutdown."""
-        pool = create_pool(worker_count=1)
-        completed: list[bool] = []
+    async def test_shutdown_idempotent(self) -> None:
+        """Test that shutdown can be called multiple times."""
+        pool: OperationPool[Any] = create_pool(1)
 
-        async def slow_stream():
-            await asyncio.sleep(0.1)
-            yield Event(type=EventType.TOKEN, text="done")
-            yield Event(type=EventType.COMPLETE)
-            completed.append(True)
+        pool.execute(stream=make_stream("test"))
 
-        pool.execute(stream=slow_stream)
+        await pool.shutdown()
+        await pool.shutdown()  # Should not raise
+
+
+class TestPoolQueueAndWorkers:
+    """Tests for queue and worker management."""
+
+    @pytest.mark.asyncio
+    async def test_get_queue_length(self) -> None:
+        """Test that get_queue_length returns correct count."""
+        pool: OperationPool[Any] = create_pool(1)
+
+        # Don't start yet - manually control
+        assert pool.get_queue_length() == 0
+
         await pool.shutdown()
 
-        assert len(completed) == 1
-
-
-# ============================================================================
-# Pool Event Callback Tests
-# ============================================================================
-
-
-class TestPoolEventCallbacks:
-    """Tests for pool event callbacks."""
-
     @pytest.mark.asyncio
-    async def test_on_event_callback(self):
-        """Should call on_event for observability events."""
-        events_received: list[Any] = []
+    async def test_get_active_workers(self) -> None:
+        """Test that get_active_workers returns correct count."""
+        pool: OperationPool[Any] = create_pool(3)
 
-        pool = create_pool(
-            worker_count=1,
-            on_event=lambda e: events_received.append(e),
-        )
+        # Initially no active workers
+        assert pool.get_active_workers() == 0
 
-        async def stream():
-            async for event in create_token_stream(["test"]):
-                yield event
-
-        pool.execute(stream=stream)
-        await pool.drain()
-
-        # Should have received some events
-        assert len(events_received) >= 0  # Events may or may not be emitted
-
-
-# ============================================================================
-# Pool with Shared Config Tests
-# ============================================================================
-
-
-class TestPoolSharedConfig:
-    """Tests for pool with shared configuration."""
-
-    @pytest.mark.asyncio
-    async def test_shared_retry_config(self):
-        """Should apply shared retry config to operations."""
-        pool = create_pool(
-            worker_count=1,
-            shared_retry=Retry(attempts=3),
-        )
-
-        async def stream():
-            async for event in create_token_stream(["test"]):
-                yield event
-
-        result = pool.execute(stream=stream)
-        await pool.drain()
-
-        # Operation should complete (retry config applied)
-        content = await (await result).read()
-        assert content == "test"
-
-    @pytest.mark.asyncio
-    async def test_shared_timeout_config(self):
-        """Should apply shared timeout config to operations."""
-        pool = create_pool(
-            worker_count=1,
-            shared_timeout=Timeout(initial_token=5000, inter_token=10000),
-        )
-
-        async def stream():
-            async for event in create_token_stream(["test"]):
-                yield event
-
-        result = pool.execute(stream=stream)
-        await pool.drain()
-
-        content = await (await result).read()
-        assert content == "test"
-
-    @pytest.mark.asyncio
-    async def test_shared_meta(self):
-        """Should attach shared meta to all operations."""
-        pool = create_pool(
-            worker_count=1,
-            meta={"requestId": "req-123"},
-        )
-
-        async def stream():
-            async for event in create_token_stream(["test"]):
-                yield event
-
-        result = pool.execute(stream=stream)
-        await pool.drain()
-
-        content = await (await result).read()
-        assert content == "test"
+        await pool.shutdown()

@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
 from .logging import logger
-from .types import Retry, State, Stream, StreamFactory, Timeout
+from .types import Retry, State, StreamFactory, Timeout
 
 if TYPE_CHECKING:
     from .events import ObservabilityEvent
@@ -62,7 +62,7 @@ class PooledOperation(Generic[T]):
     guardrails: list["GuardrailRule"] | None = None
     retry: Retry | None = None
     timeout: Timeout | None = None
-    future: asyncio.Future[Stream[T]] = field(default_factory=asyncio.Future)
+    future: asyncio.Future[State] = field(default_factory=asyncio.Future)
 
 
 class OperationPool(Generic[T]):
@@ -86,9 +86,11 @@ class OperationPool(Generic[T]):
         # Wait for all operations
         await pool.drain()
 
-        # Get results
-        stream1_result = await result1
-        stream2_result = await result2
+        # Get results (returns State with accumulated content)
+        state1 = await result1
+        state2 = await result2
+        print(state1.content)
+        print(state2.content)
 
         # Check stats
         print(f"Queue length: {pool.get_queue_length()}")
@@ -170,7 +172,7 @@ class OperationPool(Generic[T]):
                         meta=self._options.meta,
                     )
 
-                    # Consume the stream to completion
+                    # Consume the stream to completion and collect state
                     async for _ in result:
                         pass
 
@@ -181,7 +183,8 @@ class OperationPool(Generic[T]):
                         self._stats.total_succeeded += 1
                         self._stats.total_duration += duration
 
-                    operation.future.set_result(result)
+                    # Return the accumulated State, not the exhausted stream
+                    operation.future.set_result(result.state)
 
                 except Exception as e:
                     async with self._lock:
@@ -208,11 +211,12 @@ class OperationPool(Generic[T]):
         guardrails: list["GuardrailRule"] | None = None,
         retry: Retry | None = None,
         timeout: Timeout | None = None,
-    ) -> asyncio.Future[Stream[T]]:
+    ) -> asyncio.Future[State]:
         """Submit an operation to the pool for execution.
 
-        Returns immediately with a Future that resolves to the Stream result
-        when the operation completes.
+        Returns immediately with a Future that resolves to the State result
+        when the operation completes. The stream is fully consumed internally
+        and the accumulated state is returned.
 
         Args:
             stream: Factory function that returns an async LLM stream
@@ -222,7 +226,7 @@ class OperationPool(Generic[T]):
             timeout: Optional timeout config (overrides shared)
 
         Returns:
-            Future that resolves to Stream result
+            Future that resolves to State with accumulated content
 
         Example:
             ```python
@@ -234,8 +238,8 @@ class OperationPool(Generic[T]):
             # Do other work...
 
             # Wait for result when needed
-            result = await future
-            print(result.state.content)
+            state = await future
+            print(state.content)
             ```
         """
         self._ensure_started()
@@ -384,12 +388,12 @@ def create_pool(
         # Wait for all
         await pool.drain()
 
-        # Get results
-        stream1 = await result1
-        stream2 = await result2
+        # Get results (State with accumulated content)
+        state1 = await result1
+        state2 = await result2
 
-        print(stream1.state.content)
-        print(stream2.state.content)
+        print(state1.content)
+        print(state2.content)
         ```
     """
     options = PoolOptions(
