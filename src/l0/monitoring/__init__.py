@@ -112,20 +112,20 @@ from .normalize import (
     reconstruct_text,
 )
 from .otel import (
-    L0OpenTelemetry,
-    L0OpenTelemetryConfig,
     NoOpSpan,
+    OpenTelemetry,
     OpenTelemetryConfig,
     OpenTelemetryExporter,
+    OpenTelemetryExporterConfig,
     SemanticAttributes,
     create_opentelemetry_handler,
     with_opentelemetry,
 )
 from .sentry import (
-    L0Sentry,
-    L0SentryConfig,
+    Sentry,
     SentryConfig,
     SentryExporter,
+    SentryExporterConfig,
     create_sentry_handler,
     with_sentry,
 )

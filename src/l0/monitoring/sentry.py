@@ -56,8 +56,8 @@ class SentryClient(Protocol):
         ...
 
 
-class L0SentryConfig(BaseModel):
-    """Configuration for L0Sentry integration.
+class SentryConfig(BaseModel):
+    """Configuration for Sentry integration.
 
     Attributes:
         capture_network_errors: Whether to capture network errors
@@ -78,50 +78,50 @@ class L0SentryConfig(BaseModel):
     environment: str | None = None
 
 
-class L0Sentry:
+class Sentry:
     """L0 Sentry integration for error tracking and performance monitoring.
 
     Usage:
         ```python
         import sentry_sdk
-        from l0.monitoring import L0Sentry, L0SentryConfig
+        from l0.monitoring import Sentry, SentryConfig
 
         # Initialize Sentry
         sentry_sdk.init(dsn="...")
 
-        # Create L0 Sentry integration
-        l0_sentry = L0Sentry(
+        # Create Sentry integration
+        sentry_integration = Sentry(
             sentry=sentry_sdk,
-            config=L0SentryConfig(
+            config=SentryConfig(
                 capture_network_errors=True,
                 breadcrumbs_for_tokens=False,
             ),
         )
 
         # Use in L0 execution
-        l0_sentry.start_execution("chat-completion", {"model": "gpt-4"})
-        l0_sentry.start_stream()
+        sentry_integration.start_execution("chat-completion", {"model": "gpt-4"})
+        sentry_integration.start_stream()
 
         for token in stream:
-            l0_sentry.record_token(token)
+            sentry_integration.record_token(token)
 
-        l0_sentry.complete_stream(token_count)
+        sentry_integration.complete_stream(token_count)
         ```
     """
 
     def __init__(
         self,
         sentry: SentryClient,
-        config: L0SentryConfig | None = None,
+        config: SentryConfig | None = None,
     ) -> None:
-        """Initialize L0 Sentry integration.
+        """Initialize Sentry integration.
 
         Args:
             sentry: Sentry client instance (import sentry_sdk)
             config: Configuration options
         """
         self._sentry = sentry
-        self._config = config or L0SentryConfig()
+        self._config = config or SentryConfig()
 
         # Set default tags
         for key, value in self._config.tags.items():
@@ -414,7 +414,7 @@ class L0Sentry:
 
 def create_sentry_handler(
     sentry: SentryClient,
-    config: L0SentryConfig | None = None,
+    config: SentryConfig | None = None,
 ) -> Callable[[ObservabilityEvent], None]:
     """Create a Sentry event handler for L0 observability.
 
@@ -450,7 +450,7 @@ def create_sentry_handler(
         )
         ```
     """
-    integration = L0Sentry(sentry, config)
+    integration = Sentry(sentry, config)
     finish_span: Callable[[], None] | None = None
 
     def handler(event: ObservabilityEvent) -> None:
@@ -526,7 +526,7 @@ def create_sentry_handler(
 async def with_sentry(
     sentry: SentryClient,
     fn: Callable[[], Any],
-    config: L0SentryConfig | None = None,
+    config: SentryConfig | None = None,
 ) -> Any:
     """Wrap L0 execution with Sentry tracking.
 
@@ -552,7 +552,7 @@ async def with_sentry(
         )
         ```
     """
-    integration = L0Sentry(sentry, config)
+    integration = Sentry(sentry, config)
     integration.start_execution()
 
     try:
@@ -567,14 +567,14 @@ async def with_sentry(
         raise
 
 
-class SentryConfig(BaseModel):
-    """Sentry configuration.
+class SentryExporterConfig(BaseModel):
+    """Sentry exporter configuration.
 
     Usage:
         ```python
-        from l0.monitoring import SentryConfig, SentryExporter
+        from l0.monitoring import SentryExporterConfig, SentryExporter
 
-        config = SentryConfig(
+        config = SentryExporterConfig(
             dsn="https://xxx@sentry.io/123",
             environment="production",
         )
@@ -614,7 +614,7 @@ class SentryConfig(BaseModel):
     tags: dict[str, str] = Field(default_factory=dict)
 
     @classmethod
-    def from_env(cls) -> SentryConfig:
+    def from_env(cls) -> SentryExporterConfig:
         """Create config from environment variables.
 
         Reads:
@@ -623,7 +623,7 @@ class SentryConfig(BaseModel):
             - SENTRY_RELEASE
 
         Returns:
-            SentryConfig from environment
+            SentryExporterConfig from environment
         """
         import os
 
@@ -639,9 +639,9 @@ class SentryExporter:
 
     Usage:
         ```python
-        from l0.monitoring import SentryConfig, SentryExporter
+        from l0.monitoring import SentryExporterConfig, SentryExporter
 
-        config = SentryConfig(
+        config = SentryExporterConfig(
             dsn="https://xxx@sentry.io/123",
             environment="production",
         )
@@ -669,7 +669,7 @@ class SentryExporter:
         pip install sentry-sdk
     """
 
-    def __init__(self, config: SentryConfig) -> None:
+    def __init__(self, config: SentryExporterConfig) -> None:
         """Initialize Sentry exporter.
 
         Args:

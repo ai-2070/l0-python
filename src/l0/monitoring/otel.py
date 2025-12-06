@@ -119,14 +119,14 @@ class NoOpSpan:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-class OpenTelemetryConfig(BaseModel):
-    """OpenTelemetry configuration.
+class OpenTelemetryExporterConfig(BaseModel):
+    """OpenTelemetry exporter configuration.
 
     Usage:
         ```python
-        from l0.monitoring import OpenTelemetryConfig, OpenTelemetryExporter
+        from l0.monitoring import OpenTelemetryExporterConfig, OpenTelemetryExporter
 
-        config = OpenTelemetryConfig(
+        config = OpenTelemetryExporterConfig(
             service_name="my-llm-app",
             endpoint="http://localhost:4317",
         )
@@ -162,7 +162,7 @@ class OpenTelemetryConfig(BaseModel):
     export_interval: float = Field(default=5.0, ge=1.0)
 
     @classmethod
-    def from_env(cls) -> OpenTelemetryConfig:
+    def from_env(cls) -> OpenTelemetryExporterConfig:
         """Create config from environment variables.
 
         Reads:
@@ -172,7 +172,7 @@ class OpenTelemetryConfig(BaseModel):
             - OTEL_EXPORTER_OTLP_INSECURE
 
         Returns:
-            OpenTelemetryConfig from environment
+            OpenTelemetryExporterConfig from environment
         """
         import os
 
@@ -192,8 +192,8 @@ class OpenTelemetryConfig(BaseModel):
         )
 
 
-class L0OpenTelemetryConfig(BaseModel):
-    """Configuration for L0OpenTelemetry class.
+class OpenTelemetryConfig(BaseModel):
+    """Configuration for OpenTelemetry class.
 
     This is for runtime configuration, separate from export configuration.
     """
@@ -213,21 +213,21 @@ class L0OpenTelemetryConfig(BaseModel):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# L0OpenTelemetry Class (matches TS L0OpenTelemetry)
+# OpenTelemetry Class (matches TS L0OpenTelemetry)
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-class L0OpenTelemetry:
-    """L0 OpenTelemetry integration for distributed tracing and metrics.
+class OpenTelemetry:
+    """OpenTelemetry integration for distributed tracing and metrics.
 
     This class provides the same API as the TypeScript L0OpenTelemetry class.
 
     Example:
         ```python
         from opentelemetry import trace, metrics
-        from l0.monitoring import L0OpenTelemetry
+        from l0.monitoring import OpenTelemetry
 
-        otel = L0OpenTelemetry(
+        otel = OpenTelemetry(
             tracer=trace.get_tracer("l0"),
             meter=metrics.get_meter("l0"),
         )
@@ -242,9 +242,9 @@ class L0OpenTelemetry:
         self,
         tracer: Tracer | None = None,
         meter: Meter | None = None,
-        config: L0OpenTelemetryConfig | None = None,
+        config: OpenTelemetryConfig | None = None,
     ) -> None:
-        """Initialize L0OpenTelemetry.
+        """Initialize OpenTelemetry.
 
         Args:
             tracer: OpenTelemetry tracer instance
@@ -253,7 +253,7 @@ class L0OpenTelemetry:
         """
         self._tracer = tracer
         self._meter = meter
-        self._config = config or L0OpenTelemetryConfig()
+        self._config = config or OpenTelemetryConfig()
 
         # Metrics instruments
         self._request_counter: Counter | None = None
@@ -643,7 +643,7 @@ class L0OpenTelemetry:
 def create_opentelemetry_handler(
     tracer: Tracer | None = None,
     meter: Meter | None = None,
-    config: L0OpenTelemetryConfig | None = None,
+    config: OpenTelemetryConfig | None = None,
 ) -> Callable[[ObservabilityEvent], None]:
     """Create an OpenTelemetry event handler for L0 observability.
 
@@ -682,7 +682,7 @@ def create_opentelemetry_handler(
     Returns:
         Event handler function
     """
-    otel = L0OpenTelemetry(tracer=tracer, meter=meter, config=config)
+    otel = OpenTelemetry(tracer=tracer, meter=meter, config=config)
     current_span: Any = None
 
     def handler(event: ObservabilityEvent) -> None:
@@ -771,7 +771,7 @@ async def with_opentelemetry(
     meter: Meter | None,
     fn: Callable[..., Any],
     name: str = "l0.stream",
-    config: L0OpenTelemetryConfig | None = None,
+    config: OpenTelemetryConfig | None = None,
 ) -> Any:
     """Execute a function with OpenTelemetry tracing.
 
@@ -798,7 +798,7 @@ async def with_opentelemetry(
     Returns:
         Result from fn
     """
-    otel = L0OpenTelemetry(tracer=tracer, meter=meter, config=config)
+    otel = OpenTelemetry(tracer=tracer, meter=meter, config=config)
     return await otel.trace_stream(name, fn)
 
 
@@ -812,9 +812,9 @@ class OpenTelemetryExporter:
 
     Usage:
         ```python
-        from l0.monitoring import OpenTelemetryConfig, OpenTelemetryExporter
+        from l0.monitoring import OpenTelemetryExporterConfig, OpenTelemetryExporter
 
-        config = OpenTelemetryConfig(
+        config = OpenTelemetryExporterConfig(
             service_name="my-llm-app",
             endpoint="http://localhost:4317",
         )
@@ -832,7 +832,7 @@ class OpenTelemetryExporter:
         pip install opentelemetry-api opentelemetry-sdk opentelemetry-exporter-otlp
     """
 
-    def __init__(self, config: OpenTelemetryConfig) -> None:
+    def __init__(self, config: OpenTelemetryExporterConfig) -> None:
         """Initialize OpenTelemetry exporter.
 
         Args:
