@@ -4,8 +4,8 @@ import time
 
 import pytest
 
-from src.l0.state import append_token, create_state, mark_completed, update_checkpoint
-from src.l0.types import State
+from l0.state import append_token, create_state, mark_completed, update_checkpoint
+from l0.types import State
 
 
 class TestCreateState:

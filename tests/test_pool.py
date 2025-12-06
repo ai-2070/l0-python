@@ -12,15 +12,15 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from src.l0.adapters import AdaptedEvent, Adapters
-from src.l0.pool import (
+from l0.adapters import AdaptedEvent, Adapters
+from l0.pool import (
     OperationPool,
     PooledOperation,
     PoolOptions,
     PoolStats,
     create_pool,
 )
-from src.l0.types import Event, EventType, Retry, Timeout
+from l0.types import Event, EventType, Retry, Timeout
 
 # ============================================================================
 # Test Helpers

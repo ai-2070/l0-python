@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from src.l0.formatting.memory import (
+from l0.formatting.memory import (
     MemoryEntry,
     MemoryFormatOptions,
     calculate_memory_size,

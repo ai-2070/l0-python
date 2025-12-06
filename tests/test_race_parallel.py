@@ -11,7 +11,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from src.l0.parallel import (
+from l0.parallel import (
     AggregatedTelemetry,
     ParallelOptions,
     ParallelResult,

@@ -2,7 +2,7 @@
 
 import pytest
 
-from src.l0._utils import (
+from l0._utils import (
     AutoCorrectResult,
     auto_correct_json,
     extract_json,

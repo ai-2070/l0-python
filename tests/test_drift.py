@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import pytest
 
-from src.l0.drift import (
+from l0.drift import (
     DriftConfig,
     DriftDetector,
     DriftResult,

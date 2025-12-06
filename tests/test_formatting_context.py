@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from src.l0.formatting.context import (
+from l0.formatting.context import (
     ContextItem,
     DocumentMetadata,
     escape_delimiters,

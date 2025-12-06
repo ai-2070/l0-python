@@ -2,8 +2,8 @@
 
 import pytest
 
-from src.l0 import ContentType, DataPayload, EventType, Multimodal, Progress
-from src.l0.types import Event
+from l0 import ContentType, DataPayload, EventType, Multimodal, Progress
+from l0.types import Event
 
 
 class TestMultimodalEventCreation:
@@ -540,7 +540,7 @@ class TestModuleLevelHelpers:
 
     def test_create_image_event(self):
         """Test create_image_event function."""
-        from src.l0.multimodal import create_image_event
+        from l0.multimodal import create_image_event
 
         event = create_image_event(
             base64="abc123",
@@ -555,7 +555,7 @@ class TestModuleLevelHelpers:
 
     def test_create_audio_event(self):
         """Test create_audio_event function."""
-        from src.l0.multimodal import create_audio_event
+        from l0.multimodal import create_audio_event
 
         event = create_audio_event(
             base64="audio_data",
@@ -569,7 +569,7 @@ class TestModuleLevelHelpers:
 
     def test_create_video_event(self):
         """Test create_video_event function."""
-        from src.l0.multimodal import create_video_event
+        from l0.multimodal import create_video_event
 
         event = create_video_event(
             url="https://example.com/video.mp4",
@@ -584,7 +584,7 @@ class TestModuleLevelHelpers:
 
     def test_create_progress_event(self):
         """Test create_progress_event function."""
-        from src.l0.multimodal import create_progress_event
+        from l0.multimodal import create_progress_event
 
         event = create_progress_event(
             percent=75,
@@ -599,7 +599,7 @@ class TestModuleLevelHelpers:
 
     def test_create_token_event(self):
         """Test create_token_event function."""
-        from src.l0.multimodal import create_token_event
+        from l0.multimodal import create_token_event
 
         event = create_token_event("Hello ")
         assert event.type == EventType.TOKEN
@@ -607,7 +607,7 @@ class TestModuleLevelHelpers:
 
     def test_create_message_event(self):
         """Test create_message_event function."""
-        from src.l0.multimodal import create_message_event
+        from l0.multimodal import create_message_event
 
         event = create_message_event("tool response", role="assistant")
         assert event.type == EventType.MESSAGE
@@ -616,7 +616,7 @@ class TestModuleLevelHelpers:
 
     def test_create_complete_event(self):
         """Test create_complete_event function."""
-        from src.l0.multimodal import create_complete_event
+        from l0.multimodal import create_complete_event
 
         event = create_complete_event(usage={"tokens": 100})
         assert event.type == EventType.COMPLETE
@@ -624,7 +624,7 @@ class TestModuleLevelHelpers:
 
     def test_create_error_event(self):
         """Test create_error_event function."""
-        from src.l0.multimodal import create_error_event
+        from l0.multimodal import create_error_event
 
         error = ValueError("Something failed")
         event = create_error_event(error)
@@ -633,7 +633,7 @@ class TestModuleLevelHelpers:
 
     def test_create_json_event(self):
         """Test create_json_event function."""
-        from src.l0.multimodal import create_json_event
+        from l0.multimodal import create_json_event
 
         data = {"key": "value"}
         event = create_json_event(data, model="gpt-4")
@@ -643,7 +643,7 @@ class TestModuleLevelHelpers:
 
     def test_create_data_event(self):
         """Test create_data_event function."""
-        from src.l0.multimodal import create_data_event
+        from l0.multimodal import create_data_event
 
         payload = DataPayload(
             content_type=ContentType.BINARY,
@@ -729,7 +729,7 @@ class TestToEventsWithMessages:
     @pytest.mark.asyncio
     async def test_to_events_with_messages_function(self):
         """Test the to_events_with_messages helper function."""
-        from src.l0.multimodal import to_events_with_messages
+        from l0.multimodal import to_events_with_messages
 
         async def source_stream():
             yield {"type": "text", "content": "Hello "}
@@ -766,7 +766,7 @@ class TestToMultimodalEvents:
     @pytest.mark.asyncio
     async def test_to_multimodal_events(self):
         """Test the to_multimodal_events helper function."""
-        from src.l0.multimodal import to_multimodal_events
+        from l0.multimodal import to_multimodal_events
 
         async def flux_stream():
             yield {"type": "progress", "percent": 50}
@@ -806,7 +806,7 @@ class TestToEvents:
     @pytest.mark.asyncio
     async def test_to_events_simple(self):
         """Test the to_events helper for simple text streams."""
-        from src.l0.multimodal import to_events
+        from l0.multimodal import to_events
 
         async def text_stream():
             yield {"text": "Hello "}

@@ -4,8 +4,8 @@ from datetime import datetime, timezone
 
 import pytest
 
-from src.l0.events import ObservabilityEvent, ObservabilityEventType
-from src.l0.monitoring import (
+from l0.events import ObservabilityEvent, ObservabilityEventType
+from l0.monitoring import (
     MetricsConfig,
     Monitor,
     MonitoringConfig,
@@ -13,14 +13,14 @@ from src.l0.monitoring import (
     Telemetry,
     TelemetryExporter,
 )
-from src.l0.monitoring.telemetry import (
+from l0.monitoring.telemetry import (
     ErrorInfo,
     GuardrailInfo,
     Metrics,
     RetryInfo,
     TimingInfo,
 )
-from src.l0.types import ErrorCategory
+from l0.types import ErrorCategory
 
 
 class TestMonitoringConfig:
@@ -515,7 +515,7 @@ class TestEventDispatcher:
 
     def test_dispatcher_creation(self):
         """Test creating an event dispatcher."""
-        from src.l0.monitoring import EventDispatcher
+        from l0.monitoring import EventDispatcher
 
         dispatcher = EventDispatcher()
         assert dispatcher.stream_id is not None
@@ -523,7 +523,7 @@ class TestEventDispatcher:
 
     def test_dispatcher_with_meta(self):
         """Test dispatcher with custom metadata."""
-        from src.l0.monitoring import EventDispatcher
+        from l0.monitoring import EventDispatcher
 
         dispatcher = EventDispatcher(meta={"app": "test", "version": "1.0"})
         assert dispatcher.meta["app"] == "test"
@@ -531,7 +531,7 @@ class TestEventDispatcher:
 
     def test_emit_with_no_handlers(self):
         """Test that emit does nothing when no handlers registered."""
-        from src.l0.monitoring import EventDispatcher
+        from l0.monitoring import EventDispatcher
 
         dispatcher = EventDispatcher()
         # Should not raise
@@ -539,7 +539,7 @@ class TestEventDispatcher:
 
     def test_emit_with_handler(self):
         """Test emitting events to a handler."""
-        from src.l0.monitoring import EventDispatcher
+        from l0.monitoring import EventDispatcher
 
         events = []
 
@@ -562,7 +562,7 @@ class TestEventDispatcher:
 
     def test_emit_sync(self):
         """Test synchronous event emission."""
-        from src.l0.monitoring import EventDispatcher
+        from l0.monitoring import EventDispatcher
 
         events = []
 
@@ -580,7 +580,7 @@ class TestEventDispatcher:
 
     def test_remove_handler(self):
         """Test removing a handler."""
-        from src.l0.monitoring import EventDispatcher
+        from l0.monitoring import EventDispatcher
 
         events = []
 
@@ -596,7 +596,7 @@ class TestEventDispatcher:
 
     def test_handler_error_isolation(self):
         """Test that handler errors don't affect other handlers."""
-        from src.l0.monitoring import EventDispatcher
+        from l0.monitoring import EventDispatcher
 
         events = []
 
@@ -627,7 +627,7 @@ class TestEventNormalization:
 
     def test_create_token_event(self):
         """Test creating a token event."""
-        from src.l0.monitoring import L0EventType, create_token_event
+        from l0.monitoring import L0EventType, create_token_event
 
         event = create_token_event("Hello")
         assert event.type == L0EventType.TOKEN
@@ -636,7 +636,7 @@ class TestEventNormalization:
 
     def test_create_message_event(self):
         """Test creating a message event."""
-        from src.l0.monitoring import L0EventType, create_message_event
+        from l0.monitoring import L0EventType, create_message_event
 
         event = create_message_event("Hello, world!", role="assistant")
         assert event.type == L0EventType.MESSAGE
@@ -645,7 +645,7 @@ class TestEventNormalization:
 
     def test_create_complete_event(self):
         """Test creating a complete event."""
-        from src.l0.monitoring import L0EventType, create_complete_event
+        from l0.monitoring import L0EventType, create_complete_event
 
         event = create_complete_event()
         assert event.type == L0EventType.COMPLETE
@@ -653,7 +653,7 @@ class TestEventNormalization:
 
     def test_create_error_event(self):
         """Test creating an error event."""
-        from src.l0.monitoring import L0EventType, create_error_event
+        from l0.monitoring import L0EventType, create_error_event
 
         error = ValueError("Test error")
         event = create_error_event(error)
@@ -662,7 +662,7 @@ class TestEventNormalization:
 
     def test_extract_tokens(self):
         """Test extracting tokens from events."""
-        from src.l0.monitoring import (
+        from l0.monitoring import (
             create_complete_event,
             create_token_event,
             extract_tokens,
@@ -679,7 +679,7 @@ class TestEventNormalization:
 
     def test_reconstruct_text(self):
         """Test reconstructing text from events."""
-        from src.l0.monitoring import create_token_event, reconstruct_text
+        from l0.monitoring import create_token_event, reconstruct_text
 
         events = [
             create_token_event("Hello"),
@@ -692,7 +692,7 @@ class TestEventNormalization:
 
     def test_normalize_stream_event_vercel_format(self):
         """Test normalizing Vercel AI SDK format."""
-        from src.l0.monitoring import L0EventType, normalize_stream_event
+        from l0.monitoring import L0EventType, normalize_stream_event
 
         # Text delta format
         chunk = {"type": "text-delta", "textDelta": "Hello"}
@@ -702,7 +702,7 @@ class TestEventNormalization:
 
     def test_normalize_stream_event_openai_format(self):
         """Test normalizing OpenAI format."""
-        from src.l0.monitoring import L0EventType, normalize_stream_event
+        from l0.monitoring import L0EventType, normalize_stream_event
 
         # OpenAI-style chunk with delta (dict format)
         chunk = {
@@ -719,7 +719,7 @@ class TestEventNormalization:
 
     def test_normalize_stream_event_string(self):
         """Test normalizing plain string."""
-        from src.l0.monitoring import L0EventType, normalize_stream_event
+        from l0.monitoring import L0EventType, normalize_stream_event
 
         event = normalize_stream_event("Hello")
         assert event.type == L0EventType.TOKEN
@@ -764,7 +764,7 @@ class TestL0Sentry:
 
     def test_l0_sentry_creation(self):
         """Test creating L0Sentry instance."""
-        from src.l0.monitoring import L0Sentry
+        from l0.monitoring import L0Sentry
 
         sentry = MockSentryClient()
         l0_sentry = L0Sentry(sentry)
@@ -772,7 +772,7 @@ class TestL0Sentry:
 
     def test_start_stream(self):
         """Test starting a stream."""
-        from src.l0.monitoring import L0Sentry
+        from l0.monitoring import L0Sentry
 
         sentry = MockSentryClient()
         l0_sentry = L0Sentry(sentry)
@@ -784,7 +784,7 @@ class TestL0Sentry:
 
     def test_record_token(self):
         """Test recording tokens."""
-        from src.l0.monitoring import L0Sentry, L0SentryConfig
+        from l0.monitoring import L0Sentry, L0SentryConfig
 
         sentry = MockSentryClient()
         config = L0SentryConfig(breadcrumbs_for_tokens=True)
@@ -798,7 +798,7 @@ class TestL0Sentry:
 
     def test_record_first_token(self):
         """Test recording first token timing."""
-        from src.l0.monitoring import L0Sentry
+        from l0.monitoring import L0Sentry
 
         sentry = MockSentryClient()
         l0_sentry = L0Sentry(sentry)
@@ -810,7 +810,7 @@ class TestL0Sentry:
 
     def test_record_network_error(self):
         """Test recording network errors."""
-        from src.l0.monitoring import L0Sentry
+        from l0.monitoring import L0Sentry
 
         sentry = MockSentryClient()
         l0_sentry = L0Sentry(sentry)
@@ -826,7 +826,7 @@ class TestL0Sentry:
 
     def test_record_retry(self):
         """Test recording retries."""
-        from src.l0.monitoring import L0Sentry
+        from l0.monitoring import L0Sentry
 
         sentry = MockSentryClient()
         l0_sentry = L0Sentry(sentry)
@@ -838,7 +838,7 @@ class TestL0Sentry:
 
     def test_record_guardrail_violations(self):
         """Test recording guardrail violations."""
-        from src.l0.monitoring import L0Sentry
+        from l0.monitoring import L0Sentry
 
         sentry = MockSentryClient()
         l0_sentry = L0Sentry(sentry)
@@ -856,7 +856,7 @@ class TestL0Sentry:
 
     def test_record_drift(self):
         """Test recording drift detection."""
-        from src.l0.monitoring import L0Sentry
+        from l0.monitoring import L0Sentry
 
         sentry = MockSentryClient()
         l0_sentry = L0Sentry(sentry)
@@ -868,7 +868,7 @@ class TestL0Sentry:
 
     def test_complete_stream(self):
         """Test completing a stream."""
-        from src.l0.monitoring import L0Sentry
+        from l0.monitoring import L0Sentry
 
         sentry = MockSentryClient()
         l0_sentry = L0Sentry(sentry)
@@ -881,7 +881,7 @@ class TestL0Sentry:
 
     def test_record_failure(self):
         """Test recording a failure."""
-        from src.l0.monitoring import L0Sentry
+        from l0.monitoring import L0Sentry
 
         sentry = MockSentryClient()
         l0_sentry = L0Sentry(sentry)
@@ -898,7 +898,7 @@ class TestCreateSentryHandler:
 
     def test_create_handler(self):
         """Test creating a Sentry handler."""
-        from src.l0.monitoring import create_sentry_handler
+        from l0.monitoring import create_sentry_handler
 
         sentry = MockSentryClient()
         handler = create_sentry_handler(sentry)
@@ -906,7 +906,7 @@ class TestCreateSentryHandler:
 
     def test_handler_processes_events(self):
         """Test handler processes observability events."""
-        from src.l0.monitoring import create_sentry_handler
+        from l0.monitoring import create_sentry_handler
 
         sentry = MockSentryClient()
         handler = create_sentry_handler(sentry)
@@ -926,7 +926,7 @@ class TestCreateSentryHandler:
 
     def test_handler_captures_errors(self):
         """Test handler captures error events."""
-        from src.l0.monitoring import create_sentry_handler
+        from l0.monitoring import create_sentry_handler
 
         sentry = MockSentryClient()
         handler = create_sentry_handler(sentry)
@@ -954,7 +954,7 @@ class TestSemanticAttributes:
 
     def test_semantic_attributes_exist(self):
         """Test that semantic attributes are defined."""
-        from src.l0.monitoring import SemanticAttributes
+        from l0.monitoring import SemanticAttributes
 
         assert SemanticAttributes.LLM_SYSTEM == "gen_ai.system"
         assert SemanticAttributes.LLM_REQUEST_MODEL == "gen_ai.request.model"
@@ -968,7 +968,7 @@ class TestNoOpSpan:
 
     def test_noop_span_methods(self):
         """Test NoOpSpan methods don't raise."""
-        from src.l0.monitoring import NoOpSpan
+        from l0.monitoring import NoOpSpan
 
         span = NoOpSpan()
 
@@ -987,7 +987,7 @@ class TestL0OpenTelemetry:
 
     def test_create_without_tracer(self):
         """Test creating L0OpenTelemetry without tracer/meter."""
-        from src.l0.monitoring import L0OpenTelemetry
+        from l0.monitoring import L0OpenTelemetry
 
         otel = L0OpenTelemetry()
         assert otel is not None
@@ -995,7 +995,7 @@ class TestL0OpenTelemetry:
 
     def test_create_span_without_tracer(self):
         """Test creating span without tracer returns NoOpSpan."""
-        from src.l0.monitoring import L0OpenTelemetry, NoOpSpan
+        from l0.monitoring import L0OpenTelemetry, NoOpSpan
 
         otel = L0OpenTelemetry()
         span = otel.create_span("test")
@@ -1003,7 +1003,7 @@ class TestL0OpenTelemetry:
 
     def test_record_token_no_op(self):
         """Test record_token without tracer."""
-        from src.l0.monitoring import L0OpenTelemetry
+        from l0.monitoring import L0OpenTelemetry
 
         otel = L0OpenTelemetry()
         # Should not raise
@@ -1011,7 +1011,7 @@ class TestL0OpenTelemetry:
 
     def test_record_retry_no_op(self):
         """Test record_retry without tracer."""
-        from src.l0.monitoring import L0OpenTelemetry
+        from l0.monitoring import L0OpenTelemetry
 
         otel = L0OpenTelemetry()
         # Should not raise
@@ -1019,7 +1019,7 @@ class TestL0OpenTelemetry:
 
     def test_record_network_error_no_op(self):
         """Test record_network_error without tracer."""
-        from src.l0.monitoring import L0OpenTelemetry
+        from l0.monitoring import L0OpenTelemetry
 
         otel = L0OpenTelemetry()
         # Should not raise
@@ -1031,7 +1031,7 @@ class TestL0OpenTelemetry:
 
     def test_record_guardrail_violation_no_op(self):
         """Test record_guardrail_violation without tracer."""
-        from src.l0.monitoring import L0OpenTelemetry
+        from l0.monitoring import L0OpenTelemetry
 
         otel = L0OpenTelemetry()
         # Should not raise
@@ -1042,7 +1042,7 @@ class TestL0OpenTelemetry:
 
     def test_record_drift_no_op(self):
         """Test record_drift without tracer."""
-        from src.l0.monitoring import L0OpenTelemetry
+        from l0.monitoring import L0OpenTelemetry
 
         otel = L0OpenTelemetry()
         # Should not raise
@@ -1054,14 +1054,14 @@ class TestCreateOpenTelemetryHandler:
 
     def test_create_handler(self):
         """Test creating an OpenTelemetry handler."""
-        from src.l0.monitoring import create_opentelemetry_handler
+        from l0.monitoring import create_opentelemetry_handler
 
         handler = create_opentelemetry_handler()
         assert callable(handler)
 
     def test_handler_processes_session_start(self):
         """Test handler processes SESSION_START events."""
-        from src.l0.monitoring import create_opentelemetry_handler
+        from l0.monitoring import create_opentelemetry_handler
 
         handler = create_opentelemetry_handler()
 
@@ -1077,7 +1077,7 @@ class TestCreateOpenTelemetryHandler:
 
     def test_handler_processes_retry_attempt(self):
         """Test handler processes RETRY_ATTEMPT events."""
-        from src.l0.monitoring import create_opentelemetry_handler
+        from l0.monitoring import create_opentelemetry_handler
 
         handler = create_opentelemetry_handler()
 
@@ -1092,7 +1092,7 @@ class TestCreateOpenTelemetryHandler:
 
     def test_handler_processes_complete(self):
         """Test handler processes COMPLETE events."""
-        from src.l0.monitoring import create_opentelemetry_handler
+        from l0.monitoring import create_opentelemetry_handler
 
         handler = create_opentelemetry_handler()
 
@@ -1136,7 +1136,7 @@ class TestEventHandlerCombinators:
 
     def test_combine_events(self):
         """Test combining multiple handlers."""
-        from src.l0.monitoring import combine_events
+        from l0.monitoring import combine_events
 
         results1 = []
         results2 = []
@@ -1162,7 +1162,7 @@ class TestEventHandlerCombinators:
 
     def test_filter_events(self):
         """Test filtering events by type."""
-        from src.l0.monitoring import filter_events
+        from l0.monitoring import filter_events
 
         results = []
 
@@ -1197,7 +1197,7 @@ class TestEventHandlerCombinators:
 
     def test_exclude_events(self):
         """Test excluding events by type."""
-        from src.l0.monitoring import exclude_events
+        from l0.monitoring import exclude_events
 
         results = []
 
@@ -1232,7 +1232,7 @@ class TestEventHandlerCombinators:
 
     def test_tap_events(self):
         """Test tapping events for side effects."""
-        from src.l0.monitoring import tap_events
+        from l0.monitoring import tap_events
 
         tapped = []
 
@@ -1257,7 +1257,7 @@ class TestEventHandlerCombinators:
         """Test batching events."""
         import time
 
-        from src.l0.monitoring import batch_events
+        from l0.monitoring import batch_events
 
         batches = []
 
@@ -1283,7 +1283,7 @@ class TestEventHandlerCombinators:
 
     def test_sample_events(self):
         """Test sampling events."""
-        from src.l0.monitoring import sample_events
+        from l0.monitoring import sample_events
 
         results = []
 

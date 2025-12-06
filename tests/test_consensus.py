@@ -3,7 +3,7 @@
 import pytest
 from pydantic import BaseModel
 
-from src.l0.consensus import (
+from l0.consensus import (
     Agreement,
     Consensus,
     ConsensusResult,

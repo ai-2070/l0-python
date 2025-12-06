@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from src.l0.formatting.output import (
+from l0.formatting.output import (
     JsonOutputOptions,
     OutputConstraints,
     clean_output,

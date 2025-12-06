@@ -2,7 +2,7 @@
 
 import pytest
 
-from src.l0.window import (
+from l0.window import (
     ChunkResult,
     ContextRestorationOptions,
     ContextRestorationStrategy,

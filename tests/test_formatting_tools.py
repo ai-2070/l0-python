@@ -6,7 +6,7 @@ import json
 
 import pytest
 
-from src.l0.formatting.tools import (
+from l0.formatting.tools import (
     FunctionCall,
     Tool,
     ToolParameter,

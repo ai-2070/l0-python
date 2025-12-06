@@ -9,7 +9,7 @@ Run with: pytest tests/integration/test_litellm.py -v
 import pytest
 from pydantic import BaseModel
 
-import src.l0 as l0
+import l0 as l0
 from tests.conftest import requires_litellm
 
 

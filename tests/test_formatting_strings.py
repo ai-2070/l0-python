@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from src.l0.formatting.strings import (
+from l0.formatting.strings import (
     escape,
     escape_html,
     escape_regex,

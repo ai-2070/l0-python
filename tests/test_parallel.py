@@ -4,7 +4,7 @@ import asyncio
 
 import pytest
 
-from src.l0.parallel import (
+from l0.parallel import (
     ParallelOptions,
     ParallelResult,
     batched,

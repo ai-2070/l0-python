@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import pytest
 
-from src.l0.json_schema import (
+from l0.json_schema import (
     JSONSchemaDefinition,
     JSONSchemaValidationError,
     JSONSchemaValidationFailure,

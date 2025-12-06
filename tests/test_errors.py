@@ -2,7 +2,7 @@
 
 import pytest
 
-from src.l0.errors import (
+from l0.errors import (
     Error,
     ErrorCode,
     ErrorContext,
@@ -10,7 +10,7 @@ from src.l0.errors import (
     NetworkErrorAnalysis,
     NetworkErrorType,
 )
-from src.l0.types import ErrorCategory
+from l0.types import ErrorCategory
 
 
 class TestL0Error:

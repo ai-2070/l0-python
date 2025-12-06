@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from src.l0 import Format
+from l0 import Format
 
 
 class TestFormatNamespace:

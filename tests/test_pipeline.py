@@ -12,8 +12,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from src.l0.adapters import AdaptedEvent, Adapters
-from src.l0.pipeline import (
+from l0.adapters import AdaptedEvent, Adapters
+from l0.pipeline import (
     FAST_PIPELINE,
     PRODUCTION_PIPELINE,
     RELIABLE_PIPELINE,
@@ -25,7 +25,7 @@ from src.l0.pipeline import (
     StepResult,
     pipe,
 )
-from src.l0.types import Event, EventType
+from l0.types import Event, EventType
 
 # ============================================================================
 # Test Helpers
