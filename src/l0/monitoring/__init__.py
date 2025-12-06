@@ -177,19 +177,19 @@ __all__ = [
     "sample_events",
     "tap_events",
     # OpenTelemetry
+    "OpenTelemetry",
     "OpenTelemetryConfig",
     "OpenTelemetryExporter",
-    "L0OpenTelemetry",
-    "L0OpenTelemetryConfig",
+    "OpenTelemetryExporterConfig",
     "SemanticAttributes",
     "NoOpSpan",
     "create_opentelemetry_handler",
     "with_opentelemetry",
     # Sentry
+    "Sentry",
     "SentryConfig",
     "SentryExporter",
-    "L0Sentry",
-    "L0SentryConfig",
+    "SentryExporterConfig",
     "create_sentry_handler",
     "with_sentry",
 ]
