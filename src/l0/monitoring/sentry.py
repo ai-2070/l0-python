@@ -270,8 +270,11 @@ class Sentry:
         Args:
             violations: List of violation details
         """
-        severity_order = ["warning", "error", "fatal"]
-        min_idx = severity_order.index(self._config.min_guardrail_severity)
+        severity_order = ["debug", "info", "warning", "error", "fatal"]
+        min_severity = self._config.min_guardrail_severity
+        min_idx = (
+            severity_order.index(min_severity) if min_severity in severity_order else 0
+        )
 
         for violation in violations:
             rule = violation.get("rule", "unknown")

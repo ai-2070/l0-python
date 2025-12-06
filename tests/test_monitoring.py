@@ -864,6 +864,45 @@ class TestSentry:
         # Message includes the violation message
         assert "PII detected" in sentry.messages[0]["message"]
 
+    def test_record_guardrail_violations_with_debug_severity(self):
+        """Test that debug/info severity levels don't raise ValueError."""
+        from l0.monitoring.sentry import Sentry, SentryConfig
+
+        sentry = MockSentryClient()
+
+        # Test with debug severity - should not raise
+        config = SentryConfig(min_guardrail_severity="debug")
+        l0_sentry = Sentry(sentry, config=config)
+
+        violations = [
+            {"rule": "test", "severity": "debug", "message": "Debug message"},
+            {"rule": "test2", "severity": "info", "message": "Info message"},
+            {"rule": "test3", "severity": "warning", "message": "Warning message"},
+        ]
+        l0_sentry.record_guardrail_violations(violations)
+
+        # All violations should be captured since min_severity is "debug"
+        assert len(sentry.messages) == 3
+
+    def test_record_guardrail_violations_with_info_severity(self):
+        """Test filtering with info as minimum severity."""
+        from l0.monitoring.sentry import Sentry, SentryConfig
+
+        sentry = MockSentryClient()
+
+        config = SentryConfig(min_guardrail_severity="info")
+        l0_sentry = Sentry(sentry, config=config)
+
+        violations = [
+            {"rule": "test", "severity": "debug", "message": "Debug message"},
+            {"rule": "test2", "severity": "info", "message": "Info message"},
+            {"rule": "test3", "severity": "warning", "message": "Warning message"},
+        ]
+        l0_sentry.record_guardrail_violations(violations)
+
+        # Only info and above should be captured (debug is below threshold)
+        assert len(sentry.messages) == 2
+
     def test_record_drift(self):
         """Test recording drift detection."""
         from l0.monitoring import Sentry
