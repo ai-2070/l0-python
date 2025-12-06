@@ -3,7 +3,7 @@
 This module uses lazy imports to avoid loading all submodules on import.
 """
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 from typing import Any as _Any
 
 # Version is always available
@@ -253,7 +253,7 @@ def __getattr__(name: str) -> _Any:
 
 
 # For type checkers - these imports are not executed at runtime
-if TYPE_CHECKING:
+if _TYPE_CHECKING:
     from .api.adapters import (
         AdaptedEvent,
         Adapter,
