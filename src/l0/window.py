@@ -849,6 +849,88 @@ class Window:
         """
         return estimate_tokens(text)
 
+    @staticmethod
+    async def process(
+        document: str,
+        processor: "Callable[[DocumentChunk], ChunkProcessConfig]",
+        config: WindowConfig | None = None,
+        *,
+        size: int = 2000,
+        overlap: int = 200,
+        strategy: "ChunkingStrategy" = "token",
+        concurrency: int = 3,
+        on_progress: "Callable[[int, int], None] | None" = None,
+    ) -> "list[ChunkResult[Any]]":
+        """Process a document through windowed chunks.
+
+        Args:
+            document: Document to process
+            processor: Function that takes a chunk and returns processing config
+            config: Optional WindowConfig
+            size: Tokens per chunk
+            overlap: Overlap between chunks
+            strategy: Chunking strategy
+            concurrency: Max concurrent chunk processing
+            on_progress: Progress callback (completed, total)
+
+        Returns:
+            List of ChunkResult objects
+        """
+        return await process_with_window(
+            document,
+            processor,
+            config,
+            size=size,
+            overlap=overlap,
+            strategy=strategy,
+            concurrency=concurrency,
+            on_progress=on_progress,
+        )
+
+    @staticmethod
+    def merge_results(
+        results: "list[ChunkResult[str]]",
+        separator: str = "\n\n",
+    ) -> str:
+        """Merge string results from multiple chunks.
+
+        Args:
+            results: List of ChunkResult with string data
+            separator: Separator between chunks (default "\\n\\n")
+
+        Returns:
+            Merged string with overlap handling
+        """
+        return merge_results(results, separator=separator)
+
+    @staticmethod
+    def merge_chunks(
+        chunks: list[DocumentChunk],
+        preserve_overlap: bool = False,
+    ) -> str:
+        """Merge document chunks back into a single document.
+
+        Args:
+            chunks: List of DocumentChunk objects
+            preserve_overlap: If True, preserves overlap; if False, removes it
+
+        Returns:
+            Merged document text with overlap handling
+        """
+        return merge_chunks(chunks, preserve_overlap=preserve_overlap)
+
+    @staticmethod
+    def get_stats(results: "list[ChunkResult[Any]]") -> ProcessingStats:
+        """Get processing statistics from chunk results.
+
+        Args:
+            results: List of ChunkResult objects
+
+        Returns:
+            ProcessingStats with aggregated metrics
+        """
+        return get_processing_stats(results)
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Helper Functions

@@ -2,7 +2,7 @@
 
 import pytest
 
-from l0.window import (
+from l0 import (
     ChunkResult,
     ContextRestorationOptions,
     ContextRestorationStrategy,
@@ -12,9 +12,6 @@ from l0.window import (
     Window,
     WindowConfig,
     WindowStats,
-    get_processing_stats,
-    merge_chunks,
-    merge_results,
 )
 
 
@@ -691,11 +688,11 @@ class TestGetChunksInRange:
 
 
 class TestMergeChunks:
-    """Tests for merge_chunks function."""
+    """Tests for Window.merge_chunks method."""
 
     def test_merge_chunks_empty(self):
         """Test merging empty list."""
-        result = merge_chunks([])
+        result = Window.merge_chunks([])
         assert result == ""
 
     def test_merge_chunks_single(self):
@@ -711,7 +708,7 @@ class TestMergeChunks:
             is_last=True,
             total_chunks=1,
         )
-        result = merge_chunks([chunk])
+        result = Window.merge_chunks([chunk])
         assert result == "Hello world"
 
     def test_merge_chunks_no_overlap(self):
@@ -738,7 +735,7 @@ class TestMergeChunks:
             is_last=True,
             total_chunks=2,
         )
-        result = merge_chunks([chunk1, chunk2])
+        result = Window.merge_chunks([chunk1, chunk2])
         assert result == "Hello world"
 
     def test_merge_chunks_with_overlap_removed(self):
@@ -766,7 +763,7 @@ class TestMergeChunks:
             is_last=True,
             total_chunks=2,
         )
-        result = merge_chunks([chunk1, chunk2], preserve_overlap=False)
+        result = Window.merge_chunks([chunk1, chunk2], preserve_overlap=False)
         # Should remove the overlap and produce clean merge
         assert result == "Hello world"
 
@@ -794,17 +791,17 @@ class TestMergeChunks:
             is_last=True,
             total_chunks=2,
         )
-        result = merge_chunks([chunk1, chunk2], preserve_overlap=True)
+        result = Window.merge_chunks([chunk1, chunk2], preserve_overlap=True)
         # Should concatenate directly
         assert result == "Hellolo world"
 
 
 class TestMergeResults:
-    """Tests for merge_results function."""
+    """Tests for Window.merge_results method."""
 
     def test_merge_results_empty(self):
         """Test merging empty results."""
-        result = merge_results([])
+        result = Window.merge_results([])
         assert result == ""
 
     def test_merge_results_success_only(self):
@@ -825,7 +822,7 @@ class TestMergeResults:
             ChunkResult(chunk=chunk, status="error", content="", error="Failed"),
             ChunkResult(chunk=chunk, status="success", content="Result 2"),
         ]
-        merged = merge_results(results)
+        merged = Window.merge_results(results)
         assert merged == "Result 1\n\nResult 2"
 
     def test_merge_results_custom_separator(self):
@@ -845,7 +842,7 @@ class TestMergeResults:
             ChunkResult(chunk=chunk, status="success", content="A"),
             ChunkResult(chunk=chunk, status="success", content="B"),
         ]
-        merged = merge_results(results, separator="\n---\n")
+        merged = Window.merge_results(results, separator="\n---\n")
         assert merged == "A\n---\nB"
 
     def test_merge_results_skips_empty_content(self):
@@ -866,16 +863,16 @@ class TestMergeResults:
             ChunkResult(chunk=chunk, status="success", content=""),
             ChunkResult(chunk=chunk, status="success", content="B"),
         ]
-        merged = merge_results(results)
+        merged = Window.merge_results(results)
         assert merged == "A\n\nB"
 
 
 class TestGetProcessingStats:
-    """Tests for get_processing_stats function."""
+    """Tests for Window.get_stats method."""
 
     def test_get_processing_stats_empty(self):
         """Test stats from empty results."""
-        stats = get_processing_stats([])
+        stats = Window.get_stats([])
         assert stats.total == 0
         assert stats.successful == 0
         assert stats.failed == 0
@@ -900,7 +897,7 @@ class TestGetProcessingStats:
             ChunkResult(chunk=chunk, status="success", content="A", duration=100.0),
             ChunkResult(chunk=chunk, status="success", content="B", duration=200.0),
         ]
-        stats = get_processing_stats(results)
+        stats = Window.get_stats(results)
         assert stats.total == 2
         assert stats.successful == 2
         assert stats.failed == 0
@@ -927,7 +924,7 @@ class TestGetProcessingStats:
             ChunkResult(chunk=chunk, status="success", content="B", duration=200.0),
             ChunkResult(chunk=chunk, status="error", error="Failed", duration=50.0),
         ]
-        stats = get_processing_stats(results)
+        stats = Window.get_stats(results)
         assert stats.total == 4
         assert stats.successful == 2
         assert stats.failed == 2
