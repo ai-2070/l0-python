@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 
 from l0.adapters import AdaptedEvent, Adapters
-from l0.pool import OperationPool, PoolOptions, PoolStats, create_pool
+from l0.pool import OperationPool, create_pool
 from l0.types import Event, EventType, State
 
 
@@ -29,7 +29,7 @@ class PassthroughAdapter:
 
 
 @pytest.fixture(autouse=True)
-def register_passthrough_adapter() -> AsyncIterator[None]:
+def register_passthrough_adapter() -> Any:
     """Register and cleanup the passthrough adapter for tests."""
     Adapters.register(PassthroughAdapter())
     yield
