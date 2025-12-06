@@ -8,10 +8,11 @@ from typing import overload as _overload
 from typing import runtime_checkable as _runtime_checkable
 
 from ._utils import (
+    # Scoped API
+    JSON,
+    # Types (also available via JSON.*)
+    AutoCorrectResult,
     CorrectionType,
-    extract_json,
-    is_valid_json,
-    safe_json_parse,
 )
 from .adapters import (
     # Types for custom adapters
@@ -687,11 +688,11 @@ __all__ = [
     "MINIMAL_STRUCTURED",
     "RECOMMENDED_STRUCTURED",
     "STRICT_STRUCTURED",
-    # JSON utilities
+    # JSON (scoped API)
+    "JSON",  # Class with .extract(), .is_valid(), .parse(), .auto_correct(), .extract_from_markdown()
+    # JSON types (also available via JSON.*)
+    "AutoCorrectResult",
     "CorrectionType",
-    "extract_json",
-    "is_valid_json",
-    "safe_json_parse",
     # Parallel
     "parallel",
     "race",

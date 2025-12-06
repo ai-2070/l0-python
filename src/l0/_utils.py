@@ -417,3 +417,121 @@ def safe_json_parse(
     raise ValueError(
         f"Failed to parse JSON: {result.error}" if result.error else "Invalid JSON"
     )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Scoped API
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class JSON:
+    """Scoped API for JSON utilities.
+
+    Provides utilities for extracting, validating, and parsing JSON from
+    LLM outputs that may contain markdown fences, prose, or other artifacts.
+
+    Usage:
+        ```python
+        from l0 import JSON
+
+        # Extract JSON from text with surrounding prose
+        json_str = JSON.extract('Here is the result: {"key": "value"}')
+
+        # Check if string is valid JSON
+        is_valid = JSON.is_valid('{"key": "value"}')
+
+        # Parse JSON with auto-correction for common LLM errors
+        result = JSON.parse(text)
+        data = result["data"]
+        was_corrected = result["corrected"]
+        corrections = result["corrections"]
+
+        # Auto-correct JSON without parsing
+        result = JSON.auto_correct(text)
+        corrected_text = result.text
+        ```
+    """
+
+    # Re-export types for convenience
+    CorrectionType = CorrectionType
+    AutoCorrectResult = AutoCorrectResult
+
+    @staticmethod
+    def extract(text: str) -> str:
+        """Extract JSON from text that may contain other content.
+
+        Uses balanced brace matching to find the first complete JSON object or array.
+        Correctly ignores braces that appear inside quoted strings in surrounding prose.
+
+        Args:
+            text: Text that may contain JSON
+
+        Returns:
+            Extracted JSON string or original text if no valid JSON found
+        """
+        return extract_json(text)
+
+    @staticmethod
+    def is_valid(text: str) -> bool:
+        """Check if a string is valid JSON.
+
+        Args:
+            text: String to check
+
+        Returns:
+            True if valid JSON, False otherwise
+        """
+        return is_valid_json(text)
+
+    @staticmethod
+    def parse(
+        text: str,
+        auto_correct: bool = True,
+    ) -> dict[str, Any]:
+        """Safely parse JSON with optional auto-correction.
+
+        Args:
+            text: JSON string to parse
+            auto_correct: Whether to attempt auto-correction on failure
+
+        Returns:
+            Dict with 'data', 'corrected', and 'corrections' keys
+
+        Raises:
+            ValueError: If JSON cannot be parsed even after correction
+        """
+        return safe_json_parse(text, auto_correct)
+
+    @staticmethod
+    def auto_correct(text: str, track_corrections: bool = False) -> AutoCorrectResult:
+        """Auto-correct common JSON errors from LLM output.
+
+        Fixes:
+        - Markdown fences (```json ... ```)
+        - Text prefixes ("Sure! {...}" → "{...}")
+        - Trailing commas
+        - Missing closing braces/brackets
+        - Single quotes → double quotes (in keys/values)
+        - C-style comments (// and /* */)
+        - Control characters in strings
+
+        Args:
+            text: Raw text that should contain JSON
+            track_corrections: Whether to track what corrections were applied
+
+        Returns:
+            AutoCorrectResult with corrected text, metadata, and success flag
+        """
+        return auto_correct_json(text, track_corrections)
+
+    @staticmethod
+    def extract_from_markdown(text: str) -> str:
+        """Extract JSON from markdown code fences.
+
+        Args:
+            text: Text that may contain markdown-fenced JSON
+
+        Returns:
+            Extracted JSON string, or original text if no fences found
+        """
+        return extract_json_from_markdown(text)
