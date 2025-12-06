@@ -292,7 +292,7 @@ async def _internal_run(
     pending_checkpoint: str | None = None
 
     logger.debug(f"Starting L0 stream: {event_bus.stream_id}")
-    event_bus.emit(ObservabilityEventType.SESSION_START, session_id=event_bus.stream_id)
+    event_bus.emit(ObservabilityEventType.SESSION_START, sessionId=event_bus.stream_id, attempt=1, isRetry=False, isFallback=False)
 
     def abort() -> None:
         nonlocal aborted
@@ -331,7 +331,7 @@ async def _internal_run(
                 event_bus.emit(
                     ObservabilityEventType.FALLBACK_START,
                     index=fallback_idx,
-                    from_index=fallback_idx - 1,
+                    fromIndex=fallback_idx - 1,
                     reason=reason,
                 )
                 event_bus.emit(
@@ -354,7 +354,7 @@ async def _internal_run(
                     event_bus.emit(
                         ObservabilityEventType.ATTEMPT_START,
                         attempt=attempt_number,
-                        is_fallback=is_fallback,
+                        isFallback=is_fallback,
                     )
 
                 # Fire on_start callback
@@ -806,8 +806,7 @@ async def _internal_run(
                             first_violation = fatal_violations[0]
                             raise Error(
                                 f"Fatal guardrail violation: {first_violation.message}",
-                                code=ErrorCode.FATAL_GUARDRAIL_VIOLATION,
-                                context=ErrorContext(
+                                ErrorContext(
                                     code=ErrorCode.FATAL_GUARDRAIL_VIOLATION,
                                     checkpoint=state.checkpoint,
                                     token_count=state.token_count,
@@ -830,8 +829,7 @@ async def _internal_run(
                             first_violation = error_violations[0]
                             raise Error(
                                 f"Guardrail violation: {first_violation.message}",
-                                code=ErrorCode.GUARDRAIL_VIOLATION,
-                                context=ErrorContext(
+                                ErrorContext(
                                     code=ErrorCode.GUARDRAIL_VIOLATION,
                                     checkpoint=state.checkpoint,
                                     token_count=state.token_count,
@@ -847,20 +845,9 @@ async def _internal_run(
                         event_bus.emit(
                             ObservabilityEventType.FALLBACK_END, index=fallback_idx
                         )
-                    event_bus.emit(ObservabilityEventType.FINALIZATION_START)
                     event_bus.emit(
-                        ObservabilityEventType.COMPLETE, token_count=state.token_count
+                        ObservabilityEventType.COMPLETE, tokenCount=state.token_count, contentLength=len(state.content)
                     )
-                    event_bus.emit(ObservabilityEventType.FINALIZATION_END)
-                    event_bus.emit(
-                        ObservabilityEventType.SESSION_SUMMARY,
-                        token_count=state.token_count,
-                        duration=state.duration,
-                        guardrail_violations=len(state.violations),
-                        fallback_depth=state.fallback_index,
-                        retry_count=state.model_retry_count + state.network_retry_count,
-                    )
-                    event_bus.emit(ObservabilityEventType.SESSION_END)
 
                     # Fire on_complete callback
                     _fire_callback(cb.on_complete, state)
@@ -960,7 +947,6 @@ async def _internal_run(
             attempts=retry_mgr.total_retries,
             last_error=str(errors[-1]) if errors else None,
         )
-        event_bus.emit(ObservabilityEventType.SESSION_END)
         if errors:
             raise errors[-1]
         raise RuntimeError("All streams and fallbacks exhausted")

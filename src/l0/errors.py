@@ -152,7 +152,7 @@ class RecoveryPolicy:
     max_retries: int = 3
     max_fallbacks: int = 0
     attempt: int = 1  # Current retry attempt (1-based)
-    fallback_index: int = 0  # Current fallback index (0 = primary)
+    fallback_index: int | None = None  # Current fallback index (0 = primary)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -169,11 +169,11 @@ class ErrorContext:
 
     code: ErrorCode
     checkpoint: str | None = None  # Last good content for continuation
-    token_count: int = 0  # Tokens before failure
-    content_length: int = 0  # Content length before failure
-    model_retry_count: int = 0  # Retry attempts made
-    network_retry_count: int = 0  # Network retries made
-    fallback_index: int = 0  # Which fallback was tried
+    token_count: int | None = None  # Tokens before failure
+    content_length: int | None = None  # Content length before failure
+    model_retry_count: int | None = None  # Retry attempts made
+    network_retry_count: int | None = None  # Network retries made
+    fallback_index: int | None = None  # Which fallback was tried
     metadata: dict[str, Any] | None = None  # Internal metadata
     context: dict[str, Any] | None = None  # User-provided context
 
@@ -212,12 +212,11 @@ class Error(Exception):
     def __init__(
         self,
         message: str,
-        code: ErrorCode,
-        context: ErrorContext | None = None,
+        context: ErrorContext,
     ) -> None:
         super().__init__(message)
-        self.code = code
-        self.context = context or ErrorContext(code=code)
+        self.context = context
+        self.code = context.code
         self.timestamp = time.time()
 
     @property
@@ -290,13 +289,12 @@ class Error(Exception):
             "category": self.category.value,
             "message": str(self.args[0]) if self.args else "",
             "timestamp": self.timestamp,
-            "has_checkpoint": self.has_checkpoint,
+            "hasCheckpoint": self.has_checkpoint,
             "checkpoint": self.context.checkpoint,
-            "token_count": self.context.token_count,
-            "content_length": self.context.content_length,
-            "model_retry_count": self.context.model_retry_count,
-            "network_retry_count": self.context.network_retry_count,
-            "fallback_index": self.context.fallback_index,
+            "tokenCount": self.context.token_count,
+            "modelRetryCount": self.context.model_retry_count,
+            "networkRetryCount": self.context.network_retry_count,
+            "fallbackIndex": self.context.fallback_index,
             "metadata": self.context.metadata,
             "context": self.context.context,
         }

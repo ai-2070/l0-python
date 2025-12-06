@@ -210,14 +210,8 @@ class TestLifecycleNormalFlow:
         # First event must be SESSION_START
         assert types[0] == ObservabilityEventType.SESSION_START.value
 
-        # Last event must be SESSION_END
-        assert types[-1] == ObservabilityEventType.SESSION_END.value
-
-        # COMPLETE must be emitted before SESSION_END
-        assert ObservabilityEventType.COMPLETE.value in types
-        complete_idx = types.index(ObservabilityEventType.COMPLETE.value)
-        session_end_idx = types.index(ObservabilityEventType.SESSION_END.value)
-        assert complete_idx < session_end_idx
+        # Last event must be COMPLETE (canonical lifecycle)
+        assert types[-1] == ObservabilityEventType.COMPLETE.value
 
     @pytest.mark.asyncio
     async def test_session_start_first_attempt_params(self):
@@ -243,7 +237,7 @@ class TestLifecycleNormalFlow:
 
         session_start = session_starts[0]
         # SESSION_START event contains session_id
-        assert session_start.data.get("session_id") is not None
+        assert session_start.data.get("sessionId") is not None
         # Note: attempt, isRetry, isFallback are passed to on_start callback
         # but not currently included in SESSION_START observability event
 
@@ -270,7 +264,7 @@ class TestLifecycleNormalFlow:
         assert len(complete_events) >= 1
 
         complete = complete_events[0]
-        assert complete.data.get("token_count") == 3
+        assert complete.data.get("tokenCount") == 3
 
     @pytest.mark.asyncio
     async def test_on_start_callback(self):
@@ -569,7 +563,7 @@ class TestLifecycleRetryFlow:
 
         attempt_start_event = attempt_starts[0]
         assert attempt_start_event.data.get("attempt") == 2
-        assert attempt_start_event.data.get("is_fallback") is False
+        assert attempt_start_event.data.get("isFallback") is False
 
     @pytest.mark.asyncio
     async def test_multiple_retries_correct_order(self):
@@ -819,11 +813,11 @@ class TestLifecycleFallbackFlow:
 
         # First fallback: from primary (0) to first fallback (1)
         # Python uses snake_case for event fields
-        assert fallback_starts[0].data.get("from_index") == 0
+        assert fallback_starts[0].data.get("fromIndex") == 0
         assert fallback_starts[0].data.get("index") == 1
 
         # Second fallback: from first fallback (1) to second fallback (2)
-        assert fallback_starts[1].data.get("from_index") == 1
+        assert fallback_starts[1].data.get("fromIndex") == 1
         assert fallback_starts[1].data.get("index") == 2
 
 

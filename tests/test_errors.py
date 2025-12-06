@@ -20,8 +20,7 @@ class TestL0Error:
         """Test creating error with context."""
         error = Error(
             "Test error",
-            code=ErrorCode.NETWORK_ERROR,
-            context=ErrorContext(
+            ErrorContext(
                 code=ErrorCode.NETWORK_ERROR,
                 checkpoint="some content",
                 token_count=10,
@@ -36,31 +35,29 @@ class TestL0Error:
 
     def test_get_correct_category(self):
         """Test that error returns correct category."""
-        network_error = Error("Network", code=ErrorCode.NETWORK_ERROR)
+        network_error = Error("Network", ErrorContext(code=ErrorCode.NETWORK_ERROR))
         assert network_error.category == ErrorCategory.NETWORK
 
-        content_error = Error("Content", code=ErrorCode.GUARDRAIL_VIOLATION)
+        content_error = Error("Content", ErrorContext(code=ErrorCode.GUARDRAIL_VIOLATION))
         assert content_error.category == ErrorCategory.CONTENT
 
     def test_has_checkpoint(self):
         """Test has_checkpoint property."""
         with_checkpoint = Error(
             "Error",
-            code=ErrorCode.NETWORK_ERROR,
-            context=ErrorContext(
+            ErrorContext(
                 code=ErrorCode.NETWORK_ERROR,
                 checkpoint="content",
             ),
         )
         assert with_checkpoint.has_checkpoint is True
 
-        no_checkpoint = Error("Error", code=ErrorCode.NETWORK_ERROR)
+        no_checkpoint = Error("Error", ErrorContext(code=ErrorCode.NETWORK_ERROR))
         assert no_checkpoint.has_checkpoint is False
 
         empty_checkpoint = Error(
             "Error",
-            code=ErrorCode.NETWORK_ERROR,
-            context=ErrorContext(
+            ErrorContext(
                 code=ErrorCode.NETWORK_ERROR,
                 checkpoint="",
             ),
@@ -71,8 +68,7 @@ class TestL0Error:
         """Test get_checkpoint method."""
         error = Error(
             "Error",
-            code=ErrorCode.NETWORK_ERROR,
-            context=ErrorContext(
+            ErrorContext(
                 code=ErrorCode.NETWORK_ERROR,
                 checkpoint="saved content",
             ),
@@ -83,8 +79,7 @@ class TestL0Error:
         """Test to_detailed_string format."""
         error = Error(
             "Test error",
-            code=ErrorCode.NETWORK_ERROR,
-            context=ErrorContext(
+            ErrorContext(
                 code=ErrorCode.NETWORK_ERROR,
                 token_count=10,
                 model_retry_count=2,
@@ -99,15 +94,13 @@ class TestL0Error:
         assert "Retries: 2" in detailed
         assert "Fallback: 1" in detailed
         assert "chars" in detailed
-        # Should be pipe-separated
         assert " | " in detailed
 
     def test_to_json(self):
         """Test JSON serialization."""
         error = Error(
             "Test",
-            code=ErrorCode.NETWORK_ERROR,
-            context=ErrorContext(
+            ErrorContext(
                 code=ErrorCode.NETWORK_ERROR,
                 token_count=5,
                 checkpoint="test content",
@@ -118,7 +111,7 @@ class TestL0Error:
         assert json_data["name"] == "Error"
         assert json_data["code"] == "NETWORK_ERROR"
         assert json_data["message"] == "Test"
-        assert json_data["token_count"] == 5
+        assert json_data["tokenCount"] == 5
         assert json_data["checkpoint"] == "test content"
 
 
@@ -127,7 +120,7 @@ class TestIsL0Error:
 
     def test_returns_true_for_l0_error(self):
         """Test returns True for L0 Error."""
-        error = Error("Test", code=ErrorCode.NETWORK_ERROR)
+        error = Error("Test", ErrorContext(code=ErrorCode.NETWORK_ERROR))
         assert Error.is_error(error) is True
         assert Error.is_l0_error(error) is True
 
@@ -139,6 +132,10 @@ class TestIsL0Error:
 
     def test_returns_false_for_non_errors(self):
         """Test returns False for non-errors."""
+        assert Error.is_error("not an error") is False
+        assert Error.is_error(None) is False
+        assert Error.is_error(42) is False
+
         assert Error.is_error(None) is False
         assert Error.is_error("error") is False
         assert Error.is_error(42) is False
