@@ -20,7 +20,7 @@ class TestLiteLLMIntegration:
     @pytest.mark.asyncio
     async def test_basic_wrap(self):
         """Test basic l0.wrap() with LiteLLM."""
-        import litellm  # type: ignore[import-not-found]
+        import litellm
 
         stream = await litellm.acompletion(
             model="gpt-4o-mini",
@@ -39,7 +39,7 @@ class TestLiteLLMIntegration:
     @pytest.mark.asyncio
     async def test_streaming_events(self):
         """Test streaming individual events."""
-        import litellm  # type: ignore[import-not-found]
+        import litellm
 
         stream = await litellm.acompletion(
             model="gpt-4o-mini",
@@ -62,7 +62,7 @@ class TestLiteLLMIntegration:
     @pytest.mark.asyncio
     async def test_with_guardrails(self):
         """Test streaming with guardrails."""
-        import litellm  # type: ignore[import-not-found]
+        import litellm
 
         stream = await litellm.acompletion(
             model="gpt-4o-mini",
@@ -82,7 +82,7 @@ class TestLiteLLMIntegration:
     @pytest.mark.asyncio
     async def test_context_manager(self):
         """Test async context manager pattern."""
-        import litellm  # type: ignore[import-not-found]
+        import litellm
 
         stream = await litellm.acompletion(
             model="gpt-4o-mini",
@@ -102,7 +102,7 @@ class TestLiteLLMIntegration:
     @pytest.mark.asyncio
     async def test_observability_callback(self):
         """Test observability event callback."""
-        import litellm  # type: ignore[import-not-found]
+        import litellm
 
         events_received = []
 
@@ -126,7 +126,7 @@ class TestLiteLLMIntegration:
     @pytest.mark.asyncio
     async def test_with_timeout(self):
         """Test that fast responses don't timeout."""
-        import litellm  # type: ignore[import-not-found]
+        import litellm
 
         stream = await litellm.acompletion(
             model="gpt-4o-mini",
@@ -152,7 +152,7 @@ class TestLiteLLMRunWithFallbacks:
     @pytest.mark.asyncio
     async def test_fallback_succeeds(self):
         """Test that fallback works when using valid models."""
-        import litellm  # type: ignore[import-not-found]
+        import litellm
 
         # run() needs lambdas for retry/fallback support
         result = await l0.run(
@@ -186,7 +186,7 @@ class TestLiteLLMStructuredOutput:
     @pytest.mark.asyncio
     async def test_structured_json(self):
         """Test structured output parsing."""
-        import litellm  # type: ignore[import-not-found]
+        import litellm
 
         class Person(BaseModel):
             name: str

@@ -9,17 +9,17 @@ class TestRuntimeState:
     """Tests for RuntimeState enum."""
 
     def test_all_states_exist(self) -> None:
-        assert RuntimeState.INIT == "init"
-        assert RuntimeState.WAITING_FOR_TOKEN == "waiting_for_token"
-        assert RuntimeState.STREAMING == "streaming"
-        assert RuntimeState.TOOL_CALL_DETECTED == "tool_call_detected"
-        assert RuntimeState.CONTINUATION_MATCHING == "continuation_matching"
-        assert RuntimeState.CHECKPOINT_VERIFYING == "checkpoint_verifying"
-        assert RuntimeState.RETRYING == "retrying"
-        assert RuntimeState.FALLBACK == "fallback"
-        assert RuntimeState.FINALIZING == "finalizing"
-        assert RuntimeState.COMPLETE == "complete"
-        assert RuntimeState.ERROR == "error"
+        assert RuntimeState.INIT.value == "init"
+        assert RuntimeState.WAITING_FOR_TOKEN.value == "waiting_for_token"
+        assert RuntimeState.STREAMING.value == "streaming"
+        assert RuntimeState.TOOL_CALL_DETECTED.value == "tool_call_detected"
+        assert RuntimeState.CONTINUATION_MATCHING.value == "continuation_matching"
+        assert RuntimeState.CHECKPOINT_VERIFYING.value == "checkpoint_verifying"
+        assert RuntimeState.RETRYING.value == "retrying"
+        assert RuntimeState.FALLBACK.value == "fallback"
+        assert RuntimeState.FINALIZING.value == "finalizing"
+        assert RuntimeState.COMPLETE.value == "complete"
+        assert RuntimeState.ERROR.value == "error"
 
 
 class TestStateMachine:

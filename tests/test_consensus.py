@@ -116,7 +116,7 @@ class TestConsensus:
             return "a"
 
         with pytest.raises(ValueError, match="Unknown strategy"):
-            await Consensus.run([task, task], strategy="invalid")  # type: ignore
+            await Consensus.run([task, task], strategy="invalid")
 
 
 class TestWeightedConsensus:
