@@ -64,14 +64,14 @@ class StepResult(Generic[TOutput]):
     error: Exception | None = None
     """Error if step failed."""
 
-    duration: float = 0.0
-    """Step duration in seconds."""
+    duration: int = 0
+    """Step duration in milliseconds."""
 
-    start_time: float = 0.0
-    """Timestamp when step started (time.time())."""
+    startTime: int = 0
+    """Timestamp when step started (milliseconds)."""
 
-    end_time: float = 0.0
-    """Timestamp when step ended (time.time())."""
+    endTime: int = 0
+    """Timestamp when step ended (milliseconds)."""
 
     token_count: int = 0
     """Number of tokens generated."""
@@ -151,13 +151,13 @@ class PipelineResult(Generic[TOutput]):
     error: Exception | None = None
     """Error if pipeline failed."""
 
-    duration: float = 0.0
+    duration: int = 0
     """Total duration in seconds."""
 
-    start_time: float = 0.0
+    startTime: int = 0
     """Timestamp when pipeline started."""
 
-    end_time: float = 0.0
+    endTime: int = 0
     """Timestamp when pipeline ended."""
 
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -276,9 +276,9 @@ async def pipe(
                             output=current_input,
                             raw_content="",
                             status="skipped",
-                            duration=time.time() - step_start_time,
-                            start_time=step_start_time,
-                            end_time=time.time(),
+                            duration=int((time.time() - step_start_time) * 1000),
+                            startTime=int(step_start_time * 1000),
+                            endTime=int(time.time() * 1000),
                         )
                     )
                     continue
@@ -335,9 +335,9 @@ async def pipe(
                     output=step_output,
                     raw_content=content,
                     status="success",
-                    duration=time.time() - step_start_time,
-                    start_time=step_start_time,
-                    end_time=time.time(),
+                    duration=int((time.time() - step_start_time) * 1000),
+                    startTime=int(step_start_time * 1000),
+                    endTime=int(time.time() * 1000),
                     token_count=token_count,
                 )
 
@@ -360,9 +360,9 @@ async def pipe(
                     raw_content="",
                     status="error",
                     error=e,
-                    duration=time.time() - step_start_time,
-                    start_time=step_start_time,
-                    end_time=time.time(),
+                    duration=int((time.time() - step_start_time) * 1000),
+                    startTime=int(step_start_time * 1000),
+                    endTime=int(time.time() * 1000),
                 )
 
                 step_results.append(step_result)
@@ -402,7 +402,7 @@ async def pipe(
         error=pipeline_error,
         duration=time.time() - start_time,
         start_time=start_time,
-        end_time=time.time(),
+        endTime=int(time.time() * 1000),
         metadata=opts.metadata,
     )
 

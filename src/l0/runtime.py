@@ -150,7 +150,7 @@ def _validate_checkpoint(
 
     event_bus.emit(
         ObservabilityEventType.CHECKPOINT_START,
-        checkpoint_length=len(checkpoint),
+        checkpointLength=len(checkpoint),
     )
 
     has_fatal_violation = False
@@ -166,9 +166,9 @@ def _validate_checkpoint(
                 has_fatal_violation = True
                 event_bus.emit(
                     ObservabilityEventType.GUARDRAIL_RULE_RESULT,
-                    rule_id=rule.name,
+                    ruleId=rule.name,
                     violations=[v.__dict__],
-                    checkpoint_validation=True,
+                    checkpointValidation=True,
                 )
 
     event_bus.emit(
@@ -382,14 +382,14 @@ async def _internal_run(
                     if checkpoint_valid:
                         event_bus.emit(
                             ObservabilityEventType.CONTINUATION_START,
-                            checkpoint_length=len(pending_checkpoint),
+                            checkpointLength=len(pending_checkpoint),
                         )
 
                         # Emit RESUME_START per lifecycle spec
                         event_bus.emit(
                             ObservabilityEventType.RESUME_START,
                             checkpoint=pending_checkpoint,
-                            token_count=state.token_count,
+                            tokenCount=state.token_count,
                         )
 
                         # Fire on_resume callback
@@ -417,12 +417,12 @@ async def _internal_run(
                         event_bus.emit(
                             ObservabilityEventType.RESUME_END,
                             checkpoint=pending_checkpoint,
-                            token_count=state.token_count,
+                            tokenCount=state.token_count,
                         )
 
                         event_bus.emit(
                             ObservabilityEventType.CONTINUATION_END,
-                            checkpoint_length=len(pending_checkpoint),
+                            checkpointLength=len(pending_checkpoint),
                         )
 
                         logger.debug(
@@ -461,14 +461,14 @@ async def _internal_run(
 
                     # Set up timeout tracking
                     first_token_received = False
-                    initial_timeout = timeout.initial_token if timeout else None
-                    inter_timeout = timeout.inter_token if timeout else None
+                    initial_timeout = timeout.initial_token / 1000 if timeout else None  # Convert ms to seconds
+                    inter_timeout = timeout.inter_token / 1000 if timeout else None  # Convert ms to seconds
 
                     if initial_timeout is not None:
                         event_bus.emit(
                             ObservabilityEventType.TIMEOUT_START,
-                            timeout_type="initial_token",
-                            duration_seconds=initial_timeout,
+                            timeoutType="initial_token",
+                            durationSeconds=initial_timeout,
                         )
 
                     adapted_stream = detected_adapter.wrap(raw_stream)
@@ -534,8 +534,8 @@ async def _internal_run(
                             assert current_timeout is not None
                             event_bus.emit(
                                 ObservabilityEventType.TIMEOUT_TRIGGERED,
-                                timeout_type=timeout_type,
-                                elapsed_seconds=current_timeout,
+                                timeoutType=timeout_type,
+                                elapsedSeconds=current_timeout,
                             )
                             # Fire on_timeout callback
                             _fire_callback(cb.on_timeout, timeout_type, current_timeout)
@@ -543,8 +543,8 @@ async def _internal_run(
                             raise TimeoutError(
                                 f"Timeout waiting for {token_desc} token "
                                 f"(timeout={current_timeout}s)",
-                                timeout_type=timeout_type,
-                                timeout_seconds=current_timeout,
+                                timeoutType=timeout_type,
+                                timeoutSeconds=current_timeout,
                             ) from e
 
                         if event.type == EventType.TOKEN and event.text:
@@ -574,9 +574,9 @@ async def _internal_run(
                                     state.overlap_removed = overlap_result.overlap_text
                                     event_bus.emit(
                                         ObservabilityEventType.DEDUPLICATION_END,
-                                        overlap_detected=True,
-                                        overlap_length=overlap_result.overlap_length,
-                                        overlap_text=overlap_result.overlap_text,
+                                        overlapDetected=True,
+                                        overlapLength=overlap_result.overlap_length,
+                                        overlapText=overlap_result.overlap_text,
                                     )
                                     logger.debug(
                                         f"Deduplication removed {overlap_result.overlap_length} chars overlap"
@@ -593,15 +593,15 @@ async def _internal_run(
                                     )
                                     event_bus.emit(
                                         ObservabilityEventType.DEDUPLICATION_END,
-                                        overlap_detected=False,
+                                        overlapDetected=False,
                                     )
 
                             if not first_token_received and inter_timeout is not None:
                                 # First token received, switch to inter-token timeout
                                 event_bus.emit(
                                     ObservabilityEventType.TIMEOUT_RESET,
-                                    timeout_type="inter_token",
-                                    token_index=state.token_count,
+                                    timeoutType="inter_token",
+                                    tokenIndex=state.token_count,
                                 )
                             first_token_received = True
                             append_token(state, token_text)
@@ -616,7 +616,7 @@ async def _internal_run(
                                 event_bus.emit(
                                     ObservabilityEventType.CHECKPOINT_SAVED,
                                     checkpoint=state.checkpoint,
-                                    token_count=state.token_count,
+                                    tokenCount=state.token_count,
                                 )
                                 # Fire on_checkpoint callback
                                 _fire_callback(
@@ -635,8 +635,8 @@ async def _internal_run(
                             ):
                                 event_bus.emit(
                                     ObservabilityEventType.GUARDRAIL_PHASE_START,
-                                    context_size=len(state.content),
-                                    rule_count=len(guardrails),
+                                    contextSize=len(state.content),
+                                    ruleCount=len(guardrails),
                                 )
 
                                 all_violations = []
@@ -644,7 +644,7 @@ async def _internal_run(
                                     event_bus.emit(
                                         ObservabilityEventType.GUARDRAIL_RULE_START,
                                         index=idx,
-                                        rule_id=rule.name,
+                                        ruleId=rule.name,
                                     )
                                     rule_violations = rule.check(state)
                                     if rule_violations:
@@ -652,7 +652,7 @@ async def _internal_run(
                                         event_bus.emit(
                                             ObservabilityEventType.GUARDRAIL_RULE_RESULT,
                                             index=idx,
-                                            rule_id=rule.name,
+                                            ruleId=rule.name,
                                             violations=[
                                                 v.__dict__ for v in rule_violations
                                             ],
@@ -660,7 +660,7 @@ async def _internal_run(
                                     event_bus.emit(
                                         ObservabilityEventType.GUARDRAIL_RULE_END,
                                         index=idx,
-                                        rule_id=rule.name,
+                                        ruleId=rule.name,
                                     )
 
                                 if all_violations:
@@ -671,8 +671,8 @@ async def _internal_run(
 
                                 event_bus.emit(
                                     ObservabilityEventType.GUARDRAIL_PHASE_END,
-                                    rule_count=len(guardrails),
-                                    violation_count=len(all_violations),
+                                    ruleCount=len(guardrails),
+                                    violationCount=len(all_violations),
                                 )
 
                             # Check drift periodically
@@ -682,7 +682,7 @@ async def _internal_run(
                             ):
                                 event_bus.emit(
                                     ObservabilityEventType.DRIFT_CHECK_START,
-                                    token_count=state.token_count,
+                                    tokenCount=state.token_count,
                                 )
                                 drift_result = drift_detector.check(
                                     state.content, token_text
@@ -710,7 +710,7 @@ async def _internal_run(
                                     )
                                 event_bus.emit(
                                     ObservabilityEventType.DRIFT_CHECK_END,
-                                    token_count=state.token_count,
+                                    tokenCount=state.token_count,
                                 )
 
                         # Handle tool call buffering
@@ -757,8 +757,8 @@ async def _internal_run(
                     if guardrails:
                         event_bus.emit(
                             ObservabilityEventType.GUARDRAIL_PHASE_START,
-                            context_size=len(state.content),
-                            rule_count=len(guardrails),
+                            contextSize=len(state.content),
+                            ruleCount=len(guardrails),
                         )
 
                         all_violations = []
@@ -766,7 +766,7 @@ async def _internal_run(
                             event_bus.emit(
                                 ObservabilityEventType.GUARDRAIL_RULE_START,
                                 index=idx,
-                                rule_id=rule.name,
+                                ruleId=rule.name,
                             )
                             rule_violations = rule.check(state)
                             if rule_violations:
@@ -774,13 +774,13 @@ async def _internal_run(
                                 event_bus.emit(
                                     ObservabilityEventType.GUARDRAIL_RULE_RESULT,
                                     index=idx,
-                                    rule_id=rule.name,
+                                    ruleId=rule.name,
                                     violations=[v.__dict__ for v in rule_violations],
                                 )
                             event_bus.emit(
                                 ObservabilityEventType.GUARDRAIL_RULE_END,
                                 index=idx,
-                                rule_id=rule.name,
+                                ruleId=rule.name,
                             )
 
                         if all_violations:
@@ -791,8 +791,8 @@ async def _internal_run(
 
                         event_bus.emit(
                             ObservabilityEventType.GUARDRAIL_PHASE_END,
-                            rule_count=len(guardrails),
-                            violation_count=len(all_violations),
+                            ruleCount=len(guardrails),
+                            violationCount=len(all_violations),
                         )
 
                         # Fatal violations (non-recoverable errors) halt completely
@@ -809,11 +809,11 @@ async def _internal_run(
                                 ErrorContext(
                                     code=ErrorCode.FATAL_GUARDRAIL_VIOLATION,
                                     checkpoint=state.checkpoint,
-                                    token_count=state.token_count,
-                                    content_length=len(state.content),
-                                    model_retry_count=retry_mgr.model_retry_count,
-                                    network_retry_count=retry_mgr.network_retry_count,
-                                    fallback_index=fallback_idx,
+                                    tokenCount=state.token_count,
+                                    contentLength=len(state.content),
+                                    model_retryCount=retry_mgr.model_retry_count,
+                                    network_retryCount=retry_mgr.network_retry_count,
+                                    fallbackIndex=fallback_idx,
                                     context=context,
                                 ),
                             )
@@ -832,11 +832,11 @@ async def _internal_run(
                                 ErrorContext(
                                     code=ErrorCode.GUARDRAIL_VIOLATION,
                                     checkpoint=state.checkpoint,
-                                    token_count=state.token_count,
-                                    content_length=len(state.content),
-                                    model_retry_count=retry_mgr.model_retry_count,
-                                    network_retry_count=retry_mgr.network_retry_count,
-                                    fallback_index=fallback_idx,
+                                    tokenCount=state.token_count,
+                                    contentLength=len(state.content),
+                                    model_retryCount=retry_mgr.model_retry_count,
+                                    network_retryCount=retry_mgr.network_retry_count,
+                                    fallbackIndex=fallback_idx,
                                     context=context,
                                 ),
                             )
@@ -890,7 +890,7 @@ async def _internal_run(
                         event_bus.emit(
                             ObservabilityEventType.RETRY_START,
                             attempt=retry_mgr.total_retries + 1,
-                            max_attempts=retry_mgr.config.max_retries,
+                            maxAttempts=retry_mgr.config.max_retries,
                         )
                         retry_mgr.record_attempt(e)
                         state.model_retry_count = retry_mgr.model_retry_count
@@ -903,7 +903,7 @@ async def _internal_run(
                             ObservabilityEventType.RETRY_ATTEMPT,
                             attempt=retry_mgr.total_retries,
                             reason=str(e),
-                            is_network=is_network,
+                            isNetwork=is_network,
                         )
                         await retry_mgr.wait(e)
 
@@ -912,7 +912,7 @@ async def _internal_run(
                         event_bus.emit(
                             ObservabilityEventType.CHECKPOINT_SAVED,
                             checkpoint=state.checkpoint,
-                            token_count=state.token_count,
+                            tokenCount=state.token_count,
                         )
                         # Fire on_checkpoint callback
                         _fire_callback(
@@ -945,7 +945,7 @@ async def _internal_run(
         event_bus.emit(
             ObservabilityEventType.RETRY_GIVE_UP,
             attempts=retry_mgr.total_retries,
-            last_error=str(errors[-1]) if errors else None,
+            lastError=str(errors[-1]) if errors else None,
         )
         if errors:
             raise errors[-1]

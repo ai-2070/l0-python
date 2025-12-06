@@ -69,7 +69,7 @@ class RecordedEvent:
     """A recorded event from L0 execution."""
 
     type: RecordedEventType
-    ts: float  # Timestamp in seconds
+    ts: float  # Timestamp in milliseconds
     data: dict[str, Any] = field(default_factory=dict)
 
 
@@ -309,7 +309,7 @@ class EventRecorder:
         await self.record(
             RecordedEvent(
                 type=RecordedEventType.START,
-                ts=time.time(),
+                ts=time.time() * 1000,
                 data={"options": options},
             )
         )
@@ -319,7 +319,7 @@ class EventRecorder:
         await self.record(
             RecordedEvent(
                 type=RecordedEventType.TOKEN,
-                ts=time.time(),
+                ts=time.time() * 1000,
                 data={"value": value, "index": index},
             )
         )
@@ -329,7 +329,7 @@ class EventRecorder:
         await self.record(
             RecordedEvent(
                 type=RecordedEventType.CHECKPOINT,
-                ts=time.time(),
+                ts=time.time() * 1000,
                 data={"at": at, "content": content},
             )
         )
@@ -339,7 +339,7 @@ class EventRecorder:
         await self.record(
             RecordedEvent(
                 type=RecordedEventType.GUARDRAIL,
-                ts=time.time(),
+                ts=time.time() * 1000,
                 data={"at": at, "result": result},
             )
         )
@@ -349,7 +349,7 @@ class EventRecorder:
         await self.record(
             RecordedEvent(
                 type=RecordedEventType.DRIFT,
-                ts=time.time(),
+                ts=time.time() * 1000,
                 data={"at": at, "result": result},
             )
         )
@@ -364,7 +364,7 @@ class EventRecorder:
         await self.record(
             RecordedEvent(
                 type=RecordedEventType.RETRY,
-                ts=time.time(),
+                ts=time.time() * 1000,
                 data={
                     "reason": reason,
                     "attempt": attempt,
@@ -378,7 +378,7 @@ class EventRecorder:
         await self.record(
             RecordedEvent(
                 type=RecordedEventType.FALLBACK,
-                ts=time.time(),
+                ts=time.time() * 1000,
                 data={"to": to},
             )
         )
@@ -388,7 +388,7 @@ class EventRecorder:
         await self.record(
             RecordedEvent(
                 type=RecordedEventType.CONTINUATION,
-                ts=time.time(),
+                ts=time.time() * 1000,
                 data={"checkpoint": checkpoint, "at": at},
             )
         )
@@ -398,7 +398,7 @@ class EventRecorder:
         await self.record(
             RecordedEvent(
                 type=RecordedEventType.COMPLETE,
-                ts=time.time(),
+                ts=time.time() * 1000,
                 data={"content": content, "token_count": token_count},
             )
         )
@@ -414,7 +414,7 @@ class EventRecorder:
         await self.record(
             RecordedEvent(
                 type=RecordedEventType.ERROR,
-                ts=time.time(),
+                ts=time.time() * 1000,
                 data={
                     "error": {
                         "name": error.name,

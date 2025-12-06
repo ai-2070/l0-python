@@ -705,12 +705,22 @@ class Retry:
 class Timeout:
     """Timeout configuration.
 
-    All timeouts are in seconds (float), matching Python conventions
-    like asyncio.wait_for(), socket.settimeout(), etc.
+    All timeouts are in milliseconds (int), matching TypeScript l0.
+
+    Examples:
+        timeout=Timeout(initial_token=5000, inter_token=10000)  # 5s, 10s
     """
 
-    initial_token: float = 5.0  # Seconds to first token
-    inter_token: float = 10.0  # Seconds between tokens
+    initial_token: int = 5000  # Milliseconds to first token (default: 5s)
+    inter_token: int = 10000  # Milliseconds between tokens (default: 10s)
+
+
+
+
+
+
+
+
 
 
 @dataclass

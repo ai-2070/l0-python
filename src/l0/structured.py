@@ -97,6 +97,20 @@ class StructuredResult(Generic[ResultT]):
     corrected: bool = False
     corrections: list[str] = field(default_factory=list)
     state: State | None = None
+    _aborted: bool = False
+
+    def abort(self) -> None:
+        """Abort the structured stream.
+
+        Signals that the stream should stop processing.
+        Matches TypeScript structured result API.
+        """
+        self._aborted = True
+
+    @property
+    def is_aborted(self) -> bool:
+        """Check if abort was requested."""
+        return self._aborted
     structured_state: StructuredState | None = None
     telemetry: StructuredTelemetry | None = None
     errors: list[Exception] = field(default_factory=list)
@@ -530,6 +544,20 @@ class StructuredStreamResult(Generic[T]):
     _on_event: Callable[[ObservabilityEvent], None] | None = None
     _validated: StructuredResult[T] | None = None
     state: State | None = None
+    _aborted: bool = False
+
+    def abort(self) -> None:
+        """Abort the structured stream.
+
+        Signals that the stream should stop processing.
+        Matches TypeScript structured result API.
+        """
+        self._aborted = True
+
+    @property
+    def is_aborted(self) -> bool:
+        """Check if abort was requested."""
+        return self._aborted
 
     async def validate(self) -> StructuredResult[T]:
         """Validate collected content against schema.
