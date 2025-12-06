@@ -189,24 +189,33 @@ async def pipe(
 
         client = AsyncOpenAI()
 
+        # Step functions can return:
+        # 1. A dict with "stream" key (TypeScript-style)
+        # 2. A stream factory (callable)
+        # 3. An async generator directly (most Pythonic)
+
+        async def summarize_step(text: str, ctx: l0.StepContext):
+            # Return dict with stream factory (TypeScript-style)
+            return {
+                "stream": lambda: client.chat.completions.create(
+                    model="gpt-4o",
+                    messages=[{"role": "user", "content": f"Summarize: {text}"}],
+                    stream=True,
+                )
+            }
+
+        async def refine_step(summary: str, ctx: l0.StepContext):
+            # Or return a stream factory directly
+            return lambda: client.chat.completions.create(
+                model="gpt-4o",
+                messages=[{"role": "user", "content": f"Refine: {summary}"}],
+                stream=True,
+            )
+
         result = await l0.pipe(
             [
-                l0.PipelineStep(
-                    name="summarize",
-                    fn=lambda text, ctx: lambda: client.chat.completions.create(
-                        model="gpt-4o",
-                        messages=[{"role": "user", "content": f"Summarize: {text}"}],
-                        stream=True,
-                    ),
-                ),
-                l0.PipelineStep(
-                    name="refine",
-                    fn=lambda summary, ctx: lambda: client.chat.completions.create(
-                        model="gpt-4o",
-                        messages=[{"role": "user", "content": f"Refine: {summary}"}],
-                        stream=True,
-                    ),
-                ),
+                l0.PipelineStep(name="summarize", fn=summarize_step),
+                l0.PipelineStep(name="refine", fn=refine_step),
             ],
             long_document,
             l0.PipelineOptions(name="summarize-refine"),
@@ -276,9 +285,21 @@ async def pipe(
 
             try:
                 # Get stream factory from step function
-                stream_factory = step.fn(current_input, context)
-                if asyncio.iscoroutine(stream_factory):
-                    stream_factory = await stream_factory
+                step_result_or_factory = step.fn(current_input, context)
+                if asyncio.iscoroutine(step_result_or_factory):
+                    step_result_or_factory = await step_result_or_factory
+
+                # Handle different return types:
+                # 1. Dict with "stream" key (TypeScript-style): {"stream": factory}
+                # 2. Direct stream factory (callable)
+                # 3. Direct async generator (most Pythonic)
+                if (
+                    isinstance(step_result_or_factory, dict)
+                    and "stream" in step_result_or_factory
+                ):
+                    stream_factory = step_result_or_factory["stream"]
+                else:
+                    stream_factory = step_result_or_factory
 
                 # Execute L0
                 result: Stream = await _internal_run(stream=stream_factory)
