@@ -883,8 +883,10 @@ class TestGuardrailEngine:
         from l0.guardrails import create_guardrail_engine
 
         engine = create_guardrail_engine([json_rule()])
+        assert len(engine._rules) == 1
         engine.add_rule(markdown_rule())
         # Check that engine now has both rules
+        assert len(engine._rules) == 2
 
     def test_engine_remove_rule(self):
         from l0.guardrails import create_guardrail_engine
