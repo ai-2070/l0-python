@@ -47,7 +47,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from l0 import CheckIntervals, Retry, run, wrap
+from l0 import CheckIntervals, Error, ErrorCode, Retry, run, wrap
 from l0.adapters import AdaptedEvent, Adapters
 from l0.events import EventBus, ObservabilityEvent, ObservabilityEventType
 from l0.guardrails import GuardrailRule, GuardrailViolation
@@ -1055,6 +1055,58 @@ class TestLifecycleGuardrailViolation:
         violation = on_violation.call_args[0][0]
         assert violation.rule == "always-violate"
         assert violation.severity == "warning"
+
+    @pytest.mark.asyncio
+    async def test_fatal_violation_checked_before_recoverable(self):
+        """Should check fatal violations before recoverable ones to avoid doomed retries."""
+        collector = create_event_collector()
+        attempt_count = 0
+
+        def mixed_violations_rule(state: State) -> list[GuardrailViolation]:
+            if state.completed:
+                # Return both recoverable and fatal violations
+                return [
+                    GuardrailViolation(
+                        rule="recoverable-rule",
+                        severity="error",
+                        message="Recoverable violation",
+                        recoverable=True,
+                    ),
+                    GuardrailViolation(
+                        rule="fatal-rule",
+                        severity="error",
+                        message="Fatal violation",
+                        recoverable=False,
+                    ),
+                ]
+            return []
+
+        async def stream():
+            nonlocal attempt_count
+            attempt_count += 1
+            async for event in create_token_stream(["test"]):
+                yield event
+
+        result = await _internal_run(
+            stream=stream,
+            guardrails=[
+                GuardrailRule(name="mixed-violations", check=mixed_violations_rule)
+            ],
+            retry=Retry(attempts=3),
+            on_event=collector.handler,
+        )
+
+        # Should raise fatal error without retrying
+        with pytest.raises(Error) as exc_info:
+            async for _ in result:
+                pass
+
+        # Verify it's a fatal guardrail violation
+        assert exc_info.value.code == ErrorCode.FATAL_GUARDRAIL_VIOLATION
+        assert "Fatal guardrail violation" in str(exc_info.value)
+
+        # Should only have 1 attempt - no retries since fatal was detected first
+        assert attempt_count == 1
 
 
 # ============================================================================

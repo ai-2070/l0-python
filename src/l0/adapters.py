@@ -772,7 +772,6 @@ async def to_l0_events(
     This helper makes it easier to build custom adapters by handling:
     - Error conversion to L0 error events
     - Automatic complete event emission
-    - Timestamp generation
 
     You only need to provide an extraction function that pulls text from chunks.
 

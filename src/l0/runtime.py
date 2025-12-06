@@ -787,6 +787,20 @@ async def _internal_run(
                             violation_count=len(all_violations),
                         )
 
+                        # Fatal violations (non-recoverable errors) halt completely
+                        # Check these first to avoid triggering retries that are doomed to fail
+                        fatal_violations = [
+                            v
+                            for v in all_violations
+                            if v.severity == "error" and not v.recoverable
+                        ]
+                        if fatal_violations:
+                            first_violation = fatal_violations[0]
+                            raise Error(
+                                f"Fatal guardrail violation: {first_violation.message}",
+                                code=ErrorCode.FATAL_GUARDRAIL_VIOLATION,
+                            )
+
                         # Check for violations that should trigger retry
                         # Error-severity violations with recoverable=True trigger retry
                         error_violations = [
@@ -799,19 +813,6 @@ async def _internal_run(
                             raise Error(
                                 f"Guardrail violation: {first_violation.message}",
                                 code=ErrorCode.GUARDRAIL_VIOLATION,
-                            )
-
-                        # Fatal violations (non-recoverable errors) halt completely
-                        fatal_violations = [
-                            v
-                            for v in all_violations
-                            if v.severity == "error" and not v.recoverable
-                        ]
-                        if fatal_violations:
-                            first_violation = fatal_violations[0]
-                            raise Error(
-                                f"Fatal guardrail violation: {first_violation.message}",
-                                code=ErrorCode.FATAL_GUARDRAIL_VIOLATION,
                             )
 
                     if fallback_idx > 0:
