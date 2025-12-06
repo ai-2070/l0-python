@@ -873,3 +873,269 @@ def count_fields(value: Any) -> int:
         return sum(count_fields(item) for item in value)
 
     return 1
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Scoped API
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class Compare:
+    """Scoped API for comparison utilities.
+
+    Provides string similarity algorithms, object comparison, and deep equality
+    utilities for evaluation and testing.
+
+    Usage:
+        ```python
+        from l0 import Compare
+
+        # String similarity
+        score = Compare.strings("hello", "hallo")
+        distance = Compare.levenshtein_distance("cat", "bat")
+        similarity = Compare.levenshtein("cat", "bat")
+        similarity = Compare.jaro_winkler("hello", "hallo")
+        similarity = Compare.cosine("hello world", "hello there")
+
+        # Numeric comparison
+        equal = Compare.numbers(1.0001, 1.0002, tolerance=0.001)
+
+        # Deep equality
+        equal = Compare.deep_equal({"a": 1}, {"a": 1})
+
+        # Object comparison with differences
+        diffs = Compare.objects(expected, actual)
+        diffs = Compare.arrays([1, 2], [1, 3])
+        diffs = Compare.values(expected, actual)
+
+        # Scoring
+        score = Compare.similarity_score(differences, total_fields)
+        count = Compare.count_fields({"a": {"b": 1}})
+
+        # Type utilities
+        type_str = Compare.get_type(value)
+        ```
+    """
+
+    # Re-export types for convenience
+    Difference = Difference
+    DifferenceSeverity = DifferenceSeverity
+    DifferenceType = DifferenceType
+    StringComparisonOptions = StringComparisonOptions
+    ObjectComparisonOptions = ObjectComparisonOptions
+
+    @staticmethod
+    def strings(
+        a: str,
+        b: str,
+        *,
+        case_sensitive: bool = True,
+        normalize_whitespace: bool = True,
+        algorithm: Literal["levenshtein", "jaro-winkler", "cosine"] = "levenshtein",
+    ) -> float:
+        """Compare two strings with similarity scoring.
+
+        Args:
+            a: First string
+            b: Second string
+            case_sensitive: Whether comparison is case-sensitive
+            normalize_whitespace: Whether to normalize whitespace
+            algorithm: Similarity algorithm to use
+
+        Returns:
+            Similarity score (0-1)
+        """
+        return compare_strings(
+            a,
+            b,
+            case_sensitive=case_sensitive,
+            normalize_whitespace=normalize_whitespace,
+            algorithm=algorithm,
+        )
+
+    @staticmethod
+    def levenshtein_distance(a: str, b: str) -> int:
+        """Calculate Levenshtein distance (edit distance).
+
+        Args:
+            a: First string
+            b: Second string
+
+        Returns:
+            Number of edits needed to transform a into b
+        """
+        return levenshtein_distance(a, b)
+
+    @staticmethod
+    def levenshtein(a: str, b: str) -> float:
+        """Levenshtein distance similarity (0-1).
+
+        Args:
+            a: First string
+            b: Second string
+
+        Returns:
+            Similarity score (0-1)
+        """
+        return levenshtein_similarity(a, b)
+
+    @staticmethod
+    def jaro_winkler(a: str, b: str) -> float:
+        """Jaro-Winkler similarity (0-1).
+
+        Adds a bonus for matching prefixes.
+
+        Args:
+            a: First string
+            b: Second string
+
+        Returns:
+            Similarity score (0-1)
+        """
+        return jaro_winkler_similarity(a, b)
+
+    @staticmethod
+    def cosine(a: str, b: str) -> float:
+        """Cosine similarity (0-1).
+
+        Args:
+            a: First string
+            b: Second string
+
+        Returns:
+            Similarity score (0-1)
+        """
+        return cosine_similarity(a, b)
+
+    @staticmethod
+    def numbers(a: float, b: float, tolerance: float = 0.001) -> bool:
+        """Compare two numbers with tolerance.
+
+        Args:
+            a: First number
+            b: Second number
+            tolerance: Acceptable difference
+
+        Returns:
+            Whether numbers are equal within tolerance
+        """
+        return compare_numbers(a, b, tolerance)
+
+    @staticmethod
+    def deep_equal(a: Any, b: Any) -> bool:
+        """Deep equality check with early termination.
+
+        Returns False as soon as a difference is found.
+
+        Args:
+            a: First value
+            b: Second value
+
+        Returns:
+            Whether values are deeply equal
+        """
+        return deep_equal(a, b)
+
+    @staticmethod
+    def values(
+        expected: Any,
+        actual: Any,
+        options: ObjectComparisonOptions | None = None,
+        path: str = "",
+    ) -> list[Difference]:
+        """Compare two values (generic).
+
+        Args:
+            expected: Expected value
+            actual: Actual value
+            options: Comparison options
+            path: Current path
+
+        Returns:
+            Array of differences
+        """
+        return compare_values(expected, actual, options, path)
+
+    @staticmethod
+    def arrays(
+        a: list[Any],
+        b: list[Any],
+        options: ObjectComparisonOptions | None = None,
+        path: str = "",
+    ) -> list[Difference]:
+        """Compare two arrays.
+
+        Args:
+            a: First array (expected)
+            b: Second array (actual)
+            options: Comparison options
+            path: Current path
+
+        Returns:
+            Array of differences
+        """
+        if options is None:
+            options = ObjectComparisonOptions()
+        return compare_arrays(a, b, options, path)
+
+    @staticmethod
+    def objects(
+        expected: dict[str, Any],
+        actual: dict[str, Any],
+        options: ObjectComparisonOptions | None = None,
+        path: str = "",
+    ) -> list[Difference]:
+        """Compare two objects deeply.
+
+        Args:
+            expected: Expected object
+            actual: Actual object
+            options: Comparison options
+            path: Current path
+
+        Returns:
+            Array of differences
+        """
+        if options is None:
+            options = ObjectComparisonOptions()
+        return compare_objects(expected, actual, options, path)
+
+    @staticmethod
+    def similarity_score(
+        differences: list[Difference],
+        total_fields: int,
+    ) -> float:
+        """Calculate overall similarity score from differences.
+
+        Args:
+            differences: Array of differences
+            total_fields: Total number of fields compared
+
+        Returns:
+            Similarity score (0-1)
+        """
+        return calculate_similarity_score(differences, total_fields)
+
+    @staticmethod
+    def count_fields(value: Any) -> int:
+        """Count total fields in a value (for scoring).
+
+        Args:
+            value: Value to count fields in
+
+        Returns:
+            Total number of fields
+        """
+        return count_fields(value)
+
+    @staticmethod
+    def get_type(value: Any) -> str:
+        """Get type of value as string.
+
+        Args:
+            value: Value to check
+
+        Returns:
+            Type string ("null", "undefined", "array", "object", etc.)
+        """
+        return get_type(value)

@@ -25,24 +25,14 @@ from .adapters import (
 )
 from .client import WrappedClient, wrap_client
 from .comparison import (
+    # Scoped API
+    Compare,
+    # Types (for type hints, also available via Compare.*)
     Difference,
     DifferenceSeverity,
     DifferenceType,
     ObjectComparisonOptions,
     StringComparisonOptions,
-    calculate_similarity_score,
-    compare_arrays,
-    compare_numbers,
-    compare_objects,
-    compare_strings,
-    compare_values,
-    cosine_similarity,
-    count_fields,
-    deep_equal,
-    get_type,
-    jaro_winkler_similarity,
-    levenshtein_distance,
-    levenshtein_similarity,
 )
 from .consensus import (
     # Result types (needed for type hints)
@@ -176,22 +166,11 @@ from .monitoring import (
 )
 from .multimodal import Multimodal
 from .normalize import (
+    # Types (also available via Text.*)
     NormalizeOptions,
+    # Scoped API
+    Text,
     WhitespaceOptions,
-    count_lines,
-    dedent,
-    ensure_trailing_newline,
-    get_line,
-    indent,
-    is_whitespace_only,
-    normalize_for_model,
-    normalize_indentation,
-    normalize_newlines,
-    normalize_text,
-    normalize_whitespace,
-    remove_trailing_whitespace,
-    replace_line,
-    trim_text,
 )
 from .parallel import (
     AggregatedTelemetry,
@@ -606,11 +585,13 @@ del window
 # Also clean up submodules that may have been imported transitively
 import sys as _sys
 
-for _mod in ["formatting", "retry", "state"]:
-    _full = f"l0.{_mod}"
-    if _full in _sys.modules and _mod in dir():
-        delattr(_sys.modules[__name__], _mod)
-del _sys, _mod, _full
+for _submod_name in ("formatting", "retry", "state"):
+    _submod_full = f"l0.{_submod_name}"
+    if _submod_full in _sys.modules and _submod_name in dir():
+        delattr(_sys.modules[__name__], _submod_name)
+del _sys
+del _submod_name  # type: ignore[possibly-undefined]
+del _submod_full  # type: ignore[possibly-undefined]
 
 # Hide wrap_client (internal, use wrap() instead)
 del wrap_client
@@ -866,40 +847,17 @@ __all__ = [
     "create_metrics",
     "get_global_metrics",
     "reset_global_metrics",
-    # Text normalization utilities
+    # Text (scoped API)
+    "Text",  # Class with .normalize_newlines(), .normalize_whitespace(), .dedent(), .indent(), .trim(), .for_model(), etc.
+    # Text types (also available via Text.*)
     "NormalizeOptions",
     "WhitespaceOptions",
-    "normalize_newlines",
-    "normalize_whitespace",
-    "normalize_indentation",
-    "normalize_text",
-    "normalize_for_model",
-    "dedent",
-    "indent",
-    "trim_text",
-    "ensure_trailing_newline",
-    "remove_trailing_whitespace",
-    "is_whitespace_only",
-    "count_lines",
-    "get_line",
-    "replace_line",
-    # Comparison utilities
+    # Comparison (scoped API)
+    "Compare",  # Class with .strings(), .levenshtein(), .jaro_winkler(), .cosine(), .numbers(), .deep_equal(), .objects(), .arrays(), .values(), etc.
+    # Comparison types (also available via Compare.*)
     "Difference",
     "DifferenceSeverity",
     "DifferenceType",
     "StringComparisonOptions",
     "ObjectComparisonOptions",
-    "compare_strings",
-    "compare_numbers",
-    "compare_values",
-    "compare_objects",
-    "compare_arrays",
-    "levenshtein_distance",
-    "levenshtein_similarity",
-    "jaro_winkler_similarity",
-    "cosine_similarity",
-    "deep_equal",
-    "get_type",
-    "count_fields",
-    "calculate_similarity_score",
 ]

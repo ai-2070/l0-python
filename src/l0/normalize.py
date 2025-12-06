@@ -415,3 +415,289 @@ def replace_line(text: str, line_index: int, new_line: str) -> str:
 
     lines[line_index] = new_line
     return "\n".join(lines)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Scoped API
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class Text:
+    """Scoped API for text normalization utilities.
+
+    Provides utilities for normalizing newlines, whitespace, and indentation
+    in text content. Useful for preparing text for model consumption or
+    comparing outputs.
+
+    Usage:
+        ```python
+        from l0 import Text
+
+        # Normalize newlines
+        normalized = Text.normalize_newlines("hello\\r\\nworld")
+
+        # Normalize whitespace
+        clean = Text.normalize_whitespace("hello   world", collapse_spaces=True)
+
+        # Normalize indentation
+        spaced = Text.normalize_indentation(code, mode="spaces", spaces_per_tab=4)
+
+        # Dedent code blocks
+        dedented = Text.dedent("    hello\\n    world")
+
+        # Indent text
+        indented = Text.indent("hello\\nworld", prefix=4)
+
+        # Trim text
+        trimmed = Text.trim("  hello  ")
+
+        # Full normalization
+        normalized = Text.normalize(text, newlines=True, whitespace=True, trim=True)
+
+        # Prepare for model
+        prepared = Text.for_model(text)
+
+        # Check if whitespace only
+        is_empty = Text.is_whitespace_only("   ")
+
+        # Line operations
+        count = Text.count_lines(text)
+        line = Text.get_line(text, 0)
+        modified = Text.replace_line(text, 0, "new content")
+
+        # Ensure trailing newline
+        with_newline = Text.ensure_trailing_newline(text)
+
+        # Remove trailing whitespace
+        clean = Text.remove_trailing_whitespace(text)
+        ```
+    """
+
+    # Re-export types for convenience
+    NormalizeOptions = NormalizeOptions
+    WhitespaceOptions = WhitespaceOptions
+
+    @staticmethod
+    def normalize_newlines(text: str) -> str:
+        """Normalize newlines to Unix-style (\\n).
+
+        Converts \\r\\n (Windows) and \\r (old Mac) to \\n.
+
+        Args:
+            text: Text to normalize
+
+        Returns:
+            Text with normalized newlines
+        """
+        return normalize_newlines(text)
+
+    @staticmethod
+    def normalize_whitespace(
+        text: str,
+        *,
+        collapse_spaces: bool = False,
+        trim_lines: bool = False,
+        remove_empty_lines: bool = False,
+    ) -> str:
+        """Normalize whitespace (collapse multiple spaces, trim lines).
+
+        Args:
+            text: Text to normalize
+            collapse_spaces: Collapse multiple spaces into one
+            trim_lines: Trim whitespace from each line
+            remove_empty_lines: Remove empty lines
+
+        Returns:
+            Text with normalized whitespace
+        """
+        return normalize_whitespace(
+            text,
+            collapse_spaces=collapse_spaces,
+            trim_lines=trim_lines,
+            remove_empty_lines=remove_empty_lines,
+        )
+
+    @staticmethod
+    def normalize_indentation(
+        text: str,
+        mode: Literal["spaces", "tabs"] = "spaces",
+        spaces_per_tab: int = 2,
+    ) -> str:
+        """Normalize indentation (convert tabs to spaces or vice versa).
+
+        Args:
+            text: Text to normalize
+            mode: Target indentation mode ("spaces" or "tabs")
+            spaces_per_tab: Number of spaces per tab (default: 2)
+
+        Returns:
+            Text with normalized indentation
+        """
+        return normalize_indentation(text, mode, spaces_per_tab)
+
+    @staticmethod
+    def dedent(text: str) -> str:
+        """Remove common leading indentation from all lines.
+
+        Useful for normalizing code blocks.
+
+        Args:
+            text: Text to dedent
+
+        Returns:
+            Dedented text
+        """
+        return dedent(text)
+
+    @staticmethod
+    def indent(text: str, prefix: str | int = 2) -> str:
+        """Add indentation to all non-empty lines.
+
+        Args:
+            text: Text to indent
+            prefix: Indentation to add (string or number of spaces)
+
+        Returns:
+            Indented text
+        """
+        return indent(text, prefix)
+
+    @staticmethod
+    def trim(text: str) -> str:
+        """Trim whitespace from start and end of text.
+
+        Also removes leading/trailing empty lines.
+
+        Args:
+            text: Text to trim
+
+        Returns:
+            Trimmed text
+        """
+        return trim_text(text)
+
+    @staticmethod
+    def normalize(
+        text: str,
+        *,
+        newlines: bool = True,
+        whitespace: bool = False,
+        indentation: Literal["spaces", "tabs", False] = False,
+        spaces_per_tab: int = 2,
+        dedent_text: bool = False,
+        trim: bool = False,
+    ) -> str:
+        """Normalize all whitespace aspects of text.
+
+        Combines multiple normalization operations.
+
+        Args:
+            text: Text to normalize
+            newlines: Normalize newlines to \\n (default: True)
+            whitespace: Collapse multiple spaces (default: False)
+            indentation: Normalize indentation mode (default: False)
+            spaces_per_tab: Number of spaces per tab (default: 2)
+            dedent_text: Remove common leading indentation (default: False)
+            trim: Trim leading/trailing whitespace (default: False)
+
+        Returns:
+            Fully normalized text
+        """
+        return normalize_text(
+            text,
+            newlines=newlines,
+            whitespace=whitespace,
+            indentation=indentation,
+            spaces_per_tab=spaces_per_tab,
+            dedent_text=dedent_text,
+            trim=trim,
+        )
+
+    @staticmethod
+    def for_model(text: str) -> str:
+        """Normalize line endings and ensure consistent formatting.
+
+        Good for preparing text for model consumption.
+
+        Args:
+            text: Text to normalize
+
+        Returns:
+            Normalized text
+        """
+        return normalize_for_model(text)
+
+    @staticmethod
+    def ensure_trailing_newline(text: str) -> str:
+        """Ensure text ends with a single newline.
+
+        Args:
+            text: Text to normalize
+
+        Returns:
+            Text with single trailing newline
+        """
+        return ensure_trailing_newline(text)
+
+    @staticmethod
+    def remove_trailing_whitespace(text: str) -> str:
+        """Remove all trailing whitespace from each line.
+
+        Args:
+            text: Text to process
+
+        Returns:
+            Text with trailing whitespace removed
+        """
+        return remove_trailing_whitespace(text)
+
+    @staticmethod
+    def is_whitespace_only(text: str) -> bool:
+        """Check if text contains only whitespace.
+
+        Args:
+            text: Text to check
+
+        Returns:
+            True if text is empty or only whitespace
+        """
+        return is_whitespace_only(text)
+
+    @staticmethod
+    def count_lines(text: str) -> int:
+        """Count lines in text.
+
+        Args:
+            text: Text to count lines in
+
+        Returns:
+            Number of lines
+        """
+        return count_lines(text)
+
+    @staticmethod
+    def get_line(text: str, line_index: int) -> str | None:
+        """Get line at specific index.
+
+        Args:
+            text: Text to extract from
+            line_index: Zero-based line index
+
+        Returns:
+            Line content or None if out of bounds
+        """
+        return get_line(text, line_index)
+
+    @staticmethod
+    def replace_line(text: str, line_index: int, new_line: str) -> str:
+        """Replace line at specific index.
+
+        Args:
+            text: Text to modify
+            line_index: Zero-based line index
+            new_line: New line content
+
+        Returns:
+            Modified text
+        """
+        return replace_line(text, line_index, new_line)
