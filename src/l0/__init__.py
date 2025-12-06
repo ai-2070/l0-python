@@ -660,7 +660,7 @@ async def run(
     on_complete: "_Callable[[State], None] | None" = None,
     on_error: "_Callable[[Exception, bool, bool], None] | None" = None,
     on_stream_event: "_Callable[[Event], None] | None" = None,
-    on_violation: "_Callable[..., None] | None" = None,
+    on_violation: "_Callable[[GuardrailViolation], None] | None" = None,
     on_retry: "_Callable[[int, str], None] | None" = None,
     on_fallback: "_Callable[[int, str], None] | None" = None,
     on_resume: "_Callable[[str, int], None] | None" = None,

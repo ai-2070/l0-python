@@ -200,7 +200,7 @@ async def _internal_run(
     on_complete: Callable[[State], None] | None = None,
     on_error: Callable[[Exception, bool, bool], None] | None = None,
     on_stream_event: Callable[[Event], None] | None = None,
-    on_violation: Callable[..., None] | None = None,
+    on_violation: Callable[[GuardrailViolation], None] | None = None,
     on_retry: Callable[[int, str], None] | None = None,
     on_fallback: Callable[[int, str], None] | None = None,
     on_resume: Callable[[str, int], None] | None = None,
