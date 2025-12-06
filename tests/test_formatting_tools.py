@@ -480,8 +480,8 @@ class TestFormatToolsIncludeExamples:
             ],
         )
         result = format_tool(tool, {"style": "natural", "include_examples": False})
-        # The enum values should not appear as examples (may still appear in type info)
-        # This tests the example display, not enum in type
+        # The "Example usage:" section should not appear when include_examples=False
+        assert "Example usage:" not in result
 
 
 class TestFormatToolsSeparator:
