@@ -282,7 +282,8 @@ class State:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Retry + Timeout (seconds, not milliseconds - Pythonic!)
+# Retry + Timeout
+# Retry delays are in seconds (Pythonic). Timeout uses milliseconds (TS parity).
 # ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -713,14 +714,6 @@ class Timeout:
 
     initial_token: int = 5000  # Milliseconds to first token (default: 5s)
     inter_token: int = 10000  # Milliseconds between tokens (default: 10s)
-
-
-
-
-
-
-
-
 
 
 @dataclass
