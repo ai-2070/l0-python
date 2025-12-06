@@ -567,6 +567,31 @@ class TestCustomTokenEstimator:
         # With 1 token per char, 200 chars with size 100 = multiple chunks
         assert len(chunks) >= 2
 
+    def test_custom_estimator_affects_chunk_boundaries(self):
+        """Test that custom estimator affects where chunk boundaries are placed."""
+        doc = "a" * 400  # 400 chars
+
+        # Default estimator: ~4 chars/token, so 400 chars = ~100 tokens
+        # With size=50 tokens, expect ~2 chunks
+        default_window = Window.create(doc, size=50, overlap=0)
+        default_chunks = default_window.get_all_chunks()
+
+        # Custom estimator: 1 char = 1 token, so 400 chars = 400 tokens
+        # With size=50 tokens, expect ~8 chunks
+        custom_estimator = lambda text: len(text)
+        custom_window = Window.create(
+            doc, size=50, overlap=0, estimate_tokens=custom_estimator
+        )
+        custom_chunks = custom_window.get_all_chunks()
+
+        # Custom estimator should produce more chunks because it estimates more tokens
+        assert len(custom_chunks) > len(default_chunks)
+
+        # Verify chunk sizes are different
+        # Default: each chunk ~200 chars (50 tokens * 4 chars/token)
+        # Custom: each chunk ~50 chars (50 tokens * 1 char/token)
+        assert default_chunks[0].char_count > custom_chunks[0].char_count
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # New Feature Tests - TypeScript Parity

@@ -142,6 +142,23 @@ def estimate_chars_for_tokens(token_count: int) -> int:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+def _estimate_chars_per_token(document: str, token_estimator: TokenEstimator) -> float:
+    """Estimate the chars-per-token ratio using the provided estimator.
+
+    Samples the document to determine the ratio, falling back to default if needed.
+    """
+    # Sample up to 1000 chars from the document for estimation
+    sample = document[:1000] if len(document) > 1000 else document
+    if not sample:
+        return 4.0  # Default ratio
+
+    token_count = token_estimator(sample)
+    if token_count <= 0:
+        return 4.0  # Default ratio
+
+    return len(sample) / token_count
+
+
 def _chunk_by_char(
     document: str,
     size: int,
@@ -151,8 +168,11 @@ def _chunk_by_char(
     """Chunk document by character count."""
     chunks: list[tuple[int, int]] = []
     pos = 0
-    char_size = estimate_chars_for_tokens(size)
-    char_overlap = estimate_chars_for_tokens(overlap)
+
+    # Use the token estimator to calculate chars-per-token ratio
+    chars_per_token = _estimate_chars_per_token(document, token_estimator)
+    char_size = int(size * chars_per_token)
+    char_overlap = int(overlap * chars_per_token)
 
     # Ensure overlap is less than size to guarantee forward progress
     if char_overlap >= char_size:
