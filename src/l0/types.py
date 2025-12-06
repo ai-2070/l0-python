@@ -933,6 +933,9 @@ class LazyStream(Generic[_LazyStreamChunkT]):
         "_timeout",
         "_adapter",
         "_on_event",
+        "_on_token",
+        "_on_tool_call",
+        "_on_violation",
         "_context",
         "_buffer_tool_calls",
         "_runner",
@@ -947,6 +950,9 @@ class LazyStream(Generic[_LazyStreamChunkT]):
         timeout: Timeout | None = None,
         adapter: "Adapter | str | None" = None,
         on_event: Callable[[ObservabilityEvent], None] | None = None,
+        on_token: Callable[[str], None] | None = None,
+        on_tool_call: Callable[[str, str, dict[str, Any]], None] | None = None,
+        on_violation: "Callable[[GuardrailViolation], None] | None" = None,
         context: dict[str, Any] | None = None,
         buffer_tool_calls: bool = False,
     ) -> None:
@@ -955,6 +961,9 @@ class LazyStream(Generic[_LazyStreamChunkT]):
         self._timeout = timeout
         self._adapter = adapter
         self._on_event = on_event
+        self._on_token = on_token
+        self._on_tool_call = on_tool_call
+        self._on_violation = on_violation
         self._context = context
         self._buffer_tool_calls = buffer_tool_calls
         self._runner: Stream[_LazyStreamChunkT] | None = None
@@ -980,6 +989,9 @@ class LazyStream(Generic[_LazyStreamChunkT]):
                 timeout=self._timeout,
                 adapter=self._adapter,
                 on_event=self._on_event,
+                on_token=self._on_token,
+                on_tool_call=self._on_tool_call,
+                on_violation=self._on_violation,
                 context=self._context,
                 buffer_tool_calls=self._buffer_tool_calls,
             )

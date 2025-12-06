@@ -15,6 +15,9 @@ from ..guardrails import (
     MarkdownAnalysis,
 )
 
+# Alias for convenience
+Violation = GuardrailViolation
+
 __all__ = [
     "JSON_ONLY_GUARDRAILS",
     "LATEX_ONLY_GUARDRAILS",
@@ -25,6 +28,7 @@ __all__ = [
     "GuardrailRule",
     "Guardrails",
     "GuardrailViolation",
+    "Violation",
     "JsonAnalysis",
     "LatexAnalysis",
     "MarkdownAnalysis",

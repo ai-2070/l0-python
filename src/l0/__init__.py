@@ -78,6 +78,7 @@ _API_MODULES = {
     "GuardrailRule": "api.guardrails",
     "Guardrails": "api.guardrails",
     "GuardrailViolation": "api.guardrails",
+    "Violation": "api.guardrails",  # Alias for GuardrailViolation
     "JsonAnalysis": "api.guardrails",
     "LatexAnalysis": "api.guardrails",
     "MarkdownAnalysis": "api.guardrails",
@@ -533,6 +534,9 @@ def wrap(
     timeout: "Timeout | None" = None,
     adapter: _Any | str | None = None,
     on_event: "_Callable[[ObservabilityEvent], None] | None" = None,
+    on_token: "_Callable[[str], None] | None" = None,
+    on_tool_call: "_Callable[[str, str, dict[str, _Any]], None] | None" = None,
+    on_violation: "_Callable[[GuardrailViolation], None] | None" = None,
     context: dict[str, _Any] | None = None,
     buffer_tool_calls: bool = False,
     continue_from_last_good_token: "ContinuationConfig | bool" = False,
@@ -549,6 +553,9 @@ def wrap(
     timeout: "Timeout | None" = None,
     adapter: _Any | str | None = None,
     on_event: "_Callable[[ObservabilityEvent], None] | None" = None,
+    on_token: "_Callable[[str], None] | None" = None,
+    on_tool_call: "_Callable[[str, str, dict[str, _Any]], None] | None" = None,
+    on_violation: "_Callable[[GuardrailViolation], None] | None" = None,
     context: dict[str, _Any] | None = None,
     buffer_tool_calls: bool = False,
     continue_from_last_good_token: "ContinuationConfig | bool" = False,
@@ -564,6 +571,9 @@ def wrap(
     timeout: "Timeout | None" = None,
     adapter: _Any | str | None = None,
     on_event: "_Callable[[ObservabilityEvent], None] | None" = None,
+    on_token: "_Callable[[str], None] | None" = None,
+    on_tool_call: "_Callable[[str, str, dict[str, _Any]], None] | None" = None,
+    on_violation: "_Callable[[GuardrailViolation], None] | None" = None,
     context: dict[str, _Any] | None = None,
     buffer_tool_calls: bool = False,
     continue_from_last_good_token: "ContinuationConfig | bool" = False,
@@ -581,6 +591,9 @@ def wrap(
         timeout: Timeout configuration
         adapter: Adapter hint ("openai", "litellm", or Adapter instance)
         on_event: Observability event callback
+        on_token: Callback for each token received (text: str)
+        on_tool_call: Callback for tool calls (name: str, id: str, args: dict)
+        on_violation: Callback for guardrail violations
         context: User context attached to all events (request_id, tenant, etc.)
         buffer_tool_calls: Buffer tool calls until complete (default: False)
         continue_from_last_good_token: Resume from checkpoint on retry (default: False)
@@ -636,6 +649,9 @@ def wrap(
             timeout=timeout,
             adapter=adapter,
             on_event=on_event,
+            on_token=on_token,
+            on_tool_call=on_tool_call,
+            on_violation=on_violation,
             context=context,
             buffer_tool_calls=buffer_tool_calls,
             continue_from_last_good_token=continue_from_last_good_token,
@@ -648,6 +664,9 @@ def wrap(
             timeout=timeout,
             adapter=adapter,
             on_event=on_event,
+            on_token=on_token,
+            on_tool_call=on_tool_call,
+            on_violation=on_violation,
             context=context,
             buffer_tool_calls=buffer_tool_calls,
         )
@@ -849,6 +868,7 @@ __all__ = [
     "Guardrails",
     "GuardrailRule",
     "GuardrailViolation",
+    "Violation",
     "JsonAnalysis",
     "MarkdownAnalysis",
     "LatexAnalysis",

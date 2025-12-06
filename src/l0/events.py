@@ -168,4 +168,9 @@ class EventBus:
             context=self._context.copy(),
             meta=event_meta,
         )
-        self._handler(event)
+        try:
+            self._handler(event)
+        except Exception:
+            # Callback errors are non-fatal - silently ignore
+            # to prevent user code from crashing the stream
+            pass

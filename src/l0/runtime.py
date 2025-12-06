@@ -122,6 +122,11 @@ class LifecycleCallbacks:
     Args: (tool_name: str, tool_call_id: str, args: dict)
     """
 
+    on_token: Callable[[str], None] | None = None
+    """Called for each token received.
+    Args: (text: str)
+    """
+
 
 def _fire_callback(callback: Callable[..., Any] | None, *args: Any) -> None:
     """Fire a callback without blocking or raising errors."""
@@ -199,6 +204,7 @@ async def _internal_run(
     on_abort: Callable[[int, int], None] | None = None,
     on_drift: Callable[[list[str], float | None], None] | None = None,
     on_tool_call: Callable[[str, str, dict[str, Any]], None] | None = None,
+    on_token: Callable[[str], None] | None = None,
 ) -> "Stream[Any]":
     """Internal implementation of the L0 runtime.
 
@@ -230,6 +236,7 @@ async def _internal_run(
         on_abort: Called when stream aborted
         on_drift: Called when drift detected
         on_tool_call: Called when tool call detected
+        on_token: Called for each token received (text)
 
     Returns:
         Stream - async iterator with .state, .abort(), and .read()
@@ -254,6 +261,7 @@ async def _internal_run(
         on_abort=on_abort or (callbacks.on_abort if callbacks else None),
         on_drift=on_drift or (callbacks.on_drift if callbacks else None),
         on_tool_call=on_tool_call or (callbacks.on_tool_call if callbacks else None),
+        on_token=on_token or (callbacks.on_token if callbacks else None),
     )
 
     # Normalize continuation config
@@ -640,6 +648,9 @@ async def _internal_run(
 
                             # Fire on_event callback for token events
                             _fire_callback(cb.on_event, event)
+
+                            # Fire on_token callback
+                            _fire_callback(cb.on_token, token_text)
 
                             # Check guardrails periodically
                             if (
