@@ -1261,10 +1261,10 @@ class TestLifecycleTimestampOrdering:
         # Get all observability events (those with stream_id)
         obs_events = [e for e in collector.events if e.data.get("stream_id")]
 
-        if len(obs_events) > 0:
-            stream_id = obs_events[0].data.get("stream_id")
-            for event in obs_events:
-                assert event.data.get("stream_id") == stream_id
+        assert len(obs_events) > 0, "Expected observability events to be recorded"
+        stream_id = obs_events[0].data.get("stream_id")
+        for event in obs_events:
+            assert event.data.get("stream_id") == stream_id
 
     @pytest.mark.asyncio
     async def test_user_meta_in_events(self):
