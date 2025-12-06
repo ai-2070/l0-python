@@ -1188,7 +1188,7 @@ def _get_restoration_chunk(
     """
     if strategy == "adjacent":
         # Try next chunk first, then previous
-        if window.has_next() and current_index < window.total_chunks - 1:
+        if current_index < window.total_chunks - 1:
             return current_index + 1
         elif current_index > 0:
             return current_index - 1

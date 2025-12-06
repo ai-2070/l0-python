@@ -1032,6 +1032,97 @@ class TestContextRestorationOptions:
         assert callback_called == [(1, 2)]
 
 
+class TestGetRestorationChunk:
+    """Tests for _get_restoration_chunk function."""
+
+    def test_adjacent_strategy_returns_next_chunk(self):
+        """Test adjacent strategy returns next chunk when available."""
+        from l0.window import _get_restoration_chunk
+
+        doc = "word " * 100
+        window = Window.create(doc, size=10, overlap=2)
+
+        # From middle chunk, should return next chunk
+        result = _get_restoration_chunk(window, current_index=1, strategy="adjacent")
+        assert result == 2
+
+    def test_adjacent_strategy_returns_previous_at_end(self):
+        """Test adjacent strategy returns previous chunk when at end."""
+        from l0.window import _get_restoration_chunk
+
+        doc = "word " * 100
+        window = Window.create(doc, size=10, overlap=2)
+        last_index = window.total_chunks - 1
+
+        # From last chunk, should return previous chunk
+        result = _get_restoration_chunk(
+            window, current_index=last_index, strategy="adjacent"
+        )
+        assert result == last_index - 1
+
+    def test_adjacent_strategy_independent_of_window_cursor(self):
+        """Test that adjacent strategy uses current_index, not window's internal cursor."""
+        from l0.window import _get_restoration_chunk
+
+        doc = "word " * 100
+        window = Window.create(doc, size=10, overlap=2)
+
+        # Move window's internal cursor to end
+        while window.has_next():
+            window.next()
+
+        # Even though window cursor is at end, passing current_index=0 should return 1
+        result = _get_restoration_chunk(window, current_index=0, strategy="adjacent")
+        assert result == 1
+
+    def test_overlap_strategy_returns_next_only(self):
+        """Test overlap strategy only returns next chunk."""
+        from l0.window import _get_restoration_chunk
+
+        doc = "word " * 100
+        window = Window.create(doc, size=10, overlap=2)
+        last_index = window.total_chunks - 1
+
+        # From middle, returns next
+        result = _get_restoration_chunk(window, current_index=1, strategy="overlap")
+        assert result == 2
+
+        # From last chunk, returns None (doesn't try previous)
+        result = _get_restoration_chunk(
+            window, current_index=last_index, strategy="overlap"
+        )
+        assert result is None
+
+    def test_full_strategy_returns_next_then_previous(self):
+        """Test full strategy returns next chunk first, then previous."""
+        from l0.window import _get_restoration_chunk
+
+        doc = "word " * 100
+        window = Window.create(doc, size=10, overlap=2)
+        last_index = window.total_chunks - 1
+
+        # From middle, returns next
+        result = _get_restoration_chunk(window, current_index=1, strategy="full")
+        assert result == 2
+
+        # From last chunk, returns previous
+        result = _get_restoration_chunk(
+            window, current_index=last_index, strategy="full"
+        )
+        assert result == last_index - 1
+
+    def test_returns_none_for_single_chunk(self):
+        """Test returns None when document has only one chunk."""
+        from l0.window import _get_restoration_chunk
+
+        doc = "short"
+        window = Window.create(doc, size=1000, overlap=0)
+        assert window.total_chunks == 1
+
+        result = _get_restoration_chunk(window, current_index=0, strategy="adjacent")
+        assert result is None
+
+
 class TestWindowConfigPreserveOptions:
     """Tests for preserve_paragraphs and preserve_sentences options."""
 
