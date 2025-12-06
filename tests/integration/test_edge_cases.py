@@ -239,16 +239,11 @@ class TestRetryEdgeCases:
         attempt_count = 0
         retry_count = 0
 
-        def on_retry(
-            error: Exception,
-            state: l0.State,
-            attempt: int,
-            category: l0.ErrorCategory,
-        ) -> None:
+        def on_retry(attempt: int, reason: str) -> None:
             nonlocal retry_count
             retry_count += 1
 
-        async def stream_with_failures() -> None:
+        async def stream_with_failures():
             nonlocal attempt_count
             attempt_count += 1
             if attempt_count < 2:

@@ -109,7 +109,8 @@ class TestSingleToolCall:
             stream=True,
         )
 
-        result = l0.wrap(stream, on_tool_call=on_tool_call)
+        # Use buffer_tool_calls=True to get complete tool calls with parsed arguments
+        result = l0.wrap(stream, on_tool_call=on_tool_call, buffer_tool_calls=True)
 
         async for _ in result:
             pass
@@ -143,6 +144,39 @@ class TestSingleToolCall:
         assert len(tool_call_ids) >= 1
         # OpenAI tool call IDs start with "call_"
         assert tool_call_ids[0].startswith("call_")
+
+    @pytest.mark.asyncio
+    async def test_unbuffered_tool_call_streams_immediately(
+        self, client: "AsyncOpenAI"
+    ) -> None:
+        """Test that unbuffered mode fires callback as soon as tool call is detected."""
+        callback_times: list[float] = []
+        import time
+
+        def on_tool_call(name: str, tool_call_id: str, args: dict[str, Any]) -> None:
+            callback_times.append(time.time())
+
+        stream = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": "What's the weather in Paris?"}],
+            tools=[WEATHER_TOOL],
+            tool_choice={"type": "function", "function": {"name": "get_weather"}},
+            stream=True,
+        )
+
+        start_time = time.time()
+        # Unbuffered mode (default) - callback fires on first tool call chunk
+        result = l0.wrap(stream, on_tool_call=on_tool_call)
+        async for _ in result:
+            pass
+        end_time = time.time()
+
+        # Callback should have fired at least once
+        assert len(callback_times) >= 1
+        # In unbuffered mode, callback fires early (before stream completes)
+        # The first callback should happen before we finish consuming the stream
+        first_callback = callback_times[0]
+        assert first_callback < end_time
 
 
 @requires_openai
@@ -248,7 +282,8 @@ class TestToolCallArguments:
             stream=True,
         )
 
-        result = l0.wrap(stream, on_tool_call=on_tool_call)
+        # Use buffer_tool_calls=True to get complete tool calls with parsed arguments
+        result = l0.wrap(stream, on_tool_call=on_tool_call, buffer_tool_calls=True)
         async for _ in result:
             pass
 
@@ -272,7 +307,8 @@ class TestToolCallArguments:
             stream=True,
         )
 
-        result = l0.wrap(stream, on_tool_call=on_tool_call)
+        # Use buffer_tool_calls=True to get complete tool calls with parsed arguments
+        result = l0.wrap(stream, on_tool_call=on_tool_call, buffer_tool_calls=True)
         async for _ in result:
             pass
 

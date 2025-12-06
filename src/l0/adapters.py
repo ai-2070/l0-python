@@ -156,8 +156,14 @@ class OpenAIAdapter:
         options: OpenAIAdapterOptions | None = None,
     ) -> AsyncIterator[AdaptedEvent[Any]]:
         """Wrap OpenAI/LiteLLM stream into AdaptedEvents."""
+        import inspect
+
         opts = options or OpenAIAdapterOptions()
         usage = None
+
+        # Handle coroutines (unawaited stream factories)
+        if inspect.iscoroutine(stream):
+            stream = await stream
 
         async for chunk in stream:
             if hasattr(chunk, "choices") and chunk.choices:
