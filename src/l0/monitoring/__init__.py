@@ -88,6 +88,9 @@ from .config import (
 from .dispatcher import EventDispatcher
 from .exporter import TelemetryExporter
 from .handlers import (
+    # Scoped API
+    Monitoring,
+    # Legacy functions
     batch_events,
     combine_events,
     debounce_events,
@@ -136,6 +139,8 @@ from .telemetry import (
 )
 
 __all__ = [
+    # Scoped API
+    "Monitoring",  # Class with .combine(), .filter(), .exclude(), .debounce(), .batch(), .sample(), .tap()
     # Config
     "MonitoringConfig",
     "MetricsConfig",

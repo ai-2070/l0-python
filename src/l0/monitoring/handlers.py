@@ -318,3 +318,233 @@ def tap_events(handler: EventHandler) -> EventHandler:
             pass
 
     return tap_handler
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Scoped API
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class Monitoring:
+    """Scoped API for monitoring and event handler utilities.
+
+    Provides utilities for combining, filtering, and transforming event handlers
+    for the L0 observability pipeline.
+
+    Usage:
+        ```python
+        from l0 import Monitoring
+
+        # Combine multiple handlers
+        combined = Monitoring.combine(
+            handler1,
+            handler2,
+            lambda e: print(e.type),
+        )
+
+        # Filter events by type
+        errors_only = Monitoring.filter(
+            ["ERROR", "NETWORK_ERROR"],
+            error_handler,
+        )
+
+        # Exclude noisy events
+        quiet = Monitoring.exclude(
+            ["TOKEN"],
+            logger_handler,
+        )
+
+        # Batch events for efficient processing
+        batched = Monitoring.batch(
+            size=10,
+            max_wait_seconds=1.0,
+            handler=lambda events: send_to_analytics(events),
+        )
+
+        # Sample events for high-volume streams
+        sampled = Monitoring.sample(0.1, handler)  # 10% sampling
+        ```
+    """
+
+    @staticmethod
+    def combine(*handlers: EventHandler | None) -> EventHandler:
+        """Combine multiple event handlers into a single handler.
+
+        Args:
+            handlers: Event handlers to combine (None values are filtered out)
+
+        Returns:
+            A single event handler that calls all provided handlers
+        """
+        return combine_events(*handlers)
+
+    @staticmethod
+    def filter(
+        types: list[str],
+        handler: EventHandler,
+    ) -> EventHandler:
+        """Create a filtered event handler that only receives specific event types.
+
+        Args:
+            types: Event types to include
+            handler: Handler to call for matching events
+
+        Returns:
+            Filtered event handler
+        """
+        return filter_events(types, handler)
+
+    @staticmethod
+    def exclude(
+        types: list[str],
+        handler: EventHandler,
+    ) -> EventHandler:
+        """Create an event handler that excludes specific event types.
+
+        Args:
+            types: Event types to exclude
+            handler: Handler to call for non-excluded events
+
+        Returns:
+            Filtered event handler
+        """
+        return exclude_events(types, handler)
+
+    @staticmethod
+    def debounce(
+        seconds: float,
+        handler: EventHandler,
+    ) -> EventHandler:
+        """Create a debounced event handler for high-frequency events.
+
+        Args:
+            seconds: Debounce interval in seconds
+            handler: Handler to call with latest event
+
+        Returns:
+            Debounced event handler
+        """
+        return debounce_events(seconds, handler)
+
+    @staticmethod
+    def batch(
+        size: int,
+        max_wait_seconds: float,
+        handler: BatchEventHandler,
+    ) -> EventHandler:
+        """Create a batched event handler that collects events and processes them in batches.
+
+        Args:
+            size: Maximum batch size
+            max_wait_seconds: Maximum time to wait before flushing partial batch
+            handler: Handler to call with batched events
+
+        Returns:
+            Batching event handler
+        """
+        return batch_events(size, max_wait_seconds, handler)
+
+    @staticmethod
+    def sample(
+        rate: float,
+        handler: EventHandler,
+    ) -> EventHandler:
+        """Create a sampling event handler that only processes a fraction of events.
+
+        Args:
+            rate: Sampling rate between 0.0 and 1.0 (e.g., 0.1 = 10% of events)
+            handler: Handler to call for sampled events
+
+        Returns:
+            Sampling event handler
+        """
+        return sample_events(rate, handler)
+
+    @staticmethod
+    def tap(handler: EventHandler) -> EventHandler:
+        """Create a pass-through handler that observes events without modifying them.
+
+        Args:
+            handler: Handler to call for each event
+
+        Returns:
+            Pass-through event handler
+        """
+        return tap_events(handler)
+
+    @staticmethod
+    def opentelemetry(
+        tracer: Any = None,
+        meter: Any = None,
+        *,
+        service_name: str = "l0",
+        trace_tokens: bool = False,
+        record_token_content: bool = False,
+        record_guardrail_violations: bool = True,
+        default_attributes: dict[str, Any] | None = None,
+    ) -> EventHandler:
+        """Create an OpenTelemetry event handler.
+
+        Args:
+            tracer: OpenTelemetry tracer instance.
+            meter: OpenTelemetry meter instance.
+            service_name: Service name for spans.
+            trace_tokens: Whether to create spans for individual tokens.
+            record_token_content: Whether to record token content in spans.
+            record_guardrail_violations: Whether to record guardrail violations.
+            default_attributes: Custom attributes to add to all spans.
+
+        Returns:
+            Event handler function.
+        """
+        from .otel import create_opentelemetry_handler
+
+        return create_opentelemetry_handler(
+            tracer=tracer,
+            meter=meter,
+            service_name=service_name,
+            trace_tokens=trace_tokens,
+            record_token_content=record_token_content,
+            record_guardrail_violations=record_guardrail_violations,
+            default_attributes=default_attributes,
+        )
+
+    @staticmethod
+    def sentry(
+        sentry: Any,
+        *,
+        capture_network_errors: bool = True,
+        capture_guardrail_violations: bool = True,
+        min_guardrail_severity: str = "error",
+        breadcrumbs_for_tokens: bool = False,
+        enable_tracing: bool = True,
+        tags: dict[str, str] | None = None,
+        environment: str | None = None,
+    ) -> EventHandler:
+        """Create a Sentry event handler.
+
+        Args:
+            sentry: Sentry client instance (import sentry_sdk).
+            capture_network_errors: Whether to capture network errors.
+            capture_guardrail_violations: Whether to capture guardrail violations.
+            min_guardrail_severity: Minimum severity to capture.
+            breadcrumbs_for_tokens: Whether to add breadcrumbs for tokens.
+            enable_tracing: Whether to enable performance monitoring.
+            tags: Custom tags to add to all events.
+            environment: Environment name.
+
+        Returns:
+            Event handler function.
+        """
+        from .sentry import create_sentry_handler
+
+        return create_sentry_handler(
+            sentry=sentry,
+            capture_network_errors=capture_network_errors,
+            capture_guardrail_violations=capture_guardrail_violations,
+            min_guardrail_severity=min_guardrail_severity,
+            breadcrumbs_for_tokens=breadcrumbs_for_tokens,
+            enable_tracing=enable_tracing,
+            tags=tags,
+            environment=environment,
+        )

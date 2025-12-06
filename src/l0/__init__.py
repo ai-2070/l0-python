@@ -137,24 +137,18 @@ from .metrics import (
     reset_global_metrics,
 )
 from .monitoring import (
+    # Types (also available via Monitoring.* where applicable)
     L0OpenTelemetry,
     L0OpenTelemetryConfig,
     L0Sentry,
     L0SentryConfig,
+    # Scoped API
+    Monitoring,
     OpenTelemetryConfig,
     OpenTelemetryExporter,
     SemanticAttributes,
     SentryConfig,
     SentryExporter,
-    batch_events,
-    combine_events,
-    create_opentelemetry_handler,
-    create_sentry_handler,
-    debounce_events,
-    exclude_events,
-    filter_events,
-    sample_events,
-    tap_events,
 )
 from .multimodal import Multimodal
 from .normalize import (
@@ -761,14 +755,8 @@ __all__ = [
     "L0Sentry",
     "L0SentryConfig",
     "SemanticAttributes",
-    # Event handler utilities
-    "combine_events",
-    "filter_events",
-    "exclude_events",
-    "debounce_events",
-    "batch_events",
-    "sample_events",
-    "tap_events",
+    # Event handler utilities (scoped API)
+    "Monitoring",  # Class with .combine(), .filter(), .exclude(), .debounce(), .batch(), .sample(), .tap()
     # Formatting
     "Format",
     # JSON Schema (scoped API)
