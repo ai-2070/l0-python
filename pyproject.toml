@@ -120,13 +120,6 @@ reportUnnecessaryCast = false
 reportUnusedImport = "warning"
 reportUnusedVariable = "warning"
 reportUnusedFunction = "warning"
-# Relax for test code patterns
-reportMissingParameterType = false
-reportOptionalMemberAccess = false
-reportOptionalSubscript = false
-reportOptionalIterable = false
-reportOptionalCall = false
-reportOptionalOperand = false
 
 [tool.ruff]
 target-version = "py310"
