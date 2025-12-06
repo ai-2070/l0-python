@@ -920,22 +920,25 @@ class NetworkError:
     @staticmethod
     def _get_type_delay(error_type: NetworkErrorType, delays: ErrorTypeDelays) -> float:
         """Get base delay for a specific network error type."""
+        default_delay = 1.0
         mapping: dict[NetworkErrorType, float] = {
-            NetworkErrorType.CONNECTION_DROPPED: delays.connection_dropped,
-            NetworkErrorType.FETCH_ERROR: delays.fetch_error,
-            NetworkErrorType.ECONNRESET: delays.econnreset,
-            NetworkErrorType.ECONNREFUSED: delays.econnrefused,
-            NetworkErrorType.SSE_ABORTED: delays.sse_aborted,
-            NetworkErrorType.NO_BYTES: delays.no_bytes,
-            NetworkErrorType.PARTIAL_CHUNKS: delays.partial_chunks,
-            NetworkErrorType.RUNTIME_KILLED: delays.runtime_killed,
-            NetworkErrorType.BACKGROUND_THROTTLE: delays.background_throttle,
-            NetworkErrorType.DNS_ERROR: delays.dns_error,
-            NetworkErrorType.SSL_ERROR: 0.0,
-            NetworkErrorType.TIMEOUT: delays.timeout,
-            NetworkErrorType.UNKNOWN: delays.unknown,
+            NetworkErrorType.CONNECTION_DROPPED: delays.connection_dropped
+            or default_delay,
+            NetworkErrorType.FETCH_ERROR: delays.fetch_error or default_delay,
+            NetworkErrorType.ECONNRESET: delays.econnreset or default_delay,
+            NetworkErrorType.ECONNREFUSED: delays.econnrefused or default_delay,
+            NetworkErrorType.SSE_ABORTED: delays.sse_aborted or default_delay,
+            NetworkErrorType.NO_BYTES: delays.no_bytes or default_delay,
+            NetworkErrorType.PARTIAL_CHUNKS: delays.partial_chunks or default_delay,
+            NetworkErrorType.RUNTIME_KILLED: delays.runtime_killed or default_delay,
+            NetworkErrorType.BACKGROUND_THROTTLE: delays.background_throttle
+            or default_delay,
+            NetworkErrorType.DNS_ERROR: delays.dns_error or default_delay,
+            NetworkErrorType.SSL_ERROR: delays.ssl_error or 0.0,
+            NetworkErrorType.TIMEOUT: delays.timeout or default_delay,
+            NetworkErrorType.UNKNOWN: delays.unknown or default_delay,
         }
-        return mapping.get(error_type, delays.unknown)
+        return mapping.get(error_type, delays.unknown or default_delay)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

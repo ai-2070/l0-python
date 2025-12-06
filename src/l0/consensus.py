@@ -518,7 +518,7 @@ def calculate_structural_similarity(a: Any, b: Any) -> float:
         max_diff = max(abs(a), abs(b))
         if max_diff == 0:
             return 1.0
-        return 1 - abs(a - b) / max_diff
+        return float(1 - abs(a - b) / max_diff)
 
     if isinstance(a, bool):
         return 1.0 if a == b else 0.0

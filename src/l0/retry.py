@@ -154,7 +154,10 @@ class RetryManager:
         )
 
         # Check absolute max
-        if self.total_retries >= self.config.max_retries:
+        max_retries = (
+            self.config.max_retries if self.config.max_retries is not None else 10
+        )
+        if self.total_retries >= max_retries:
             logger.debug(f"Max retries reached: {self.total_retries}")
             return False
 
@@ -170,9 +173,10 @@ class RetryManager:
 
         # Check model retry limit for non-network errors
         if category not in (ErrorCategory.NETWORK, ErrorCategory.TRANSIENT):
-            if self.model_retry_count >= self.config.attempts:
+            attempts = self.config.attempts if self.config.attempts is not None else 3
+            if self.model_retry_count >= attempts:
                 logger.debug(
-                    f"Model retry limit reached: {self.model_retry_count} >= {self.config.attempts}"
+                    f"Model retry limit reached: {self.model_retry_count} >= {attempts}"
                 )
                 return False
 
@@ -228,6 +232,20 @@ class RetryManager:
         attempt = self.network_retry_count if is_network else self.model_retry_count
 
         # Check for custom delay calculation
+        # Default values for delays
+        default_base_delay = 1.0
+        default_max_delay = 30.0
+        base_delay = (
+            self.config.base_delay
+            if self.config.base_delay is not None
+            else default_base_delay
+        )
+        max_delay = (
+            self.config.max_delay
+            if self.config.max_delay is not None
+            else default_max_delay
+        )
+
         if self.config.calculate_delay is not None:
             context = RetryContext(
                 attempt=attempt,
@@ -237,8 +255,8 @@ class RetryManager:
                 model_retry_count=self.model_retry_count,
                 network_retry_count=self.network_retry_count,
                 total_retries=self.total_retries,
-                base_delay=self.config.base_delay,
-                max_delay=self.config.max_delay,
+                base_delay=base_delay,
+                max_delay=max_delay,
             )
             delay = self.config.calculate_delay(context)
             logger.debug(f"Custom delay: {delay:.2f}s")
@@ -249,9 +267,9 @@ class RetryManager:
             analysis = NetworkError.analyze(error)
             base = self._get_error_type_delay(analysis.type)
         else:
-            base = self.config.base_delay
+            base = base_delay
 
-        cap = self.config.max_delay
+        cap = max_delay
 
         match self.config.strategy:
             case BackoffStrategy.EXPONENTIAL:
@@ -273,11 +291,18 @@ class RetryManager:
 
     def _get_error_type_delay(self, error_type: NetworkErrorType) -> float:
         """Get base delay for a specific network error type."""
+        default_base_delay = 1.0
+        base_delay = (
+            self.config.base_delay
+            if self.config.base_delay is not None
+            else default_base_delay
+        )
+
         if not self.config.error_type_delays:
-            return self.config.base_delay
+            return base_delay
 
         delays = self.config.error_type_delays
-        mapping = {
+        mapping: dict[NetworkErrorType, float | None] = {
             NetworkErrorType.CONNECTION_DROPPED: delays.connection_dropped,
             NetworkErrorType.FETCH_ERROR: delays.fetch_error,
             NetworkErrorType.ECONNRESET: delays.econnreset,
@@ -292,7 +317,8 @@ class RetryManager:
             NetworkErrorType.TIMEOUT: delays.timeout,
             NetworkErrorType.UNKNOWN: delays.unknown,
         }
-        return mapping.get(error_type, self.config.base_delay)
+        delay = mapping.get(error_type)
+        return delay if delay is not None else base_delay
 
     async def wait(self, error: Exception) -> None:
         """Wait for the calculated delay before retrying."""

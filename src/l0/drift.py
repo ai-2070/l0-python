@@ -15,7 +15,7 @@ from __future__ import annotations
 import math
 import re
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Any, Literal
 
 # Drift types that can be detected
 DriftType = Literal[
@@ -367,7 +367,7 @@ class DriftDetector:
         """Reset detector state."""
         self._history = _DriftHistory()
 
-    def get_history(self) -> dict:
+    def get_history(self) -> dict[str, Any]:
         """Get detection history."""
         return {
             "entropy": self._history.entropy.copy(),

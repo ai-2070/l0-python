@@ -360,7 +360,7 @@ def cosine_similarity(a: str, b: str) -> float:
     if magnitude_a == 0 or magnitude_b == 0:
         return 0.0
 
-    return dot_product / (magnitude_a * magnitude_b)
+    return float(dot_product / (magnitude_a * magnitude_b))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -443,12 +443,14 @@ def deep_equal(a: Any, b: Any) -> bool:
     if type_a != type_b:
         # Special case: int and float
         if isinstance(a, (int, float)) and isinstance(b, (int, float)):
-            return a == b
+            numeric_eq: bool = a == b
+            return numeric_eq
         return False
 
     # Primitives that aren't equal
     if isinstance(a, (str, int, float, bool)):
-        return a == b
+        primitive_eq: bool = a == b
+        return primitive_eq
 
     # Array comparison with early termination
     if isinstance(a, list):
@@ -469,7 +471,8 @@ def deep_equal(a: Any, b: Any) -> bool:
         return True
 
     # Fallback to regular equality
-    return a == b
+    fallback_eq: bool = a == b
+    return fallback_eq
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -393,15 +393,21 @@ def format_tool(
     if options is None:
         opts = ToolFormatOptions()
     elif isinstance(options, dict):
+        include_types_val = options.get(
+            "include_types", options.get("includeTypes", True)
+        )
+        include_examples_val = options.get(
+            "include_examples", options.get("includeExamples", False)
+        )
         opts = ToolFormatOptions(
             style=options.get("style", "json-schema"),
             include_description=options.get("include_description", True),
-            include_types=options.get(
-                "include_types", options.get("includeTypes", True)
-            ),
-            include_examples=options.get(
-                "include_examples", options.get("includeExamples", False)
-            ),
+            include_types=bool(include_types_val)
+            if include_types_val is not None
+            else True,
+            include_examples=bool(include_examples_val)
+            if include_examples_val is not None
+            else False,
         )
     else:
         opts = options
@@ -443,15 +449,21 @@ def format_tools(
     if options is None:
         opts = ToolFormatOptions()
     elif isinstance(options, dict):
+        include_types_val = options.get(
+            "include_types", options.get("includeTypes", True)
+        )
+        include_examples_val = options.get(
+            "include_examples", options.get("includeExamples", False)
+        )
         opts = ToolFormatOptions(
             style=options.get("style", "json-schema"),
             include_description=options.get("include_description", True),
-            include_types=options.get(
-                "include_types", options.get("includeTypes", True)
-            ),
-            include_examples=options.get(
-                "include_examples", options.get("includeExamples", False)
-            ),
+            include_types=bool(include_types_val)
+            if include_types_val is not None
+            else True,
+            include_examples=bool(include_examples_val)
+            if include_examples_val is not None
+            else False,
         )
     else:
         opts = options

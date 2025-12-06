@@ -85,7 +85,8 @@ def _extract_text_from_chunk(chunk: Any) -> str | None:
     for field in text_fields:
         value = chunk.get(field)
         if value and isinstance(value, str):
-            return value
+            text: str = value
+            return text
 
     # Try nested delta/content
     delta = chunk.get("delta")
@@ -93,7 +94,8 @@ def _extract_text_from_chunk(chunk: Any) -> str | None:
         for field in text_fields:
             value = delta.get(field)
             if value and isinstance(value, str):
-                return value
+                text = value
+                return text
 
     return None
 

@@ -27,6 +27,7 @@ if TYPE_CHECKING:
     pass
 
 T = TypeVar("T", bound=BaseModel)
+ResultT = TypeVar("ResultT")  # For StructuredResult, not bound to BaseModel
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -77,11 +78,11 @@ class StructuredTelemetry:
 
 
 @dataclass
-class StructuredResult(Generic[T]):
+class StructuredResult(Generic[ResultT]):
     """Result of structured output extraction.
 
     Attributes:
-        data: Validated Pydantic model instance
+        data: Validated Pydantic model instance (or list of models for array results)
         raw: Raw JSON string before parsing
         corrected: Whether auto-correction was applied
         corrections: List of corrections applied
@@ -91,7 +92,7 @@ class StructuredResult(Generic[T]):
         errors: List of errors encountered during retries
     """
 
-    data: T
+    data: ResultT
     raw: str
     corrected: bool = False
     corrections: list[str] = field(default_factory=list)
@@ -179,7 +180,7 @@ async def structured(
     """
     event_bus = EventBus(on_event)
     retry_config = retry or Retry(attempts=1)
-    max_attempts = retry_config.attempts
+    max_attempts = retry_config.attempts if retry_config.attempts is not None else 1
 
     # Track structured-specific state
     validation_attempts = 0
@@ -779,7 +780,7 @@ async def structured_array(
     # Custom parsing to handle array validation
     event_bus = EventBus(on_event)
     retry_config = retry or Retry(attempts=1)
-    max_attempts = retry_config.attempts
+    max_attempts = retry_config.attempts if retry_config.attempts is not None else 1
 
     # Track structured-specific state
     validation_attempts = 0

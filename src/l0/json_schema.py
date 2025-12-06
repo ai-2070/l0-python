@@ -198,12 +198,14 @@ def validate_json_schema(
     adapter = get_json_schema_adapter()
     result = adapter.validate(schema, data)
 
-    if result.valid:
+    if isinstance(result, JSONSchemaValidationSuccess) and result.valid:
         return (True, result.data, None)
-    else:
+    elif isinstance(result, JSONSchemaValidationFailure):
         errors = result.errors or []
         message = adapter.format_errors(errors)
         return (False, None, ValueError(message))
+    else:
+        return (False, None, ValueError("Unknown validation result"))
 
 
 # ─────────────────────────────────────────────────────────────────────────────

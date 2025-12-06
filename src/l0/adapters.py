@@ -37,8 +37,8 @@ from .logging import logger
 from .types import ContentType, DataPayload, Event, EventType, Progress
 
 # TypeVar for adapter chunk types
-AdapterChunkT = TypeVar("AdapterChunkT")
-AdapterOptionsT = TypeVar("AdapterOptionsT")
+AdapterChunkT = TypeVar("AdapterChunkT", covariant=True)
+AdapterOptionsT = TypeVar("AdapterOptionsT", contravariant=True)
 
 
 @dataclass
@@ -279,7 +279,7 @@ class Adapters:
         Adapters.register(my_adapter)
 
         # List registered adapters
-        names = Adapters.list()
+        names = Adapters.registered()
 
         # Unregister an adapter
         Adapters.unregister("my_adapter")
@@ -365,15 +365,6 @@ class Adapters:
                 _adapters.pop(i)
                 return True
         return False
-
-    @staticmethod
-    def list() -> list[str]:
-        """List names of all registered adapters.
-
-        Returns:
-            List of adapter names in priority order
-        """
-        return [a.name for a in _adapters]
 
     @staticmethod
     def clear() -> None:
@@ -479,7 +470,7 @@ class Adapters:
     def registered() -> list[str]:
         """List names of all registered adapters.
 
-        Alias for list() - matches TS getRegisteredStreamAdapters().
+        Matches TS getRegisteredStreamAdapters().
 
         Returns:
             List of adapter names in priority order
@@ -916,9 +907,9 @@ async def to_multimodal_l0_events(
 
             # Multimodal data
             if extract_data:
-                data = extract_data(chunk)
-                if data is not None:
-                    yield Event(type=EventType.DATA, data=data)
+                payload = extract_data(chunk)
+                if payload is not None:
+                    yield Event(type=EventType.DATA, payload=payload)
                     continue
 
             # Progress updates
@@ -992,7 +983,7 @@ def create_data_event(payload: DataPayload) -> Event:
     Returns:
         Event of type DATA
     """
-    return Event(type=EventType.DATA, data=payload)
+    return Event(type=EventType.DATA, payload=payload)
 
 
 def create_progress_event(progress: Progress) -> Event:
@@ -1035,13 +1026,13 @@ def create_image_event(
         meta["height"] = height
 
     payload = DataPayload(
-        content_type="image",
+        content_type=ContentType.IMAGE,
         mime_type=mime_type,
         url=url,
         base64=base64,
         metadata=meta if meta else None,
     )
-    return Event(type=EventType.DATA, data=payload)
+    return Event(type=EventType.DATA, payload=payload)
 
 
 def create_audio_event(
@@ -1068,10 +1059,10 @@ def create_audio_event(
         meta["duration"] = duration
 
     payload = DataPayload(
-        content_type="audio",
+        content_type=ContentType.AUDIO,
         mime_type=mime_type,
         url=url,
         base64=base64,
         metadata=meta if meta else None,
     )
-    return Event(type=EventType.DATA, data=payload)
+    return Event(type=EventType.DATA, payload=payload)
