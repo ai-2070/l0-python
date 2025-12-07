@@ -68,7 +68,7 @@ class TestBasicConsensus:
                 ],
                 max_tokens=10,
             )
-            return stream.choices[0].message.content.strip()
+            return (stream.choices[0].message.content or "").strip()
 
         result = await Consensus.run(
             [ask_capital, ask_capital, ask_capital],
@@ -96,7 +96,7 @@ class TestBasicConsensus:
                 ],
                 max_tokens=5,
             )
-            return stream.choices[0].message.content.strip().lower()
+            return (stream.choices[0].message.content or "").strip().lower()
 
         result = await Consensus.run(
             [simple_response, simple_response],
@@ -157,7 +157,7 @@ class TestConsensusPresets:
                 ],
                 max_tokens=5,
             )
-            return stream.choices[0].message.content.strip()
+            return (stream.choices[0].message.content or "").strip()
 
         result = await Consensus.strict([fact_response, fact_response])
 
@@ -179,7 +179,7 @@ class TestConsensusPresets:
                 ],
                 max_tokens=5,
             )
-            return stream.choices[0].message.content.strip().lower()
+            return (stream.choices[0].message.content or "").strip().lower()
 
         result = await Consensus.standard(
             [yes_no_response, yes_no_response, yes_no_response]
@@ -303,7 +303,7 @@ class TestWeightedConsensus:
                 messages=[{"role": "user", "content": "Say 'yes'"}],
                 max_tokens=5,
             )
-            return stream.choices[0].message.content.strip()
+            return (stream.choices[0].message.content or "").strip()
 
         result = await Consensus.run(
             [get_response, get_response, get_response],
@@ -433,7 +433,7 @@ class TestConsensusAnalysis:
                 ],
                 max_tokens=5,
             )
-            return stream.choices[0].message.content.strip().lower()
+            return (stream.choices[0].message.content or "").strip().lower()
 
         result = await Consensus.run(
             [fact_response, fact_response, fact_response],

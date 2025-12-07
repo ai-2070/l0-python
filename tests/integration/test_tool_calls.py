@@ -7,7 +7,7 @@ Requires OPENAI_API_KEY to be set.
 Run with: pytest tests/integration/test_tool_calls.py -v
 """
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 
@@ -16,69 +16,79 @@ from tests.conftest import requires_openai
 
 if TYPE_CHECKING:
     from openai import AsyncOpenAI
+    from openai.types.chat import ChatCompletionToolParam
 
 
 # Tool definitions for OpenAI
-WEATHER_TOOL = {
-    "type": "function",
-    "function": {
-        "name": "get_weather",
-        "description": "Get the current weather for a location",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "location": {"type": "string", "description": "City name"},
-                "unit": {
-                    "type": "string",
-                    "enum": ["celsius", "fahrenheit"],
-                },
-            },
-            "required": ["location"],
-        },
-    },
-}
-
-TIME_TOOL = {
-    "type": "function",
-    "function": {
-        "name": "get_time",
-        "description": "Get the current time for a timezone",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "timezone": {"type": "string", "description": "IANA timezone name"},
-            },
-            "required": ["timezone"],
-        },
-    },
-}
-
-SEARCH_TOOL = {
-    "type": "function",
-    "function": {
-        "name": "search_products",
-        "description": "Search for products with filters",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "query": {"type": "string"},
-                "filters": {
-                    "type": "object",
-                    "properties": {
-                        "min_price": {"type": "number"},
-                        "max_price": {"type": "number"},
-                        "categories": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                        },
+WEATHER_TOOL: "ChatCompletionToolParam" = cast(
+    "ChatCompletionToolParam",
+    {
+        "type": "function",
+        "function": {
+            "name": "get_weather",
+            "description": "Get the current weather for a location",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "location": {"type": "string", "description": "City name"},
+                    "unit": {
+                        "type": "string",
+                        "enum": ["celsius", "fahrenheit"],
                     },
                 },
-                "limit": {"type": "number"},
+                "required": ["location"],
             },
-            "required": ["query"],
         },
     },
-}
+)
+
+TIME_TOOL: "ChatCompletionToolParam" = cast(
+    "ChatCompletionToolParam",
+    {
+        "type": "function",
+        "function": {
+            "name": "get_time",
+            "description": "Get the current time for a timezone",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "timezone": {"type": "string", "description": "IANA timezone name"},
+                },
+                "required": ["timezone"],
+            },
+        },
+    },
+)
+
+SEARCH_TOOL: "ChatCompletionToolParam" = cast(
+    "ChatCompletionToolParam",
+    {
+        "type": "function",
+        "function": {
+            "name": "search_products",
+            "description": "Search for products with filters",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string"},
+                    "filters": {
+                        "type": "object",
+                        "properties": {
+                            "min_price": {"type": "number"},
+                            "max_price": {"type": "number"},
+                            "categories": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                            },
+                        },
+                    },
+                    "limit": {"type": "number"},
+                },
+                "required": ["query"],
+            },
+        },
+    },
+)
 
 
 @requires_openai

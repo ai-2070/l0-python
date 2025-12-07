@@ -21,7 +21,16 @@ from ._utils import (
 from .adapters import Adapter
 from .events import EventBus, ObservabilityEvent, ObservabilityEventType
 from .runtime import _internal_run
-from .types import Event, RawStream, Retry, State, StreamFactory, StreamSource, Timeout
+from .types import (
+    AwaitableStreamFactory,
+    AwaitableStreamSource,
+    Event,
+    RawStream,
+    Retry,
+    State,
+    StreamFactory,
+    Timeout,
+)
 
 if TYPE_CHECKING:
     pass
@@ -111,6 +120,7 @@ class StructuredResult(Generic[ResultT]):
     def is_aborted(self) -> bool:
         """Check if abort was requested."""
         return self._aborted
+
     structured_state: StructuredState | None = None
     telemetry: StructuredTelemetry | None = None
     errors: list[Exception] = field(default_factory=list)
@@ -133,9 +143,9 @@ class AutoCorrectInfo:
 
 async def structured(
     schema: type[T],
-    stream: StreamSource,
+    stream: AwaitableStreamSource,
     *,
-    fallbacks: list[StreamSource] | None = None,
+    fallbacks: list[AwaitableStreamSource] | None = None,
     auto_correct: bool = True,
     strict_mode: bool = False,
     retry: Retry | None = None,
@@ -238,14 +248,14 @@ async def structured(
         stream = _make_buffering_factory(cast(RawStream, stream))
 
     # Build list of streams to try
-    all_streams: list[StreamSource] = [stream]
+    all_streams: list[AwaitableStreamSource] = [stream]
     if fallbacks:
-        wrapped_fallbacks: list[StreamFactory] = []
+        wrapped_fallbacks: list[AwaitableStreamFactory] = []
         for fb in fallbacks:
             if _is_async_iterator(fb):
                 wrapped_fallbacks.append(_make_buffering_factory(cast(RawStream, fb)))
             else:
-                wrapped_fallbacks.append(cast(StreamFactory, fb))
+                wrapped_fallbacks.append(cast(AwaitableStreamFactory, fb))
         all_streams.extend(wrapped_fallbacks)
 
     last_error: Exception | None = None
@@ -257,8 +267,8 @@ async def structured(
                 # _internal_run expects a callable factory
                 # Handle both direct async iterators and factory functions
                 def make_stream_factory(
-                    src: StreamSource,
-                ) -> StreamFactory:
+                    src: AwaitableStreamSource,
+                ) -> AwaitableStreamFactory:
                     if callable(src) and not hasattr(src, "__anext__"):
                         # It's already a factory
                         return src
@@ -601,7 +611,7 @@ class StructuredStreamResult(Generic[T]):
 
 async def structured_stream(
     schema: type[T],
-    stream: StreamSource,
+    stream: AwaitableStreamSource,
     *,
     auto_correct: bool = True,
     strict_mode: bool = False,
@@ -644,8 +654,8 @@ async def structured_stream(
 
     # _internal_run expects a callable factory
     def make_stream_factory(
-        src: StreamSource,
-    ) -> StreamFactory:
+        src: AwaitableStreamSource,
+    ) -> AwaitableStreamFactory:
         if callable(src) and not hasattr(src, "__anext__"):
             return src
         else:
@@ -689,9 +699,9 @@ async def structured_stream(
 
 async def structured_object(
     shape: dict[str, type | tuple[type, Any]],
-    stream: StreamSource,
+    stream: AwaitableStreamSource,
     *,
-    fallbacks: list[StreamSource] | None = None,
+    fallbacks: list[AwaitableStreamSource] | None = None,
     auto_correct: bool = True,
     strict_mode: bool = False,
     retry: Retry | None = None,
@@ -773,9 +783,9 @@ async def structured_object(
 
 async def structured_array(
     item_schema: type[T],
-    stream: StreamSource,
+    stream: AwaitableStreamSource,
     *,
-    fallbacks: list[StreamSource] | None = None,
+    fallbacks: list[AwaitableStreamSource] | None = None,
     auto_correct: bool = True,
     strict_mode: bool = False,
     retry: Retry | None = None,
@@ -864,14 +874,14 @@ async def structured_array(
     if _is_async_iterator(stream):
         stream = _make_buffering_factory(cast(RawStream, stream))
 
-    all_streams: list[StreamSource] = [stream]
+    all_streams: list[AwaitableStreamSource] = [stream]
     if fallbacks:
-        wrapped_fallbacks: list[StreamFactory] = []
+        wrapped_fallbacks: list[AwaitableStreamFactory] = []
         for fb in fallbacks:
             if _is_async_iterator(fb):
                 wrapped_fallbacks.append(_make_buffering_factory(cast(RawStream, fb)))
             else:
-                wrapped_fallbacks.append(cast(StreamFactory, fb))
+                wrapped_fallbacks.append(cast(AwaitableStreamFactory, fb))
         all_streams.extend(wrapped_fallbacks)
 
     last_error: Exception | None = None
@@ -881,7 +891,9 @@ async def structured_array(
         for attempt in range(max_attempts):
             try:
 
-                def make_stream_factory(src: StreamSource) -> StreamFactory:
+                def make_stream_factory(
+                    src: AwaitableStreamSource,
+                ) -> AwaitableStreamFactory:
                     if callable(src) and not hasattr(src, "__anext__"):
                         return src
                     else:

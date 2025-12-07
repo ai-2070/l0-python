@@ -7,7 +7,8 @@ Requires OPENAI_API_KEY to be set.
 Run with: pytest tests/integration/test_edge_cases.py -v
 """
 
-from typing import TYPE_CHECKING
+from collections.abc import AsyncIterator
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
@@ -32,14 +33,17 @@ class TestErrorHandlingEdgeCases:
     async def test_all_fallbacks_exhausted(self, client: "AsyncOpenAI") -> None:
         """Test behavior when primary and all fallbacks fail."""
 
-        async def failing_stream() -> None:
+        async def failing_stream() -> AsyncIterator[Any]:
             raise ConnectionError("Primary failed")
+            yield  # Make this an async generator
 
-        async def fallback1() -> None:
+        async def fallback1() -> AsyncIterator[Any]:
             raise ConnectionError("Fallback 1 failed")
+            yield  # Make this an async generator
 
-        async def fallback2() -> None:
+        async def fallback2() -> AsyncIterator[Any]:
             raise ConnectionError("Fallback 2 failed")
+            yield  # Make this an async generator
 
         result = await l0.run(
             stream=failing_stream,
@@ -55,11 +59,12 @@ class TestErrorHandlingEdgeCases:
     async def test_empty_fallback_array(self, client: "AsyncOpenAI") -> None:
         """Test behavior with empty fallback array."""
 
-        async def failing_stream() -> None:
+        async def failing_stream() -> AsyncIterator[Any]:
             raise ConnectionError("Primary failed")
+            yield  # Make this an async generator
 
         result = await l0.run(
-            stream=failing_stream,  # type: ignore[arg-type]
+            stream=failing_stream,
             fallbacks=[],
             retry=l0.Retry(attempts=1),
         )

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -12,9 +12,9 @@ from typing import Any
 import pytest
 
 from l0 import Retry
-from l0.runtime import _internal_run
 from l0.events import ObservabilityEvent, ObservabilityEventType
-from l0.types import Event, EventType, State
+from l0.runtime import _internal_run
+from l0.types import AwaitableStreamFactory, Event, EventType, State
 
 
 def camel_to_snake(name: str) -> str:
@@ -43,11 +43,24 @@ class EventCollector:
     events: list[CollectedEvent] = field(default_factory=list)
 
     def handler(self, event: ObservabilityEvent) -> None:
-        evt_type = event.type.value if isinstance(event.type, ObservabilityEventType) else str(event.type)
-        self.events.append(CollectedEvent(
-            type=evt_type, ts=event.ts,
-            data={"type": evt_type, "ts": event.ts, "stream_id": event.stream_id, "context": event.context, **event.meta}
-        ))
+        evt_type = (
+            event.type.value
+            if isinstance(event.type, ObservabilityEventType)
+            else str(event.type)
+        )
+        self.events.append(
+            CollectedEvent(
+                type=evt_type,
+                ts=event.ts,
+                data={
+                    "type": evt_type,
+                    "ts": event.ts,
+                    "stream_id": event.stream_id,
+                    "context": event.context,
+                    **event.meta,
+                },
+            )
+        )
 
     def get_event_types(self) -> list[str]:
         return [e.type for e in self.events]
@@ -68,25 +81,35 @@ def get_nested_value(obj: dict[str, Any], path: str) -> Any:
     return current
 
 
-def validate_event_assertions(event: CollectedEvent, assertions: dict[str, Any]) -> None:
+def validate_event_assertions(
+    event: CollectedEvent, assertions: dict[str, Any]
+) -> None:
     for path, expected in assertions.items():
         actual = get_nested_value(event.data, path)
-        assert actual == expected, f"Event {event.type}: {path} expected {expected!r}, got {actual!r}"
+        assert actual == expected, (
+            f"Event {event.type}: {path} expected {expected!r}, got {actual!r}"
+        )
 
 
-def validate_observability_event_sequence(collector: EventCollector, expected_events: list[dict[str, Any]]) -> None:
+def validate_observability_event_sequence(
+    collector: EventCollector, expected_events: list[dict[str, Any]]
+) -> None:
     collected_types = collector.get_event_types()
     last_idx = -1
     for expected in expected_events:
         event_type = expected["type"]
-        assert len(collector.get_events_of_type(event_type)) > 0, f"Expected {event_type} event"
+        assert len(collector.get_events_of_type(event_type)) > 0, (
+            f"Expected {event_type} event"
+        )
         try:
             found_idx = collected_types.index(event_type, last_idx + 1)
         except ValueError:
             found_idx = -1
         assert found_idx > last_idx, f"Expected {event_type} after index {last_idx}"
         if "assertions" in expected:
-            validate_event_assertions(collector.events[found_idx], expected["assertions"])
+            validate_event_assertions(
+                collector.events[found_idx], expected["assertions"]
+            )
         last_idx = found_idx
 
 
@@ -96,11 +119,12 @@ async def create_token_stream(tokens: list[str]) -> AsyncIterator[Event]:
     yield Event(type=EventType.COMPLETE)
 
 
-async def create_failing_stream(tokens: list[str], error: Exception | None = None) -> AsyncIterator[Event]:
+async def create_failing_stream(
+    tokens: list[str], error: Exception | None = None
+) -> AsyncIterator[Event]:
     for token in tokens:
         yield Event(type=EventType.TOKEN, text=token)
     raise (error or Exception("Stream failed"))
-
 
 
 async def run_normal_success_scenario(scenario: dict[str, Any]) -> dict[str, Any]:
@@ -122,11 +146,15 @@ async def run_normal_success_scenario(scenario: dict[str, Any]) -> dict[str, Any
     async for _ in result:
         pass
 
-    validate_observability_event_sequence(collector, scenario["expectedObservabilityEvents"])
+    validate_observability_event_sequence(
+        collector, scenario["expectedObservabilityEvents"]
+    )
     return {"collector": collector}
 
 
-async def run_error_context_propagation_scenario(scenario: dict[str, Any]) -> dict[str, Any]:
+async def run_error_context_propagation_scenario(
+    scenario: dict[str, Any],
+) -> dict[str, Any]:
     collector = EventCollector()
     config = scenario["config"]
     context = config.get("context", {})
@@ -136,7 +164,10 @@ async def run_error_context_propagation_scenario(scenario: dict[str, Any]) -> di
         async for event in create_failing_stream([]):
             yield event
 
-    fallback_factories = [lambda tokens=fs["tokens"]: create_token_stream(tokens) for fs in fallback_streams]
+    fallback_factories: list[AwaitableStreamFactory] = [
+        lambda tokens=fs["tokens"]: create_token_stream(tokens)
+        for fs in fallback_streams
+    ]
 
     result = await _internal_run(
         stream=failing_stream,
@@ -161,7 +192,9 @@ async def run_error_context_propagation_scenario(scenario: dict[str, Any]) -> di
 
     fallback_starts = collector.get_events_of_type("FALLBACK_START")
     assert len(fallback_starts) == 1
-    assert fallback_starts[0].data.get("context", {}).get("requestId") == "error-ctx-404"
+    assert (
+        fallback_starts[0].data.get("context", {}).get("requestId") == "error-ctx-404"
+    )
 
     completes = collector.get_events_of_type("COMPLETE")
     assert len(completes) == 1
@@ -170,13 +203,14 @@ async def run_error_context_propagation_scenario(scenario: dict[str, Any]) -> di
     return {"collector": collector}
 
 
-
 class TestCanonicalLifecycle:
     @pytest.fixture
     def scenarios(self) -> list[dict[str, Any]]:
         return SCENARIOS["scenarios"]
 
-    def get_scenario(self, scenarios: list[dict[str, Any]], scenario_id: str) -> dict[str, Any]:
+    def get_scenario(
+        self, scenarios: list[dict[str, Any]], scenario_id: str
+    ) -> dict[str, Any]:
         for s in scenarios:
             if s["id"] == scenario_id:
                 return s
@@ -200,14 +234,18 @@ class TestNormalSuccessFlow(TestCanonicalLifecycle):
 
 class TestErrorContextPropagation(TestCanonicalLifecycle):
     @pytest.mark.asyncio
-    async def test_error_context_propagation(self, scenarios: list[dict[str, Any]]) -> None:
+    async def test_error_context_propagation(
+        self, scenarios: list[dict[str, Any]]
+    ) -> None:
         scenario = self.get_scenario(scenarios, "error-context-propagation")
         await run_error_context_propagation_scenario(scenario)
 
 
 class TestCrossLanguageInvariants(TestCanonicalLifecycle):
     @pytest.mark.asyncio
-    async def test_session_start_is_first(self, scenarios: list[dict[str, Any]]) -> None:
+    async def test_session_start_is_first(
+        self, scenarios: list[dict[str, Any]]
+    ) -> None:
         scenario = self.get_scenario(scenarios, "normal-success")
         result = await run_normal_success_scenario(scenario)
         assert result["collector"].get_event_types()[0] == "SESSION_START"
@@ -235,4 +273,3 @@ class TestCrossLanguageInvariants(TestCanonicalLifecycle):
         stream_id = events[0].data["stream_id"]
         for e in events:
             assert e.data["stream_id"] == stream_id
-
