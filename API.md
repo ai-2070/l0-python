@@ -658,6 +658,514 @@ print(response.state.overlap_removed)      # The overlapping text that was remov
 
 ---
 
+## Smart Continuation Deduplication
+
+When using `continue_from_last_good_token`, LLMs often repeat words from the end of the checkpoint at the beginning of their continuation. L0 automatically detects and removes this overlap.
+
+### How It Works
+
+```python
+# Checkpoint: "Hello world"
+# LLM continues with: "world is great"
+# Without deduplication: "Hello worldworld is great"
+# With deduplication: "Hello world is great" ✓
+```
+
+Deduplication is **enabled by default** when `continue_from_last_good_token=True`. The algorithm:
+
+1. Buffers incoming continuation tokens until overlap can be detected
+2. Finds the longest suffix of the checkpoint that matches a prefix of the continuation
+3. Removes the overlapping portion from the continuation
+4. Emits only the non-overlapping content
+
+### Configuration
+
+```python
+from l0 import ContinuationConfig, DeduplicationOptions
+
+config = ContinuationConfig(
+    enabled=True,
+    checkpoint_interval=5,
+    
+    # Deduplication enabled by default, explicitly disable:
+    deduplicate=False,
+    
+    # Or configure options:
+    deduplication_options=DeduplicationOptions(
+        min_overlap=2,       # Minimum chars to consider overlap (default: 2)
+        max_overlap=500,     # Maximum chars to check (default: 500)
+        case_sensitive=True, # Case-sensitive matching (default: True)
+        normalize_whitespace=False,  # Normalize whitespace for matching (default: False)
+    ),
+)
+
+result = await l0.run(
+    stream=lambda: client.chat.completions.create(..., stream=True),
+    continue_from_last_good_token=config,
+)
+```
+
+### Options
+
+| Option                | Type    | Default | Description                                                                   |
+| --------------------- | ------- | ------- | ----------------------------------------------------------------------------- |
+| `min_overlap`         | int     | 2       | Minimum overlap length to detect (avoids false positives)                     |
+| `max_overlap`         | int     | 500     | Maximum overlap length to check (performance limit)                           |
+| `case_sensitive`      | bool    | True    | Whether matching is case-sensitive                                            |
+| `normalize_whitespace`| bool    | False   | Normalize whitespace when matching (`"hello  world"` matches `"hello world"`) |
+
+### Utility Functions
+
+The overlap detection is also available as standalone utilities:
+
+```python
+from l0 import Continuation
+
+# Full result with metadata
+result = Continuation.detect_overlap("Hello world", "world is great")
+# OverlapResult(
+#     has_overlap=True,
+#     overlap_length=5,
+#     overlap_text="world",
+#     deduplicated=" is great"
+# )
+
+# Convenience wrapper - just the deduplicated string
+text = Continuation.deduplicate("Hello world", "world is great")
+# " is great"
+
+# With options
+from l0 import DeduplicationOptions
+
+options = DeduplicationOptions(case_sensitive=False, min_overlap=3)
+result = Continuation.detect_overlap("Hello World", "world test", options)
+```
+
+### Examples
+
+**Case-insensitive matching:**
+
+```python
+# Checkpoint: "Hello World"
+# Continuation: "world is great"
+# With case_sensitive=False → "Hello World is great"
+
+config = ContinuationConfig(
+    enabled=True,
+    deduplication_options=DeduplicationOptions(case_sensitive=False),
+)
+```
+
+**Multi-word overlap:**
+
+```python
+# Checkpoint: "The quick brown fox"
+# Continuation: "brown fox jumps over"
+# Result: "The quick brown fox jumps over"
+```
+
+---
+
+## Document Windows
+
+Process documents that exceed context limits with automatic chunking.
+
+### Window.create(document, *, size, overlap, strategy)
+
+Create a window for processing long documents.
+
+```python
+from l0 import Window
+
+window = Window.create(
+    long_document,
+    size=2000,           # Tokens per chunk
+    overlap=200,         # Overlap between chunks
+    strategy="paragraph", # "token" | "char" | "paragraph" | "sentence"
+)
+
+# Navigation
+chunk = window.current()     # Current chunk
+window.next()                # Move to next
+window.prev()                # Move to previous
+window.jump(5)               # Jump to chunk 5
+
+# Search
+matches = window.find_chunks("keyword")
+
+# Get context around a chunk
+context = window.get_context(chunk_index, before=1, after=1)
+
+# Statistics
+stats = window.get_stats()
+print(f"Total chunks: {stats.total_chunks}")
+print(f"Total tokens: {stats.total_tokens}")
+```
+
+### Window Presets
+
+```python
+from l0 import Window
+
+# Quick creation with presets
+window = Window.small(document)      # 1000 tokens, 100 overlap
+window = Window.medium(document)     # 2000 tokens, 200 overlap (default)
+window = Window.large(document)      # 4000 tokens, 400 overlap
+window = Window.paragraph(document)  # Paragraph-based chunking
+window = Window.sentence(document)   # Sentence-based chunking
+```
+
+### Processing All Chunks
+
+```python
+from l0 import Window, ChunkProcessConfig
+
+window = Window.create(document, size=2000, overlap=200)
+
+# Process all chunks in parallel
+results = await window.process_all(
+    lambda chunk: ChunkProcessConfig(
+        stream=lambda: client.chat.completions.create(
+            model="gpt-4o",
+            messages=[{"role": "user", "content": f"Summarize: {chunk.content}"}],
+            stream=True,
+        ),
+    ),
+    concurrency=3,  # Max 3 concurrent
+)
+
+# Check results
+for result in results:
+    if result.status == "success":
+        print(f"Chunk {result.chunk.index}: {result.content[:50]}...")
+    else:
+        print(f"Chunk {result.chunk.index} failed: {result.error}")
+
+# Get processing statistics
+stats = Window.get_stats(results)
+print(f"Success rate: {stats.success_rate}%")
+print(f"Average duration: {stats.avg_duration}ms")
+```
+
+### Merging Results
+
+```python
+# Merge all successful results
+merged_text = Window.merge_results(results, separator="\n\n")
+
+# Merge chunks back into document (handles overlap)
+merged_doc = Window.merge_chunks(window.get_all_chunks())
+```
+
+### DocumentChunk
+
+```python
+@dataclass
+class DocumentChunk:
+    index: int          # Position (0-based)
+    content: str        # Chunk text
+    start_pos: int      # Start position in original document
+    end_pos: int        # End position in original document
+    token_count: int    # Estimated tokens
+    char_count: int     # Character count
+    is_first: bool      # Is this the first chunk?
+    is_last: bool       # Is this the last chunk?
+    total_chunks: int   # Total number of chunks
+    metadata: dict      # Custom metadata
+```
+
+---
+
+## Pipeline
+
+Multi-phase streaming workflows where each step receives the output of the previous step.
+
+### pipe(steps, input, options)
+
+Execute a pipeline of streaming steps.
+
+```python
+from openai import AsyncOpenAI
+import l0
+
+client = AsyncOpenAI()
+
+async def summarize_step(text: str, ctx: l0.StepContext):
+    return lambda: client.chat.completions.create(
+        model="gpt-4o",
+        messages=[{"role": "user", "content": f"Summarize: {text}"}],
+        stream=True,
+    )
+
+async def refine_step(summary: str, ctx: l0.StepContext):
+    return lambda: client.chat.completions.create(
+        model="gpt-4o",
+        messages=[{"role": "user", "content": f"Refine this summary: {summary}"}],
+        stream=True,
+    )
+
+result = await l0.pipe(
+    [
+        l0.PipelineStep(name="summarize", fn=summarize_step),
+        l0.PipelineStep(name="refine", fn=refine_step),
+    ],
+    long_document,
+    l0.PipelineOptions(name="summarize-refine"),
+)
+
+print(result.output)  # Final refined summary
+print(f"Duration: {result.duration}ms")
+print(f"Steps completed: {len(result.steps)}")
+```
+
+### PipelineStep
+
+```python
+@dataclass
+class PipelineStep:
+    name: str           # Step name (for logging/debugging)
+    fn: Callable        # Step function: (input, context) -> stream factory
+    transform: Callable | None = None  # Transform output before next step
+    condition: Callable | None = None  # Condition to run this step
+    on_error: Callable | None = None   # Error handler for this step
+    on_complete: Callable | None = None  # Callback when step completes
+    metadata: dict = {}  # Step-specific metadata
+```
+
+### PipelineOptions
+
+```python
+@dataclass
+class PipelineOptions:
+    name: str | None = None      # Pipeline name
+    stop_on_error: bool = True   # Stop on first error
+    timeout: float | None = None # Max execution time (seconds)
+    on_start: Callable | None = None     # Called when pipeline starts
+    on_complete: Callable | None = None  # Called when pipeline completes
+    on_error: Callable | None = None     # Called on error (error, step_index)
+    on_progress: Callable | None = None  # Called for progress (step_index, total)
+    metadata: dict = {}          # Pipeline-wide metadata
+```
+
+### Reusable Pipelines
+
+```python
+from l0 import create_pipeline, PipelineStep, PipelineOptions
+
+# Create a reusable pipeline
+summarize_pipeline = create_pipeline(
+    [
+        PipelineStep(name="extract", fn=extract_step),
+        PipelineStep(name="summarize", fn=summarize_step),
+        PipelineStep(name="format", fn=format_step),
+    ],
+    PipelineOptions(name="document-summarizer"),
+)
+
+# Run multiple times
+result1 = await summarize_pipeline.run(document1)
+result2 = await summarize_pipeline.run(document2)
+
+# Clone and modify
+strict_pipeline = summarize_pipeline.clone()
+strict_pipeline.options.stop_on_error = True
+```
+
+### Conditional Steps
+
+```python
+from l0 import PipelineStep
+
+# Step with condition
+conditional_step = PipelineStep(
+    name="translate",
+    fn=translate_step,
+    condition=lambda input, ctx: ctx.metadata.get("language") != "en",
+)
+
+# Branch step
+from l0 import create_branch_step
+
+branch = create_branch_step(
+    "route",
+    condition=lambda input, ctx: len(input) > 1000,
+    if_true=summarize_step,   # Long text → summarize
+    if_false=passthrough_step, # Short text → pass through
+)
+```
+
+### Chaining and Parallel Pipelines
+
+```python
+from l0 import chain_pipelines, parallel_pipelines
+
+# Chain pipelines sequentially
+full_pipeline = chain_pipelines(
+    extract_pipeline,
+    analyze_pipeline,
+    format_pipeline,
+)
+
+# Run pipelines in parallel and combine
+results = await parallel_pipelines(
+    [sentiment_pipeline, entity_pipeline, summary_pipeline],
+    document,
+    lambda results: {
+        "sentiment": results[0].output,
+        "entities": results[1].output,
+        "summary": results[2].output,
+    },
+)
+```
+
+### Pipeline Presets
+
+```python
+from l0.pipeline import FAST_PIPELINE, RELIABLE_PIPELINE, PRODUCTION_PIPELINE
+
+# FAST_PIPELINE: stop_on_error=True (fail fast)
+# RELIABLE_PIPELINE: stop_on_error=False (graceful failures)
+# PRODUCTION_PIPELINE: stop_on_error=False, timeout=300s
+```
+
+---
+
+## Formatting Helpers
+
+Utilities for formatting prompts, context, memory, and tool definitions.
+
+### Context Formatting
+
+```python
+from l0 import Format
+
+# Wrap content with delimiters
+context = Format.context(
+    "User manual content here",
+    label="documentation",
+    delimiter="xml",  # "xml" | "markdown" | "brackets" | "none"
+)
+# Output: <documentation>\nUser manual content here\n</documentation>
+
+# Format multiple contexts
+contexts = Format.contexts([
+    {"content": "Doc 1", "label": "doc1"},
+    {"content": "Doc 2", "label": "doc2"},
+])
+
+# Format a document with metadata
+doc = Format.document(content, {"title": "Report", "author": "User"})
+
+# Format instructions
+instructions = Format.instructions("You are a helpful assistant")
+```
+
+### Memory Formatting
+
+```python
+from l0 import Format
+
+# Format conversation history
+memory = [
+    {"role": "user", "content": "Hello"},
+    {"role": "assistant", "content": "Hi there!"},
+    {"role": "user", "content": "How are you?"},
+]
+
+formatted = Format.memory(memory, {"style": "conversational", "max_entries": 10})
+# Output:
+# User: Hello
+# Assistant: Hi there!
+# User: How are you?
+
+# Create timestamped memory entries
+entry = Format.memory_entry("user", "New message")
+
+# Memory utilities
+filtered = Format.filter_memory(memory, "user")  # Only user messages
+last_5 = Format.last_n_entries(memory, 5)
+size = Format.memory_size(memory)  # Character count
+truncated = Format.truncate_memory(memory, max_size=1000)
+```
+
+### Output Formatting
+
+```python
+from l0 import Format
+
+# Request JSON output
+instruction = Format.json_output({"strict": True, "schema": "..."})
+
+# Request structured output
+instruction = Format.structured_output("yaml", {"strict": True})
+
+# Define output constraints
+constraints = Format.output_constraints({
+    "max_length": 500,
+    "format": "bullet_points",
+})
+
+# Clean model output
+cleaned = Format.clean_output("Sure! Here's the JSON: {...}")  # "{...}"
+
+# Extract JSON from output
+json_str = Format.extract_json(model_output)
+
+# Validate JSON
+is_valid, error = Format.validate_json(output)
+```
+
+### Tool Formatting
+
+```python
+from l0 import Format
+
+# Create a tool definition
+tool = Format.create_tool(
+    "search",
+    "Search the web for information",
+    [
+        Format.parameter("query", "string", "Search query", required=True),
+        Format.parameter("limit", "integer", "Max results", default=10),
+    ],
+)
+
+# Format for model
+formatted = Format.tool(tool, {"style": "json-schema"})
+
+# Format multiple tools
+formatted_tools = Format.tools([tool1, tool2])
+
+# Parse function call from output
+fn_call = Format.parse_function_call(model_output)
+if fn_call:
+    print(f"Function: {fn_call.name}, Args: {fn_call.arguments}")
+```
+
+### String Utilities
+
+```python
+from l0 import Format
+
+# Basic operations
+Format.trim("  hello  ")           # "hello"
+Format.truncate("Hello World", 8)  # "Hello..."
+Format.truncate_words("Hello World", 8)  # "Hello..."
+Format.wrap("Long text...", 80)    # Word-wrapped text
+Format.pad("hello", 10, align="center")  # "  hello   "
+
+# Escaping
+Format.escape("Hello\nWorld")      # "Hello\\nWorld"
+Format.unescape("Hello\\nWorld")   # "Hello\nWorld"
+Format.escape_html("<div>")        # "&lt;div&gt;"
+Format.unescape_html("&lt;div&gt;") # "<div>"
+Format.escape_regex("foo.*bar")    # "foo\\.\\*bar"
+Format.sanitize("text\x00here")    # "texthere" (removes control chars)
+Format.remove_ansi("\x1b[31mred\x1b[0m")  # "red"
+```
+
+---
+
 ## Network Protection
 
 ### Error Categorization
