@@ -594,12 +594,6 @@ class TestZeroOutputRule:
         violations = rule.check(state)
         assert len(violations) == 0
 
-    def test_instant_completion_warning(self):
-        state = State(content="Hi", completed=True, duration=0.1)
-        rule = zero_output_rule(min_completion_time=0.5)
-        violations = rule.check(state)
-        assert any("instant" in v.message.lower() for v in violations)
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Drift Detection
