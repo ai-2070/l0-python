@@ -891,6 +891,7 @@ class TestAdapterWrapStartFieldSchema:
             fields,
             [
                 {"name": "streamType", "type": "string", "required": True},
+                {"name": "adapterId", "type": "string", "required": False},
             ],
         )
 
@@ -927,7 +928,6 @@ class TestAdapterWrapEndFieldSchema:
             fields,
             [
                 {"name": "adapterId", "type": "string", "required": True},
-                {"name": "success", "type": "boolean", "required": True},
             ],
         )
 
@@ -972,9 +972,18 @@ class TestTimeoutResetFieldSchema:
         validate_exact_fields(
             fields,
             [
+                {"name": "timeoutType", "type": "string", "required": True},
                 {"name": "configuredMs", "type": "number", "required": True},
+                {"name": "tokenIndex", "type": "number", "required": True},
             ],
         )
+
+    def test_timeout_type_has_enum(self, fields: list[dict[str, Any]]) -> None:
+        field = next(f for f in fields if f["name"] == "timeoutType")
+        assert "enum" in field
+        assert "initial" in field["enum"]
+        assert "inter" in field["enum"]
+        assert len(field["enum"]) == 2
 
 
 class TestTimeoutTriggeredFieldSchema:
@@ -1274,6 +1283,7 @@ class TestGuardrailRuleStartFieldSchema:
             [
                 {"name": "index", "type": "number", "required": True},
                 {"name": "ruleId", "type": "string", "required": True},
+                {"name": "callbackId", "type": "string", "required": True},
             ],
         )
 
@@ -1315,6 +1325,8 @@ class TestGuardrailRuleEndFieldSchema:
                 {"name": "index", "type": "number", "required": True},
                 {"name": "ruleId", "type": "string", "required": True},
                 {"name": "passed", "type": "boolean", "required": True},
+                {"name": "callbackId", "type": "string", "required": True},
+                {"name": "durationMs", "type": "number", "required": True},
             ],
         )
 
@@ -1339,6 +1351,7 @@ class TestGuardrailPhaseEndFieldSchema:
                     "type": "GuardrailViolation[]",
                     "required": True,
                 },
+                {"name": "durationMs", "type": "number", "required": True},
             ],
         )
 
