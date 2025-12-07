@@ -341,8 +341,8 @@ class TestToolCallsWithBuffering:
         assert len(tool_start) == 1
         assert len(tool_completed) == 1
 
-        # Verify the buffered arguments are complete
-        assert tool_requested[0].meta["arguments"] == '{"part1": "value"}'
+        # Verify the buffered arguments are complete (spec requires dict, not string)
+        assert tool_requested[0].meta["arguments"] == {"part1": "value"}
 
 
 class TestToolCallsWithOtherFeatures:

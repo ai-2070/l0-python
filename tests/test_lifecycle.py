@@ -236,10 +236,10 @@ class TestLifecycleNormalFlow:
         assert len(session_starts) >= 1
 
         session_start = session_starts[0]
-        # SESSION_START event contains session_id
-        assert session_start.data.get("sessionId") is not None
-        # Note: attempt, isRetry, isFallback are passed to on_start callback
-        # but not currently included in SESSION_START observability event
+        # SESSION_START event contains attempt, isRetry, isFallback (not sessionId per spec)
+        assert session_start.data.get("attempt") is not None
+        assert session_start.data.get("isRetry") is not None
+        assert session_start.data.get("isFallback") is not None
 
     @pytest.mark.asyncio
     async def test_complete_event_has_state(self):

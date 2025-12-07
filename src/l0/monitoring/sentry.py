@@ -499,7 +499,9 @@ def create_sentry_handler(
 
         elif event_type == ObservabilityEventType.DRIFT_CHECK_RESULT:
             if meta.get("detected"):
-                integration.record_drift(True, meta.get("types", []))
+                metrics = meta.get("metrics", {})
+                drift_types = list(metrics.keys()) if metrics else []
+                integration.record_drift(True, drift_types)
 
         elif event_type == ObservabilityEventType.COMPLETE:
             token_count = meta.get("token_count", 0)

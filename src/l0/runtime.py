@@ -155,7 +155,7 @@ def _validate_checkpoint(
 
     has_fatal_violation = False
 
-    for rule in guardrails:
+    for idx, rule in enumerate(guardrails):
         # Only check streaming rules (completion rules need completed=True)
         if not rule.streaming:
             continue
@@ -166,9 +166,10 @@ def _validate_checkpoint(
                 has_fatal_violation = True
                 event_bus.emit(
                     ObservabilityEventType.GUARDRAIL_RULE_RESULT,
+                    index=idx,
                     ruleId=rule.name,
-                    violations=[v.__dict__],
-                    checkpointValidation=True,
+                    passed=False,
+                    violation=v.__dict__,
                 )
 
     return not has_fatal_violation
@@ -292,7 +293,6 @@ async def _internal_run(
     logger.debug(f"Starting L0 stream: {event_bus.stream_id}")
     event_bus.emit(
         ObservabilityEventType.SESSION_START,
-        sessionId=event_bus.stream_id,
         attempt=1,
         isRetry=False,
         isFallback=False,
@@ -398,7 +398,7 @@ async def _internal_run(
                         event_bus.emit(
                             ObservabilityEventType.RESUME_START,
                             checkpoint=pending_checkpoint,
-                            token_count=state.token_count,
+                            tokenCount=state.token_count,
                         )
 
                         # Fire on_resume callback
@@ -452,7 +452,7 @@ async def _internal_run(
                     detected_adapter = Adapters.detect(raw_stream, adapter)
                     event_bus.emit(
                         ObservabilityEventType.ADAPTER_DETECTED,
-                        adapter=detected_adapter.name,
+                        adapterId=detected_adapter.name,
                     )
                     event_bus.emit(ObservabilityEventType.STREAM_READY)
 
@@ -468,8 +468,8 @@ async def _internal_run(
                     if initial_timeout is not None:
                         event_bus.emit(
                             ObservabilityEventType.TIMEOUT_START,
-                            timeoutType="initial_token",
-                            durationSeconds=initial_timeout,
+                            timeoutType="initial",
+                            configuredMs=int(initial_timeout * 1000),
                         )
 
                     adapted_stream = detected_adapter.wrap(raw_stream)
@@ -490,12 +490,22 @@ async def _internal_run(
                             tool_call_id = buffered.get("id", "")
                             tool_args = buffered.get("arguments", "")
 
+                            # Parse arguments to dict for event emission
+                            import json
+
+                            parsed_args: dict[str, Any] = {}
+                            if tool_args:
+                                try:
+                                    parsed_args = json.loads(tool_args)
+                                except (json.JSONDecodeError, TypeError):
+                                    parsed_args = {"_raw": tool_args}
+
                             # Emit TOOL_REQUESTED and TOOL_START
                             event_bus.emit(
                                 ObservabilityEventType.TOOL_REQUESTED,
                                 toolName=tool_name,
                                 toolCallId=tool_call_id,
-                                arguments=tool_args,
+                                arguments=parsed_args,
                             )
                             event_bus.emit(
                                 ObservabilityEventType.TOOL_START,
@@ -511,15 +521,6 @@ async def _internal_run(
                                     "arguments": tool_args,
                                 },
                             )
-                            # Fire on_tool_call callback with parsed arguments
-                            parsed_args: dict[str, Any] = {}
-                            if tool_args:
-                                import json
-
-                                try:
-                                    parsed_args = json.loads(tool_args)
-                                except (json.JSONDecodeError, TypeError):
-                                    parsed_args = {"_raw": tool_args}
                             _fire_callback(
                                 cb.on_tool_call,
                                 tool_name,
@@ -574,10 +575,25 @@ async def _internal_run(
                             # current_timeout is guaranteed to be float here
                             # (asyncio.TimeoutError only raised if wait_for was called)
                             assert current_timeout is not None
+                            # Map internal timeout type to spec enum
+                            timeout_type_enum = (
+                                "initial"
+                                if timeout_type == "initial_token"
+                                else "inter"
+                            )
+                            configured_ms = int(
+                                (
+                                    initial_timeout
+                                    if timeout_type == "initial_token"
+                                    else inter_timeout
+                                )
+                                * 1000
+                            )
                             event_bus.emit(
                                 ObservabilityEventType.TIMEOUT_TRIGGERED,
-                                timeout_type=timeout_type,
-                                elapsedSeconds=current_timeout,
+                                timeoutType=timeout_type_enum,
+                                elapsedMs=int(current_timeout * 1000),
+                                configuredMs=configured_ms,
                             )
                             # Fire on_timeout callback
                             _fire_callback(cb.on_timeout, timeout_type, current_timeout)
@@ -629,8 +645,7 @@ async def _internal_run(
                                 # First token received, switch to inter-token timeout
                                 event_bus.emit(
                                     ObservabilityEventType.TIMEOUT_RESET,
-                                    timeoutType="inter_token",
-                                    tokenIndex=state.token_count,
+                                    configuredMs=int(inter_timeout * 1000),
                                 )
                             first_token_received = True
                             append_token(state, token_text)
@@ -645,7 +660,7 @@ async def _internal_run(
                                 event_bus.emit(
                                     ObservabilityEventType.CHECKPOINT_SAVED,
                                     checkpoint=state.checkpoint,
-                                    token_count=state.token_count,
+                                    tokenCount=state.token_count,
                                 )
                                 # Fire on_checkpoint callback
                                 _fire_callback(
@@ -667,7 +682,7 @@ async def _internal_run(
                             ):
                                 event_bus.emit(
                                     ObservabilityEventType.GUARDRAIL_PHASE_START,
-                                    contextSize=len(state.content),
+                                    phase="post",
                                     ruleCount=len(guardrails),
                                 )
 
@@ -679,20 +694,24 @@ async def _internal_run(
                                         ruleId=rule.name,
                                     )
                                     rule_violations = rule.check(state)
+                                    passed = len(rule_violations) == 0
+                                    # Emit result for each rule
+                                    event_bus.emit(
+                                        ObservabilityEventType.GUARDRAIL_RULE_RESULT,
+                                        index=idx,
+                                        ruleId=rule.name,
+                                        passed=passed,
+                                        violation=rule_violations[0].__dict__
+                                        if rule_violations
+                                        else None,
+                                    )
                                     if rule_violations:
                                         all_violations.extend(rule_violations)
-                                        event_bus.emit(
-                                            ObservabilityEventType.GUARDRAIL_RULE_RESULT,
-                                            index=idx,
-                                            ruleId=rule.name,
-                                            violations=[
-                                                v.__dict__ for v in rule_violations
-                                            ],
-                                        )
                                     event_bus.emit(
                                         ObservabilityEventType.GUARDRAIL_RULE_END,
                                         index=idx,
                                         ruleId=rule.name,
+                                        passed=passed,
                                     )
 
                                 if all_violations:
@@ -703,8 +722,9 @@ async def _internal_run(
 
                                 event_bus.emit(
                                     ObservabilityEventType.GUARDRAIL_PHASE_END,
-                                    ruleCount=len(guardrails),
-                                    violationCount=len(all_violations),
+                                    phase="post",
+                                    passed=len(all_violations) == 0,
+                                    violations=[v.__dict__ for v in all_violations],
                                 )
 
                             # Check drift periodically
@@ -720,8 +740,9 @@ async def _internal_run(
                                     event_bus.emit(
                                         ObservabilityEventType.DRIFT_CHECK_RESULT,
                                         detected=True,
-                                        types=drift_result.types,
-                                        confidence=drift_result.confidence,
+                                        score=drift_result.confidence,
+                                        metrics={t: True for t in drift_result.types},
+                                        threshold=0.5,
                                     )
                                     # Fire on_drift callback
                                     _fire_callback(
@@ -733,8 +754,9 @@ async def _internal_run(
                                     event_bus.emit(
                                         ObservabilityEventType.DRIFT_CHECK_RESULT,
                                         detected=False,
-                                        types=[],
-                                        confidence=0.0,
+                                        score=0.0,
+                                        metrics={},
+                                        threshold=0.5,
                                     )
                         # Handle tool call buffering
                         if buffer_tool_calls and event.type == EventType.TOOL_CALL:
@@ -775,18 +797,7 @@ async def _internal_run(
                             # Only emit TOOL_REQUESTED/TOOL_START once per tool call
                             if tool_call_id and tool_call_id not in tool_calls_started:
                                 tool_calls_started.add(tool_call_id)
-                                event_bus.emit(
-                                    ObservabilityEventType.TOOL_REQUESTED,
-                                    toolName=tool_name,
-                                    toolCallId=tool_call_id,
-                                    arguments=tc_data.get("arguments", ""),
-                                )
-                                event_bus.emit(
-                                    ObservabilityEventType.TOOL_START,
-                                    toolCallId=tool_call_id,
-                                    toolName=tool_name,
-                                )
-                                # Fire on_tool_call callback with parsed arguments
+                                # Parse arguments to dict for event emission
                                 raw_args = tc_data.get("arguments", "")
                                 parsed_tc_args: dict[str, Any] = {}
                                 if raw_args:
@@ -796,6 +807,18 @@ async def _internal_run(
                                         parsed_tc_args = json.loads(raw_args)
                                     except (json.JSONDecodeError, TypeError):
                                         parsed_tc_args = {"_raw": raw_args}
+                                event_bus.emit(
+                                    ObservabilityEventType.TOOL_REQUESTED,
+                                    toolName=tool_name,
+                                    toolCallId=tool_call_id,
+                                    arguments=parsed_tc_args,
+                                )
+                                event_bus.emit(
+                                    ObservabilityEventType.TOOL_START,
+                                    toolCallId=tool_call_id,
+                                    toolName=tool_name,
+                                )
+                                # Fire on_tool_call callback with parsed arguments
                                 _fire_callback(
                                     cb.on_tool_call,
                                     tool_name,
@@ -825,7 +848,7 @@ async def _internal_run(
                     if guardrails:
                         event_bus.emit(
                             ObservabilityEventType.GUARDRAIL_PHASE_START,
-                            contextSize=len(state.content),
+                            phase="post",
                             ruleCount=len(guardrails),
                         )
 
@@ -837,18 +860,23 @@ async def _internal_run(
                                 ruleId=rule.name,
                             )
                             rule_violations = rule.check(state)
+                            passed = len(rule_violations) == 0
+                            event_bus.emit(
+                                ObservabilityEventType.GUARDRAIL_RULE_RESULT,
+                                index=idx,
+                                ruleId=rule.name,
+                                passed=passed,
+                                violation=rule_violations[0].__dict__
+                                if rule_violations
+                                else None,
+                            )
                             if rule_violations:
                                 all_violations.extend(rule_violations)
-                                event_bus.emit(
-                                    ObservabilityEventType.GUARDRAIL_RULE_RESULT,
-                                    index=idx,
-                                    ruleId=rule.name,
-                                    violations=[v.__dict__ for v in rule_violations],
-                                )
                             event_bus.emit(
                                 ObservabilityEventType.GUARDRAIL_RULE_END,
                                 index=idx,
                                 ruleId=rule.name,
+                                passed=passed,
                             )
 
                         if all_violations:
@@ -859,8 +887,9 @@ async def _internal_run(
 
                         event_bus.emit(
                             ObservabilityEventType.GUARDRAIL_PHASE_END,
-                            ruleCount=len(guardrails),
-                            violationCount=len(all_violations),
+                            phase="post",
+                            passed=len(all_violations) == 0,
+                            violations=[v.__dict__ for v in all_violations],
                         )
 
                         # Fatal violations (non-recoverable errors) halt completely
@@ -1041,7 +1070,7 @@ async def _internal_run(
                         event_bus.emit(
                             ObservabilityEventType.CHECKPOINT_SAVED,
                             checkpoint=state.checkpoint,
-                            token_count=state.token_count,
+                            tokenCount=state.token_count,
                         )
                         # Fire on_checkpoint callback
                         _fire_callback(

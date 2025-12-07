@@ -725,10 +725,11 @@ def create_opentelemetry_handler(
 
         elif event_type == ObservabilityEventType.DRIFT_CHECK_RESULT:
             if meta.get("detected"):
-                drift_types = meta.get("types", [])
+                metrics = meta.get("metrics", {})
+                drift_types = list(metrics.keys()) if metrics else []
                 otel.record_drift(
                     drift_type=",".join(drift_types) if drift_types else "unknown",
-                    confidence=meta.get("confidence", 0.0),
+                    confidence=meta.get("score", 0.0),
                     span=current_span,
                 )
 

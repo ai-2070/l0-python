@@ -333,13 +333,14 @@ class TestDriftEventSignatures:
             yield Event(type=EventType.TOKEN, text="Hello world")
             yield Event(type=EventType.COMPLETE)
 
-        from l0.drift import DriftConfig
+        from l0.drift import DriftDetector
+        from l0.types import CheckIntervals
 
         result = await _internal_run(
             stream=stream_for_drift,
             on_event=capture,
-            drift=DriftConfig(enabled=True, threshold=0.5),
-            checkpoint="Original prompt about greetings",
+            drift_detector=DriftDetector(),
+            check_intervals=CheckIntervals(drift=1),  # Check on every token
         )
         async for _ in result:
             pass
@@ -377,10 +378,19 @@ class TestGuardrailEventSignatures:
             yield Event(type=EventType.TOKEN, text="Hello")
             yield Event(type=EventType.COMPLETE)
 
-        from l0.guardrails import GuardrailRule
+        from l0.guardrails import GuardrailRule, GuardrailViolation
+        from l0.types import State
 
-        def no_hello(content: str) -> bool:
-            return "hello" not in content.lower()
+        def no_hello(state: State) -> list:
+            if "hello" in state.content.lower():
+                return [
+                    GuardrailViolation(
+                        rule_id="no-hello",
+                        message="Content contains 'hello'",
+                        severity="warning",
+                    )
+                ]
+            return []
 
         result = await _internal_run(
             stream=simple_stream,
@@ -420,9 +430,10 @@ class TestGuardrailEventSignatures:
             yield Event(type=EventType.COMPLETE)
 
         from l0.guardrails import GuardrailRule
+        from l0.types import State
 
-        def always_pass(content: str) -> bool:
-            return True
+        def always_pass(state: State) -> list:
+            return []  # No violations = pass
 
         result = await _internal_run(
             stream=simple_stream,

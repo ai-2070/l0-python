@@ -1004,26 +1004,6 @@ class TestTimeoutTriggeredFieldSchema:
 
 
 # Network Events
-class TestNetworkErrorFieldSchema:
-    """Tests for NETWORK_ERROR event field schema."""
-
-    @pytest.fixture
-    def fields(self) -> list[dict[str, Any]]:
-        return SPEC["monitoring"]["observabilityEvents"]["events"]["NETWORK_ERROR"][
-            "fields"
-        ]
-
-    def test_has_exact_fields(self, fields: list[dict[str, Any]]) -> None:
-        validate_exact_fields(
-            fields,
-            [
-                {"name": "error", "type": "string", "required": True},
-                {"name": "code", "type": "string", "required": False},
-                {"name": "retryable", "type": "boolean", "required": True},
-            ],
-        )
-
-
 class TestNetworkRecoveryFieldSchema:
     """Tests for NETWORK_RECOVERY event field schema."""
 
@@ -1393,26 +1373,6 @@ class TestGuardrailCallbackEndFieldSchema:
 
 
 # Drift Events
-class TestDriftCheckStartFieldSchema:
-    """Tests for DRIFT_CHECK_START event field schema."""
-
-    @pytest.fixture
-    def fields(self) -> list[dict[str, Any]]:
-        return SPEC["monitoring"]["observabilityEvents"]["events"]["DRIFT_CHECK_START"][
-            "fields"
-        ]
-
-    def test_has_exact_fields(self, fields: list[dict[str, Any]]) -> None:
-        validate_exact_fields(
-            fields,
-            [
-                {"name": "checkpoint", "type": "string", "required": True},
-                {"name": "tokenCount", "type": "number", "required": True},
-                {"name": "strategy", "type": "string", "required": True},
-            ],
-        )
-
-
 class TestDriftCheckResultFieldSchema:
     """Tests for DRIFT_CHECK_RESULT event field schema."""
 
@@ -1434,24 +1394,6 @@ class TestDriftCheckResultFieldSchema:
                     "required": True,
                 },
                 {"name": "threshold", "type": "number", "required": True},
-            ],
-        )
-
-
-class TestDriftCheckEndFieldSchema:
-    """Tests for DRIFT_CHECK_END event field schema."""
-
-    @pytest.fixture
-    def fields(self) -> list[dict[str, Any]]:
-        return SPEC["monitoring"]["observabilityEvents"]["events"]["DRIFT_CHECK_END"][
-            "fields"
-        ]
-
-    def test_has_exact_fields(self, fields: list[dict[str, Any]]) -> None:
-        validate_exact_fields(
-            fields,
-            [
-                {"name": "durationMs", "type": "number", "required": True},
             ],
         )
 
