@@ -1861,10 +1861,7 @@ def custom_pattern_rule(
     )
 
 
-def zero_output_rule(
-    *,
-    min_completion_time: float | None = 0.5,
-) -> GuardrailRule:
+def zero_output_rule() -> GuardrailRule:
     """Detect empty or meaningless output.
 
     Detects:
@@ -1872,11 +1869,6 @@ def zero_output_rule(
     - Whitespace-only output
     - Punctuation-only output
     - Repeated character noise
-    - Suspiciously instant completion (if min_completion_time set)
-
-    Args:
-        min_completion_time: Minimum expected completion time in seconds.
-                           If completion is faster, it's suspicious. Set to None to disable.
     """
 
     def check(state: State) -> list[GuardrailViolation]:
@@ -1905,22 +1897,6 @@ def zero_output_rule(
                     severity="error",
                 )
             )
-
-        # Check for suspiciously fast completion
-        # Use duration if available, otherwise skip this check
-        if min_completion_time and state.duration is not None:
-            if state.duration < min_completion_time and len(state.content.strip()) < 20:
-                violations.append(
-                    GuardrailViolation(
-                        rule="zero_output",
-                        message=f"Suspiciously instant completion ({state.duration:.2f}s)",
-                        severity="warning",
-                        context={
-                            "duration": state.duration,
-                            "content_length": len(state.content),
-                        },
-                    )
-                )
 
         return violations
 
@@ -2239,13 +2215,9 @@ class Guardrails:
         return custom_pattern_rule(patterns, message, severity)
 
     @staticmethod
-    def zero_output(*, min_completion_time: float | None = 0.5) -> GuardrailRule:
-        """Detect empty or meaningless output.
-
-        Args:
-            min_completion_time: Minimum expected completion time.
-        """
-        return zero_output_rule(min_completion_time=min_completion_time)
+    def zero_output() -> GuardrailRule:
+        """Detect empty or meaningless output."""
+        return zero_output_rule()
 
     @staticmethod
     def stall(max_gap: float = 5.0) -> GuardrailRule:
