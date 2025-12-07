@@ -639,7 +639,9 @@ async def _internal_run(
                                 # First token received, switch to inter-token timeout
                                 event_bus.emit(
                                     ObservabilityEventType.TIMEOUT_RESET,
+                                    timeoutType="inter",
                                     configuredMs=int(inter_timeout * 1000),
+                                    tokenIndex=state.token_count,
                                 )
                             first_token_received = True
                             append_token(state, token_text)
@@ -674,6 +676,9 @@ async def _internal_run(
                                 state.token_count % guardrail_interval == 0
                                 and guardrails
                             ):
+                                import uuid
+
+                                phase_start_time = time.perf_counter()
                                 event_bus.emit(
                                     ObservabilityEventType.GUARDRAIL_PHASE_START,
                                     phase="post",
@@ -682,13 +687,19 @@ async def _internal_run(
 
                                 all_violations = []
                                 for idx, rule in enumerate(guardrails):
+                                    callback_id = f"cb_{uuid.uuid4().hex[:12]}"
+                                    rule_start_time = time.perf_counter()
                                     event_bus.emit(
                                         ObservabilityEventType.GUARDRAIL_RULE_START,
                                         index=idx,
                                         ruleId=rule.name,
+                                        callbackId=callback_id,
                                     )
                                     rule_violations = rule.check(state)
                                     passed = len(rule_violations) == 0
+                                    rule_duration_ms = int(
+                                        (time.perf_counter() - rule_start_time) * 1000
+                                    )
                                     # Emit result for each rule
                                     event_bus.emit(
                                         ObservabilityEventType.GUARDRAIL_RULE_RESULT,
@@ -706,6 +717,8 @@ async def _internal_run(
                                         index=idx,
                                         ruleId=rule.name,
                                         passed=passed,
+                                        callbackId=callback_id,
+                                        durationMs=rule_duration_ms,
                                     )
 
                                 if all_violations:
@@ -714,11 +727,15 @@ async def _internal_run(
                                     for v in all_violations:
                                         _fire_callback(cb.on_violation, v)
 
+                                phase_duration_ms = int(
+                                    (time.perf_counter() - phase_start_time) * 1000
+                                )
                                 event_bus.emit(
                                     ObservabilityEventType.GUARDRAIL_PHASE_END,
                                     phase="post",
                                     passed=len(all_violations) == 0,
                                     violations=[v.__dict__ for v in all_violations],
+                                    durationMs=phase_duration_ms,
                                 )
 
                             # Check drift periodically
@@ -840,6 +857,9 @@ async def _internal_run(
 
                     # Run final guardrail check (for completion-only rules)
                     if guardrails:
+                        import uuid
+
+                        final_phase_start_time = time.perf_counter()
                         event_bus.emit(
                             ObservabilityEventType.GUARDRAIL_PHASE_START,
                             phase="post",
@@ -848,13 +868,19 @@ async def _internal_run(
 
                         all_violations = []
                         for idx, rule in enumerate(guardrails):
+                            callback_id = f"cb_{uuid.uuid4().hex[:12]}"
+                            rule_start_time = time.perf_counter()
                             event_bus.emit(
                                 ObservabilityEventType.GUARDRAIL_RULE_START,
                                 index=idx,
                                 ruleId=rule.name,
+                                callbackId=callback_id,
                             )
                             rule_violations = rule.check(state)
                             passed = len(rule_violations) == 0
+                            rule_duration_ms = int(
+                                (time.perf_counter() - rule_start_time) * 1000
+                            )
                             event_bus.emit(
                                 ObservabilityEventType.GUARDRAIL_RULE_RESULT,
                                 index=idx,
@@ -871,6 +897,8 @@ async def _internal_run(
                                 index=idx,
                                 ruleId=rule.name,
                                 passed=passed,
+                                callbackId=callback_id,
+                                durationMs=rule_duration_ms,
                             )
 
                         if all_violations:
@@ -879,11 +907,15 @@ async def _internal_run(
                             for v in all_violations:
                                 _fire_callback(cb.on_violation, v)
 
+                        final_phase_duration_ms = int(
+                            (time.perf_counter() - final_phase_start_time) * 1000
+                        )
                         event_bus.emit(
                             ObservabilityEventType.GUARDRAIL_PHASE_END,
                             phase="post",
                             passed=len(all_violations) == 0,
                             violations=[v.__dict__ for v in all_violations],
+                            durationMs=final_phase_duration_ms,
                         )
 
                         # Fatal violations (non-recoverable errors) halt completely
@@ -998,7 +1030,7 @@ async def _internal_run(
                             defaultShouldRetry=default_should_retry,
                         )
 
-                        fn_start_time = time.time()
+                        fn_start_time = time.perf_counter()
                         try:
                             # Call the callback (may be sync or async)
                             user_result = retry_mgr.config.should_retry(
@@ -1007,7 +1039,9 @@ async def _internal_run(
                             if inspect.iscoroutine(user_result):
                                 user_result = await user_result
 
-                            duration_ms = int((time.time() - fn_start_time) * 1000)
+                            duration_ms = int(
+                                (time.perf_counter() - fn_start_time) * 1000
+                            )
 
                             # User can only veto (narrow), not force (widen)
                             final_should_retry = default_should_retry and bool(
@@ -1026,7 +1060,9 @@ async def _internal_run(
 
                             will_retry = final_should_retry
                         except Exception as fn_error:
-                            duration_ms = int((time.time() - fn_start_time) * 1000)
+                            duration_ms = int(
+                                (time.perf_counter() - fn_start_time) * 1000
+                            )
                             fn_err_msg = str(fn_error)
 
                             # Emit RETRY_FN_ERROR - exception treated as veto
