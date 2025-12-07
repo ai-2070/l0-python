@@ -96,8 +96,8 @@ class TestOpenAIIntegration:
             max_tokens=5,
         )
 
+        tokens: list[str] = []
         async with l0.wrap(stream) as result:
-            tokens = []
             async for event in result:
                 if event.is_token and event.text:
                     tokens.append(event.text)

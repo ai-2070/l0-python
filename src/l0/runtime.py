@@ -18,6 +18,7 @@ from .logging import logger
 from .retry import RetryManager
 from .state import append_token, create_state, mark_completed, update_checkpoint
 from .types import (
+    AwaitableStreamFactory,
     CheckIntervals,
     Event,
     EventType,
@@ -25,7 +26,6 @@ from .types import (
     Retry,
     State,
     Stream,
-    StreamFactory,
     Timeout,
 )
 
@@ -176,9 +176,9 @@ def _validate_checkpoint(
 
 
 async def _internal_run(
-    stream: StreamFactory,
+    stream: AwaitableStreamFactory,
     *,
-    fallbacks: list[StreamFactory] | None = None,
+    fallbacks: list[AwaitableStreamFactory] | None = None,
     guardrails: list[GuardrailRule] | None = None,
     drift_detector: DriftDetector | None = None,
     retry: Retry | None = None,
@@ -314,7 +314,7 @@ async def _internal_run(
             raw_chunks, \
             attempt_number
 
-        streams: list[StreamFactory] = [stream] + fallbacks
+        streams: list[AwaitableStreamFactory] = [stream] + fallbacks
 
         # Use check intervals from config, with continuation override for checkpoint
         checkpoint_interval = intervals.checkpoint
@@ -581,14 +581,8 @@ async def _internal_run(
                                 if timeout_type == "initial_token"
                                 else "inter"
                             )
-                            configured_ms = int(
-                                (
-                                    initial_timeout
-                                    if timeout_type == "initial_token"
-                                    else inter_timeout
-                                )
-                                * 1000
-                            )
+                            # Use current_timeout which we've already asserted is not None
+                            configured_ms = int(current_timeout * 1000)
                             event_bus.emit(
                                 ObservabilityEventType.TIMEOUT_TRIGGERED,
                                 timeoutType=timeout_type_enum,

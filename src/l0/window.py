@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from typing import Any, Generic, Literal, TypeVar
 
 from .runtime import _internal_run
-from .types import Retry, Stream, StreamFactory, Timeout
+from .types import AwaitableStreamFactory, Retry, Stream, Timeout
 
 T = TypeVar("T")
 
@@ -83,10 +83,10 @@ class WindowStats:
 class ChunkProcessConfig:
     """Configuration for processing a chunk."""
 
-    stream: StreamFactory
+    stream: AwaitableStreamFactory
     retry: Retry | None = None
     timeout: Timeout | None = None
-    fallbacks: list[StreamFactory] | None = None
+    fallbacks: list[AwaitableStreamFactory] | None = None
 
 
 @dataclass
@@ -1058,12 +1058,12 @@ def get_processing_stats(results: list[ChunkResult[Any]]) -> ProcessingStats:
 async def l0_with_window(
     window: DocumentWindow,
     chunk_index: int,
-    stream: StreamFactory,
+    stream: AwaitableStreamFactory,
     *,
     context_restoration: ContextRestorationOptions | None = None,
     retry: Retry | None = None,
     timeout: Timeout | None = None,
-    fallbacks: list[StreamFactory] | None = None,
+    fallbacks: list[AwaitableStreamFactory] | None = None,
 ) -> ChunkResult[Any]:
     """Process a chunk with context restoration on drift detection.
 

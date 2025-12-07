@@ -28,17 +28,26 @@ ChunkT_co = TypeVar("ChunkT_co")
 # Raw stream from LLM provider (before adapter conversion)
 RawStream = AsyncIterator[Any]
 
+# Raw stream or coroutine that resolves to a stream (for unawaited async calls)
+AwaitableStream = AsyncIterator[Any] | Coroutine[Any, Any, AsyncIterator[Any]]
+
 # Generic raw stream with specific chunk type
 RawStreamOf = AsyncIterator[ChunkT_co]
 
 # Factory that creates a raw stream (for retry support)
 StreamFactory = Callable[[], RawStream]
 
+# Factory that can return either a stream or a coroutine resolving to a stream
+AwaitableStreamFactory = Callable[[], AwaitableStream]
+
 # Generic factory with specific chunk type
 StreamFactoryOf = Callable[[], "AsyncIterator[ChunkT_co]"]
 
 # Stream or factory (accepted by structured() and other APIs)
 StreamSource = RawStream | StreamFactory
+
+# Stream source that also accepts coroutines (for OpenAI-style unawaited calls)
+AwaitableStreamSource = AwaitableStream | AwaitableStreamFactory
 
 
 # ─────────────────────────────────────────────────────────────────────────────

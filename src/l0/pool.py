@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
 from .logging import logger
-from .types import Retry, State, StreamFactory, Timeout
+from .types import AwaitableStreamFactory, Retry, State, Timeout
 
 if TYPE_CHECKING:
     from .events import ObservabilityEvent
@@ -57,8 +57,8 @@ class PoolStats:
 class PooledOperation(Generic[T]):
     """An operation queued in the pool."""
 
-    stream: StreamFactory
-    fallbacks: list[StreamFactory] | None = None
+    stream: AwaitableStreamFactory
+    fallbacks: list[AwaitableStreamFactory] | None = None
     guardrails: list["GuardrailRule"] | None = None
     retry: Retry | None = None
     timeout: Timeout | None = None
@@ -205,9 +205,9 @@ class OperationPool(Generic[T]):
 
     def execute(
         self,
-        stream: StreamFactory,
+        stream: AwaitableStreamFactory,
         *,
-        fallbacks: list[StreamFactory] | None = None,
+        fallbacks: list[AwaitableStreamFactory] | None = None,
         guardrails: list["GuardrailRule"] | None = None,
         retry: Retry | None = None,
         timeout: Timeout | None = None,

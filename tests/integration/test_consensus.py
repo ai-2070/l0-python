@@ -260,7 +260,7 @@ class TestStructuredConsensus:
                 ],
                 max_tokens=50,
             )
-            content = stream.choices[0].message.content
+            content = stream.choices[0].message.content or ""
             if "```" in content:
                 content = content.split("```")[1]
                 if content.startswith("json"):

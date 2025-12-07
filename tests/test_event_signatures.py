@@ -187,7 +187,7 @@ class TestTimeoutEventSignatures:
         result = await _internal_run(
             stream=simple_stream,
             on_event=capture,
-            timeout=Timeout(initial_token=30.0, inter_token=10.0),
+            timeout=Timeout(initial_token=30000, inter_token=10000),
         )
         async for _ in result:
             pass
@@ -223,7 +223,7 @@ class TestTimeoutEventSignatures:
         result = await _internal_run(
             stream=multi_token_stream,
             on_event=capture,
-            timeout=Timeout(initial_token=30.0, inter_token=10.0),
+            timeout=Timeout(initial_token=30000, inter_token=10000),
         )
         async for _ in result:
             pass
@@ -431,7 +431,7 @@ class TestGuardrailEventSignatures:
             if "hello" in state.content.lower():
                 return [
                     GuardrailViolation(
-                        rule_id="no-hello",
+                        rule="no-hello",
                         message="Content contains 'hello'",
                         severity="warning",
                     )
@@ -609,7 +609,7 @@ class TestEventFieldNamingConvention:
         result = await _internal_run(
             stream=comprehensive_stream,
             on_event=capture,
-            timeout=Timeout(initial_token=30.0, inter_token=10.0),
+            timeout=Timeout(initial_token=30000, inter_token=10000),
             check_intervals=CheckIntervals(checkpoint=5),
         )
         async for _ in result:
@@ -698,7 +698,10 @@ class TestContextPropagation:
     async def test_context_is_immutable(self) -> None:
         """Context should be deeply cloned - mutations should not affect events."""
         capture = EventCapture()
-        user_context = {"requestId": "req-123", "nested": {"key": "original"}}
+        user_context: dict[str, Any] = {
+            "requestId": "req-123",
+            "nested": {"key": "original"},
+        }
 
         async def simple_stream():
             yield Event(type=EventType.TOKEN, text="Hello")
