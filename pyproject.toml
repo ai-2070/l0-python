@@ -42,6 +42,9 @@ observability = [
 speed = [
     "uvloop>=0.19; platform_system!='Windows'",
 ]
+dev = [
+    "litellm>=1.80.7",
+]
 
 [dependency-groups]
 dev = [

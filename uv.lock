@@ -962,6 +962,9 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+dev = [
+    { name = "litellm" },
+]
 litellm = [
     { name = "litellm" },
 ]
@@ -993,6 +996,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "httpx", specifier = ">=0.27.0" },
+    { name = "litellm", marker = "extra == 'dev'", specifier = ">=1.80.7" },
     { name = "litellm", marker = "extra == 'litellm'", specifier = ">=1.40,<2.0" },
     { name = "openai", marker = "extra == 'openai'", specifier = ">=2.0,<3.0" },
     { name = "opentelemetry-api", marker = "extra == 'observability'", specifier = ">=1.20,<2.0" },
@@ -1005,7 +1009,7 @@ requires-dist = [
     { name = "uuid6", specifier = ">=2024.1.12,<2026" },
     { name = "uvloop", marker = "sys_platform != 'win32' and extra == 'speed'", specifier = ">=0.19" },
 ]
-provides-extras = ["openai", "litellm", "observability", "speed"]
+provides-extras = ["openai", "litellm", "observability", "speed", "dev"]
 
 [package.metadata.requires-dev]
 dev = [
