@@ -381,6 +381,9 @@ if _TYPE_CHECKING:
         JsonAnalysis,
         LatexAnalysis,
         MarkdownAnalysis,
+        Violation,
+        custom_pattern_rule,
+        pattern_rule,
     )
     from .api.json import (
         JSON,
@@ -501,6 +504,7 @@ if _TYPE_CHECKING:
 
 from collections.abc import AsyncIterator as _AsyncIterator
 from collections.abc import Callable as _Callable
+from collections.abc import Coroutine as _Coroutine
 from typing import Protocol as _Protocol
 from typing import overload as _overload
 from typing import runtime_checkable as _runtime_checkable
@@ -549,6 +553,25 @@ def wrap(
 @_overload
 def wrap(
     client_or_stream: _AsyncIterator[_Any],
+    *,
+    guardrails: "list[GuardrailRule] | None" = None,
+    retry: "Retry | None" = None,
+    timeout: "Timeout | None" = None,
+    adapter: _Any | str | None = None,
+    on_event: "_Callable[[ObservabilityEvent], None] | None" = None,
+    on_token: "_Callable[[str], None] | None" = None,
+    on_tool_call: "_Callable[[str, str, dict[str, _Any]], None] | None" = None,
+    on_violation: "_Callable[[GuardrailViolation], None] | None" = None,
+    context: dict[str, _Any] | None = None,
+    buffer_tool_calls: bool = False,
+    continue_from_last_good_token: "ContinuationConfig | bool" = False,
+    build_continuation_prompt: "_Callable[[str], str] | None" = None,
+) -> "LazyStream[_Any]": ...
+
+
+@_overload
+def wrap(
+    client_or_stream: _Coroutine[_Any, _Any, _AsyncIterator[_Any]],
     *,
     guardrails: "list[GuardrailRule] | None" = None,
     retry: "Retry | None" = None,

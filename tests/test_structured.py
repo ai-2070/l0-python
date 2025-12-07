@@ -6,9 +6,7 @@ from typing import Any
 import pytest
 from pydantic import BaseModel, ValidationError
 
-from l0.adapters import AdaptedEvent, Adapters
-from l0.events import ObservabilityEventType
-from l0.structured import (
+from l0._structured import (
     AutoCorrectInfo,
     StructuredResult,
     StructuredState,
@@ -18,6 +16,8 @@ from l0.structured import (
     structured_object,
     structured_stream,
 )
+from l0.adapters import AdaptedEvent, Adapters
+from l0.events import ObservabilityEventType
 from l0.types import Event, EventType, Retry, Timeout
 
 

@@ -344,9 +344,9 @@ class TestErrorRecording:
 
         assert len(error_events) == 1
         error_event = error_events[0].event
-        assert error_event.error.name == "NetworkError"
-        assert error_event.failure_type == "network"
-        assert error_event.recovery_strategy == "retry"
+        assert error_event.error.name == "NetworkError"  # type: ignore[union-attr]
+        assert error_event.failure_type == "network"  # type: ignore[union-attr]
+        assert error_event.recovery_strategy == "retry"  # type: ignore[union-attr]
 
 
 @requires_openai

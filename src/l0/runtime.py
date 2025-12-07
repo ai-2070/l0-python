@@ -514,9 +514,9 @@ async def _internal_run(
                             # Fire on_tool_call callback with parsed arguments
                             parsed_args: dict[str, Any] = {}
                             if tool_args:
-                                try:
-                                    import json
+                                import json
 
+                                try:
                                     parsed_args = json.loads(tool_args)
                                 except (json.JSONDecodeError, TypeError):
                                     parsed_args = {"_raw": tool_args}
@@ -790,9 +790,9 @@ async def _internal_run(
                                 raw_args = tc_data.get("arguments", "")
                                 parsed_tc_args: dict[str, Any] = {}
                                 if raw_args:
-                                    try:
-                                        import json
+                                    import json
 
+                                    try:
                                         parsed_tc_args = json.loads(raw_args)
                                     except (json.JSONDecodeError, TypeError):
                                         parsed_tc_args = {"_raw": raw_args}

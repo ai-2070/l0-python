@@ -993,16 +993,16 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "httpx", specifier = ">=0.27.0" },
-    { name = "litellm", marker = "extra == 'litellm'", specifier = ">=1.40" },
-    { name = "openai", marker = "extra == 'openai'", specifier = ">=2.0" },
-    { name = "opentelemetry-api", marker = "extra == 'observability'", specifier = ">=1.20" },
-    { name = "opentelemetry-instrumentation-httpx", marker = "extra == 'observability'", specifier = ">=0.45" },
-    { name = "opentelemetry-sdk", marker = "extra == 'observability'", specifier = ">=1.20" },
+    { name = "litellm", marker = "extra == 'litellm'", specifier = ">=1.40,<2.0" },
+    { name = "openai", marker = "extra == 'openai'", specifier = ">=2.0,<3.0" },
+    { name = "opentelemetry-api", marker = "extra == 'observability'", specifier = ">=1.20,<2.0" },
+    { name = "opentelemetry-instrumentation-httpx", marker = "extra == 'observability'", specifier = ">=0.45,<1.0" },
+    { name = "opentelemetry-sdk", marker = "extra == 'observability'", specifier = ">=1.20,<2.0" },
     { name = "orjson", specifier = ">=3.9.0" },
     { name = "pydantic", specifier = ">=2.0.0" },
-    { name = "sentry-sdk", marker = "extra == 'observability'", specifier = ">=2.0" },
+    { name = "sentry-sdk", marker = "extra == 'observability'", specifier = ">=2.0,<3.0" },
     { name = "typing-extensions", specifier = ">=4.9.0" },
-    { name = "uuid6", specifier = ">=2024.1.12" },
+    { name = "uuid6", specifier = ">=2024.1.12,<2026" },
     { name = "uvloop", marker = "sys_platform != 'win32' and extra == 'speed'", specifier = ">=0.19" },
 ]
 provides-extras = ["openai", "litellm", "observability", "speed"]

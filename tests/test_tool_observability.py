@@ -51,7 +51,7 @@ class TestOnToolCallCallback:
         on_tool_call.assert_called_once_with(
             "get_weather",
             "call_123",
-            {"arguments": '{"location": "Seattle"}'},
+            {"location": "Seattle"},
         )
         assert result.state.completed
 
@@ -92,7 +92,7 @@ class TestOnToolCallCallback:
         on_tool_call.assert_called_once_with(
             "search_web",
             "call_456",
-            {"arguments": '{"query": "L0 library"}'},
+            {"query": "L0 library"},
         )
 
     @pytest.mark.asyncio
@@ -129,8 +129,8 @@ class TestOnToolCallCallback:
 
         assert on_tool_call.call_count == 2
         calls = on_tool_call.call_args_list
-        assert calls[0][0] == ("tool_a", "multi_1", {"arguments": '{"a": 1}'})
-        assert calls[1][0] == ("tool_b", "multi_2", {"arguments": '{"b": 2}'})
+        assert calls[0][0] == ("tool_a", "multi_1", {"a": 1})
+        assert calls[1][0] == ("tool_b", "multi_2", {"b": 2})
 
     @pytest.mark.asyncio
     async def test_on_tool_call_with_empty_arguments(self) -> None:
@@ -160,7 +160,7 @@ class TestOnToolCallCallback:
         on_tool_call.assert_called_once_with(
             "no_params",
             "empty_args",
-            {"arguments": ""},
+            {},
         )
 
     @pytest.mark.asyncio

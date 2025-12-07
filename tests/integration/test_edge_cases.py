@@ -42,8 +42,8 @@ class TestErrorHandlingEdgeCases:
             raise ConnectionError("Fallback 2 failed")
 
         result = await l0.run(
-            stream=failing_stream,
-            fallbacks=[fallback1, fallback2],
+            stream=failing_stream,  # type: ignore[arg-type]
+            fallbacks=[fallback1, fallback2],  # type: ignore[list-item]
             retry=l0.Retry(attempts=1),
         )
 
@@ -59,7 +59,7 @@ class TestErrorHandlingEdgeCases:
             raise ConnectionError("Primary failed")
 
         result = await l0.run(
-            stream=failing_stream,
+            stream=failing_stream,  # type: ignore[arg-type]
             fallbacks=[],
             retry=l0.Retry(attempts=1),
         )
@@ -257,7 +257,7 @@ class TestRetryEdgeCases:
             )
 
         result = await l0.run(
-            stream=stream_with_failures,
+            stream=stream_with_failures,  # type: ignore[arg-type]
             retry=l0.Retry(attempts=3),
             on_retry=on_retry,
         )
