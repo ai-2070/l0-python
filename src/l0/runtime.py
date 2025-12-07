@@ -959,11 +959,25 @@ async def _internal_run(
                     logger.debug(f"Stream error: {e}")
 
                     # Determine error category
-                    from .errors import categorize_error
+                    from .errors import analyze_network_error, categorize_error
                     from .types import ErrorCategory
 
                     error_category = categorize_error(e)
                     is_network = error_category == ErrorCategory.NETWORK
+
+                    # Emit NETWORK_ERROR event if this is a network error
+                    if is_network:
+                        network_analysis = analyze_network_error(e)
+                        event_bus.emit(
+                            ObservabilityEventType.NETWORK_ERROR,
+                            error=str(e),
+                            code=network_analysis.type
+                            if network_analysis
+                            else "unknown",
+                            retryable=network_analysis.retryable
+                            if network_analysis
+                            else True,
+                        )
 
                     # Determine if we will retry or fallback
                     # First check basic retry conditions (sync)

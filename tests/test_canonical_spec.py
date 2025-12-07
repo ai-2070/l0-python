@@ -1004,6 +1004,26 @@ class TestTimeoutTriggeredFieldSchema:
 
 
 # Network Events
+class TestNetworkErrorFieldSchema:
+    """Tests for NETWORK_ERROR event field schema."""
+
+    @pytest.fixture
+    def fields(self) -> list[dict[str, Any]]:
+        return SPEC["monitoring"]["observabilityEvents"]["events"]["NETWORK_ERROR"][
+            "fields"
+        ]
+
+    def test_has_exact_fields(self, fields: list[dict[str, Any]]) -> None:
+        validate_exact_fields(
+            fields,
+            [
+                {"name": "error", "type": "string", "required": True},
+                {"name": "code", "type": "string", "required": False},
+                {"name": "retryable", "type": "boolean", "required": True},
+            ],
+        )
+
+
 class TestNetworkRecoveryFieldSchema:
     """Tests for NETWORK_RECOVERY event field schema."""
 

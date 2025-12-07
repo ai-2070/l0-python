@@ -271,6 +271,49 @@ class TestAdapterEventSignatures:
 
 
 # ============================================================================
+# Network Event Signature Tests
+# ============================================================================
+
+
+class TestNetworkEventSignatures:
+    """Tests for NETWORK_* event signatures."""
+
+    @pytest.mark.asyncio
+    async def test_network_error_has_correct_fields(self) -> None:
+        """NETWORK_ERROR should have error, code, retryable fields."""
+        capture = EventCapture()
+
+        # Create a stream that raises a network-like error
+        async def stream_with_network_error():
+            yield Event(type=EventType.TOKEN, text="Hello")
+            raise ConnectionError("Connection reset by peer")
+
+        try:
+            result = await _internal_run(
+                stream=stream_with_network_error,
+                on_event=capture,
+            )
+            async for _ in result:
+                pass
+        except Exception:
+            pass  # Expected to fail
+
+        event = capture.get_first(ObservabilityEventType.NETWORK_ERROR)
+        assert event is not None, (
+            "NETWORK_ERROR event should be emitted on network error"
+        )
+
+        expected_fields = SPEC_EVENTS["NETWORK_ERROR"]["fields"]
+        errors = validate_event_fields(event, expected_fields, "NETWORK_ERROR")
+        assert not errors, "\n".join(errors)
+
+        meta = event.meta
+        assert "error" in meta, "NETWORK_ERROR should have 'error' field"
+        assert "retryable" in meta, "NETWORK_ERROR should have 'retryable' field"
+        assert isinstance(meta["retryable"], bool), "retryable should be boolean"
+
+
+# ============================================================================
 # Tool Event Signature Tests
 # ============================================================================
 
@@ -581,3 +624,97 @@ class TestEventFieldNamingConvention:
             "Events should use camelCase field names:\n"
             + "\n".join(snake_case_violations)
         )
+
+
+# ============================================================================
+# Context Propagation Tests (Invariant: context-propagated)
+# ============================================================================
+
+
+class TestContextPropagation:
+    """Tests that user context is propagated to all emitted events.
+
+    Per canonical spec invariant 'context-propagated':
+    'User context appears in all observability events'
+    """
+
+    @pytest.mark.asyncio
+    async def test_context_included_in_all_events(self) -> None:
+        """All emitted events should include the user-provided context."""
+        capture = EventCapture()
+        user_context = {"requestId": "req-123", "userId": "user-456"}
+
+        async def simple_stream():
+            yield Event(type=EventType.TOKEN, text="Hello")
+            yield Event(type=EventType.COMPLETE)
+
+        result = await _internal_run(
+            stream=simple_stream,
+            on_event=capture,
+            context=user_context,
+        )
+        async for _ in result:
+            pass
+
+        assert len(capture.events) > 0, "Expected at least one event to be emitted"
+
+        for event in capture.events:
+            assert hasattr(event, "context"), (
+                f"{event.type.value}: event missing 'context' attribute"
+            )
+            assert event.context == user_context, (
+                f"{event.type.value}: context mismatch. "
+                f"Expected {user_context}, got {event.context}"
+            )
+
+    @pytest.mark.asyncio
+    async def test_empty_context_when_not_provided(self) -> None:
+        """Events should have empty context dict when no context provided."""
+        capture = EventCapture()
+
+        async def simple_stream():
+            yield Event(type=EventType.TOKEN, text="Hello")
+            yield Event(type=EventType.COMPLETE)
+
+        result = await _internal_run(
+            stream=simple_stream,
+            on_event=capture,
+        )
+        async for _ in result:
+            pass
+
+        for event in capture.events:
+            assert hasattr(event, "context"), (
+                f"{event.type.value}: event missing 'context' attribute"
+            )
+            assert event.context == {}, (
+                f"{event.type.value}: expected empty context, got {event.context}"
+            )
+
+    @pytest.mark.asyncio
+    async def test_context_is_immutable(self) -> None:
+        """Context should be deeply cloned - mutations should not affect events."""
+        capture = EventCapture()
+        user_context = {"requestId": "req-123", "nested": {"key": "original"}}
+
+        async def simple_stream():
+            yield Event(type=EventType.TOKEN, text="Hello")
+            yield Event(type=EventType.COMPLETE)
+
+        result = await _internal_run(
+            stream=simple_stream,
+            on_event=capture,
+            context=user_context,
+        )
+        async for _ in result:
+            pass
+
+        # Mutate the original context after run
+        user_context["requestId"] = "mutated"
+        user_context["nested"]["key"] = "mutated"
+
+        # Events should still have original values
+        for event in capture.events:
+            assert event.context.get("requestId") == "req-123", (
+                f"{event.type.value}: context was mutated"
+            )
