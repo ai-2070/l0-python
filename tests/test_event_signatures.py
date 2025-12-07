@@ -156,7 +156,7 @@ class TestSessionStartSignature:
 
         meta = event.meta
         # Check field types
-        assert "attempt" in meta or "attempt" in str(meta), "Missing attempt field"
+        assert "attempt" in meta, "Missing attempt field"
         if "attempt" in meta:
             assert isinstance(meta["attempt"], int), "attempt should be int"
         if "isRetry" in meta:
