@@ -49,6 +49,8 @@ class ToolFormatOptions:
 
     style: ToolFormatStyle = "json-schema"
     include_description: bool = True
+    include_types: bool = True  # For JSON schema: include type info
+    include_examples: bool = False  # For natural style: add usage examples
 
 
 @dataclass
@@ -152,6 +154,13 @@ def validate_tool(tool: Tool) -> list[str]:
     Returns:
         A list of validation error messages. Empty if valid.
 
+    Validation rules:
+        - Tool name is required and must be a valid identifier ([a-zA-Z_][a-zA-Z0-9_]*)
+        - Tool description is required
+        - Parameters must be an array
+        - Each parameter needs a name (valid identifier) and type
+        - Valid types: string, number, integer, boolean, array, object
+
     Example:
         >>> tool = Tool(name="", description="Test")
         >>> errors = validate_tool(tool)
@@ -163,26 +172,28 @@ def validate_tool(tool: Tool) -> list[str]:
     if not tool.name:
         errors.append("Tool name is required")
     elif not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", tool.name):
-        errors.append(
-            f"Tool name '{tool.name}' must be a valid identifier "
-            "(start with letter or underscore, contain only alphanumeric and underscores)"
-        )
+        errors.append("Tool name must be a valid identifier")
 
     if not tool.description:
-        errors.append("Tool description is recommended")
+        errors.append("Tool description is required")
 
     seen_names = set()
-    for param in tool.parameters:
+    for i, param in enumerate(tool.parameters):
         if not param.name:
-            errors.append("Parameter name is required")
+            errors.append(f"Parameter {i} is missing a name")
+        elif not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", param.name):
+            errors.append(f"Parameter {param.name} must be a valid identifier")
         elif param.name in seen_names:
             errors.append(f"Duplicate parameter name: {param.name}")
         else:
             seen_names.add(param.name)
 
-        valid_types = {"string", "number", "integer", "boolean", "array", "object"}
-        if param.type not in valid_types:
-            errors.append(f"Invalid parameter type: {param.type}")
+        if not param.type:
+            errors.append(f"Parameter {param.name} is missing a type")
+        else:
+            valid_types = {"string", "number", "integer", "boolean", "array", "object"}
+            if param.type not in valid_types:
+                errors.append(f"Parameter {param.name} has invalid type: {param.type}")
 
     return errors
 
@@ -192,13 +203,18 @@ def validate_tool(tool: Tool) -> list[str]:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def _format_json_schema(tool: Tool, include_description: bool) -> dict[str, Any]:
+def _format_json_schema(
+    tool: Tool, include_description: bool, include_types: bool = True
+) -> dict[str, Any]:
     """Format tool as JSON Schema (OpenAI function calling format)."""
     properties: dict[str, Any] = {}
     required_params = []
 
     for param in tool.parameters:
-        prop: dict[str, Any] = {"type": param.type}
+        prop: dict[str, Any] = {}
+
+        if include_types:
+            prop["type"] = param.type
 
         if param.description:
             prop["description"] = param.description
@@ -267,23 +283,58 @@ def _format_typescript(tool: Tool) -> str:
     return f"function {tool.name}({params_str}): void;"
 
 
-def _format_natural(tool: Tool) -> str:
+def _get_example_value(param_type: str) -> str:
+    """Get an example value for a parameter type."""
+    examples = {
+        "string": '"example"',
+        "number": "42",
+        "integer": "42",
+        "boolean": "true",
+        "array": "[]",
+        "object": "{}",
+    }
+    return examples.get(param_type, '""')
+
+
+def _format_natural(tool: Tool, include_examples: bool = False) -> str:
     """Format tool in natural language."""
     lines = [f"Tool: {tool.name}"]
 
     if tool.description:
         lines.append(f"Description: {tool.description}")
 
-    if tool.parameters:
-        lines.append("Parameters:")
+    lines.append("")
+    lines.append("Parameters:")
+    for param in tool.parameters:
+        req_str = "(required)" if param.required else "(optional)"
+        line = f"  - {param.name} {req_str}: {param.type}"
+
+        if param.description:
+            line += f" - {param.description}"
+
+        if param.enum:
+            line += f" [Options: {', '.join(param.enum)}]"
+
+        if param.default is not None:
+            line += f" [Default: {param.default}]"
+
+        lines.append(line)
+
+    if include_examples:
+        lines.append("")
+        lines.append("Example usage:")
+        # Build example with required parameters
+        example_args = []
         for param in tool.parameters:
-            req_str = "(required)" if param.required else "(optional)"
-            if param.description:
-                lines.append(
-                    f"  - {param.name} {req_str}: {param.type} - {param.description}"
+            if param.required:
+                value = (
+                    f'"{param.enum[0]}"'
+                    if param.enum
+                    else _get_example_value(param.type)
                 )
-            else:
-                lines.append(f"  - {param.name} {req_str}: {param.type}")
+                example_args.append(f'"{param.name}": {value}')
+        args_str = ", ".join(example_args)
+        lines.append(f"  {tool.name}({{ {args_str} }})")
 
     return "\n".join(lines)
 
@@ -327,7 +378,7 @@ def format_tool(
 
     Args:
         tool: The tool to format.
-        options: Formatting options (style, include_description).
+        options: Formatting options (style, include_description, include_types, include_examples).
 
     Returns:
         The formatted tool (string or dict depending on style).
@@ -337,28 +388,40 @@ def format_tool(
         ...     create_parameter("location", "string", "City", True),
         ... ])
         >>> format_tool(tool, {"style": "natural"})
-        'Tool: get_weather\\nDescription: Get weather\\nParameters:\\n  - location (required): string - City'
+        'Tool: get_weather\\nDescription: Get weather\\n\\nParameters:\\n  - location (required): string - City'
     """
     if options is None:
         opts = ToolFormatOptions()
     elif isinstance(options, dict):
+        include_types_val = options.get(
+            "include_types", options.get("includeTypes", True)
+        )
+        include_examples_val = options.get(
+            "include_examples", options.get("includeExamples", False)
+        )
         opts = ToolFormatOptions(
             style=options.get("style", "json-schema"),
             include_description=options.get("include_description", True),
+            include_types=bool(include_types_val)
+            if include_types_val is not None
+            else True,
+            include_examples=bool(include_examples_val)
+            if include_examples_val is not None
+            else False,
         )
     else:
         opts = options
 
     if opts.style == "json-schema":
-        return _format_json_schema(tool, opts.include_description)
+        return _format_json_schema(tool, opts.include_description, opts.include_types)
     elif opts.style == "typescript":
         return _format_typescript(tool)
     elif opts.style == "natural":
-        return _format_natural(tool)
+        return _format_natural(tool, opts.include_examples)
     elif opts.style == "xml":
         return _format_xml(tool)
 
-    return _format_natural(tool)
+    return _format_natural(tool, opts.include_examples)
 
 
 def format_tools(
@@ -386,18 +449,35 @@ def format_tools(
     if options is None:
         opts = ToolFormatOptions()
     elif isinstance(options, dict):
+        include_types_val = options.get(
+            "include_types", options.get("includeTypes", True)
+        )
+        include_examples_val = options.get(
+            "include_examples", options.get("includeExamples", False)
+        )
         opts = ToolFormatOptions(
             style=options.get("style", "json-schema"),
             include_description=options.get("include_description", True),
+            include_types=bool(include_types_val)
+            if include_types_val is not None
+            else True,
+            include_examples=bool(include_examples_val)
+            if include_examples_val is not None
+            else False,
         )
     else:
         opts = options
 
     if opts.style == "json-schema":
-        return [_format_json_schema(t, opts.include_description) for t in tools]
+        return [
+            _format_json_schema(t, opts.include_description, opts.include_types)
+            for t in tools
+        ]
 
-    formatted = [format_tool(t, opts) for t in tools]
-    return "\n\n".join(str(f) for f in formatted)
+    # For other styles, join with separator (50 equals signs like TypeScript)
+    formatted = [str(format_tool(t, opts)) for t in tools]
+    separator = "\n\n" + "=" * 50 + "\n\n"
+    return separator.join(formatted)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

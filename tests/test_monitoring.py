@@ -1,11 +1,12 @@
 """Tests for L0 monitoring system."""
 
 from datetime import datetime, timezone
+from typing import Any
 
 import pytest
 
-from src.l0.events import ObservabilityEvent, ObservabilityEventType
-from src.l0.monitoring import (
+from l0.events import ObservabilityEvent, ObservabilityEventType
+from l0.monitoring import (
     MetricsConfig,
     Monitor,
     MonitoringConfig,
@@ -13,14 +14,14 @@ from src.l0.monitoring import (
     Telemetry,
     TelemetryExporter,
 )
-from src.l0.monitoring.telemetry import (
+from l0.monitoring.telemetry import (
     ErrorInfo,
     GuardrailInfo,
     Metrics,
     RetryInfo,
     TimingInfo,
 )
-from src.l0.types import ErrorCategory
+from l0.types import ErrorCategory
 
 
 class TestMonitoringConfig:
@@ -229,6 +230,7 @@ class TestMonitor:
         telemetry = monitor.get_telemetry("stream-4")
         assert telemetry is not None
         assert telemetry.error.occurred is True
+        assert telemetry.error.message is not None
         assert "Something went wrong" in telemetry.error.message
         assert telemetry.error.category == ErrorCategory.MODEL
 
@@ -503,3 +505,932 @@ class TestDisabledMonitoring:
         )
 
         assert monitor.get_telemetry() is None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Tests for EventDispatcher
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestEventDispatcher:
+    """Tests for EventDispatcher class."""
+
+    def test_dispatcher_creation(self):
+        """Test creating an event dispatcher."""
+        from l0.monitoring import EventDispatcher
+
+        dispatcher = EventDispatcher()
+        assert dispatcher.stream_id is not None
+        assert len(dispatcher.stream_id) > 0
+
+    def test_dispatcher_with_meta(self):
+        """Test dispatcher with custom metadata."""
+        from l0.monitoring import EventDispatcher
+
+        dispatcher = EventDispatcher(meta={"app": "test", "version": "1.0"})
+        assert dispatcher.meta["app"] == "test"
+        assert dispatcher.meta["version"] == "1.0"
+
+    def test_emit_with_no_handlers(self):
+        """Test that emit does nothing when no handlers registered."""
+        from l0.monitoring import EventDispatcher
+
+        dispatcher = EventDispatcher()
+        # Should not raise
+        dispatcher.emit(ObservabilityEventType.TOKEN, token="hello")
+
+    def test_emit_with_handler(self):
+        """Test emitting events to a handler."""
+        from l0.monitoring import EventDispatcher
+
+        events = []
+
+        def handler(event: ObservabilityEvent) -> None:
+            events.append(event)
+
+        dispatcher = EventDispatcher()
+        dispatcher.on_event(handler)
+        dispatcher.emit(ObservabilityEventType.TOKEN, token="hello")
+
+        # Allow async handler to complete
+        import time
+
+        time.sleep(0.1)
+
+        assert len(events) == 1
+        assert events[0].type == ObservabilityEventType.TOKEN
+        assert events[0].meta["token"] == "hello"
+        assert events[0].stream_id == dispatcher.stream_id
+
+    def test_emit_sync(self):
+        """Test synchronous event emission."""
+        from l0.monitoring import EventDispatcher
+
+        events = []
+
+        def handler(event: ObservabilityEvent) -> None:
+            events.append(event)
+
+        dispatcher = EventDispatcher()
+        dispatcher.on_event(handler)
+        dispatcher.emit_sync(ObservabilityEventType.STREAM_INIT, model="gpt-4")
+
+        # Sync should be immediate
+        assert len(events) == 1
+        assert events[0].type == ObservabilityEventType.STREAM_INIT
+        assert events[0].meta["model"] == "gpt-4"
+
+    def test_remove_handler(self):
+        """Test removing a handler."""
+        from l0.monitoring import EventDispatcher
+
+        events = []
+
+        def handler(event: ObservabilityEvent) -> None:
+            events.append(event)
+
+        dispatcher = EventDispatcher()
+        dispatcher.on_event(handler)
+        dispatcher.off_event(handler)
+        dispatcher.emit_sync(ObservabilityEventType.TOKEN, token="hello")
+
+        assert len(events) == 0
+
+    def test_handler_error_isolation(self):
+        """Test that handler errors don't affect other handlers."""
+        from l0.monitoring import EventDispatcher
+
+        events = []
+
+        def bad_handler(event: ObservabilityEvent) -> None:
+            raise ValueError("Handler error")
+
+        def good_handler(event: ObservabilityEvent) -> None:
+            events.append(event)
+
+        dispatcher = EventDispatcher()
+        dispatcher.on_event(bad_handler)
+        dispatcher.on_event(good_handler)
+
+        # Should not raise
+        dispatcher.emit_sync(ObservabilityEventType.TOKEN, token="hello")
+
+        # Good handler should still receive event
+        assert len(events) == 1
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Tests for Event Normalization
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestEventNormalization:
+    """Tests for event normalization utilities."""
+
+    def test_create_token_event(self):
+        """Test creating a token event."""
+        from l0.monitoring import L0EventType, create_token_event
+
+        event = create_token_event("Hello")
+        assert event.type == L0EventType.TOKEN
+        assert event.value == "Hello"
+        assert event.timestamp > 0
+
+    def test_create_message_event(self):
+        """Test creating a message event."""
+        from l0.monitoring import L0EventType, create_message_event
+
+        event = create_message_event("Hello, world!", role="assistant")
+        assert event.type == L0EventType.MESSAGE
+        assert event.value == "Hello, world!"
+        assert event.role == "assistant"
+
+    def test_create_complete_event(self):
+        """Test creating a complete event."""
+        from l0.monitoring import L0EventType, create_complete_event
+
+        event = create_complete_event()
+        assert event.type == L0EventType.COMPLETE
+        assert event.value is None
+
+    def test_create_error_event(self):
+        """Test creating an error event."""
+        from l0.monitoring import L0EventType, create_error_event
+
+        error = ValueError("Test error")
+        event = create_error_event(error)
+        assert event.type == L0EventType.ERROR
+        assert event.error is error
+
+    def test_extract_tokens(self):
+        """Test extracting tokens from events."""
+        from l0.monitoring import (
+            create_complete_event,
+            create_token_event,
+            extract_tokens,
+        )
+
+        events = [
+            create_token_event("Hello"),
+            create_token_event(" "),
+            create_token_event("world"),
+            create_complete_event(),
+        ]
+        tokens = extract_tokens(events)
+        assert tokens == ["Hello", " ", "world"]
+
+    def test_reconstruct_text(self):
+        """Test reconstructing text from events."""
+        from l0.monitoring import create_token_event, reconstruct_text
+
+        events = [
+            create_token_event("Hello"),
+            create_token_event(" "),
+            create_token_event("world"),
+            create_token_event("!"),
+        ]
+        text = reconstruct_text(events)
+        assert text == "Hello world!"
+
+    def test_normalize_stream_event_vercel_format(self):
+        """Test normalizing Vercel AI SDK format."""
+        from l0.monitoring import L0EventType, normalize_stream_event
+
+        # Text delta format
+        chunk = {"type": "text-delta", "textDelta": "Hello"}
+        event = normalize_stream_event(chunk)
+        assert event.type == L0EventType.TOKEN
+        assert event.value == "Hello"
+
+    def test_normalize_stream_event_openai_format(self):
+        """Test normalizing OpenAI format."""
+        from l0.monitoring import L0EventType, normalize_stream_event
+
+        # OpenAI-style chunk with delta (dict format)
+        chunk = {
+            "choices": [
+                {
+                    "delta": {"content": "Hello"},
+                    "index": 0,
+                }
+            ]
+        }
+        event = normalize_stream_event(chunk)
+        assert event.type == L0EventType.TOKEN
+        assert event.value == "Hello"
+
+    def test_normalize_stream_event_string(self):
+        """Test normalizing plain string."""
+        from l0.monitoring import L0EventType, normalize_stream_event
+
+        event = normalize_stream_event("Hello")
+        assert event.type == L0EventType.TOKEN
+        assert event.value == "Hello"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Tests for Sentry
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class MockSentryClient:
+    """Mock Sentry client for testing."""
+
+    def __init__(self) -> None:
+        self.exceptions: list[dict] = []
+        self.messages: list[dict] = []
+        self.breadcrumbs: list[dict] = []
+        self.tags: dict[str, str] = {}
+        self.extras: dict[str, Any] = {}
+        self.contexts: dict[str, dict] = {}
+
+    def capture_exception(
+        self, error: Exception | None = None, **kwargs: Any
+    ) -> str | None:
+        self.exceptions.append({"error": error, **kwargs})
+        return "mock-event-id"
+
+    def capture_message(
+        self, message: str, level: str | None = None, **kwargs: Any
+    ) -> str | None:
+        self.messages.append({"message": message, "level": level, **kwargs})
+        return "mock-event-id"
+
+    def add_breadcrumb(self, **kwargs: Any) -> None:
+        self.breadcrumbs.append(kwargs)
+
+    def set_tag(self, key: str, value: str) -> None:
+        self.tags[key] = value
+
+    def set_extra(self, key: str, value: Any) -> None:
+        self.extras[key] = value
+
+    def set_context(self, name: str, context: dict[str, Any]) -> None:
+        self.contexts[name] = context
+
+
+class TestSentry:
+    """Tests for Sentry class."""
+
+    def test_l0_sentry_creation(self):
+        """Test creating Sentry instance."""
+        from l0.monitoring import Sentry
+
+        sentry = MockSentryClient()
+        l0_sentry = Sentry(sentry)
+        assert l0_sentry is not None
+
+    def test_start_stream(self):
+        """Test starting a stream."""
+        from l0.monitoring import Sentry
+
+        sentry = MockSentryClient()
+        l0_sentry = Sentry(sentry)
+        l0_sentry.start_stream()
+
+        assert len(sentry.breadcrumbs) == 1
+        assert sentry.breadcrumbs[0]["category"] == "l0.stream"
+        assert sentry.breadcrumbs[0]["message"] == "Stream started"
+
+    def test_record_token(self):
+        """Test recording tokens."""
+        from l0.monitoring import Sentry, SentryConfig
+
+        sentry = MockSentryClient()
+        config = SentryConfig(breadcrumbs_for_tokens=True)
+        l0_sentry = Sentry(sentry, config)
+
+        l0_sentry.record_token("Hello")
+        l0_sentry.record_token(" world")
+
+        # With breadcrumbs_for_tokens=True, should add breadcrumbs
+        assert len(sentry.breadcrumbs) == 2
+
+    def test_record_first_token(self):
+        """Test recording first token timing."""
+        from l0.monitoring import Sentry
+
+        sentry = MockSentryClient()
+        l0_sentry = Sentry(sentry)
+        l0_sentry.record_first_token(250.5)
+
+        assert len(sentry.breadcrumbs) == 1
+        assert "First token" in sentry.breadcrumbs[0]["message"]
+        assert sentry.breadcrumbs[0]["data"]["ttft_ms"] == 250.5
+
+    def test_record_network_error(self):
+        """Test recording network errors."""
+        from l0.monitoring import Sentry
+
+        sentry = MockSentryClient()
+        l0_sentry = Sentry(sentry)
+
+        error = ConnectionError("Connection failed")
+        l0_sentry.record_network_error(error, "connection", retried=True)
+
+        assert len(sentry.breadcrumbs) == 1
+        assert "Network error" in sentry.breadcrumbs[0]["message"]
+        assert (
+            sentry.breadcrumbs[0]["level"] == "error"
+        )  # Level is "error" for network errors
+
+    def test_record_retry(self):
+        """Test recording retries."""
+        from l0.monitoring import Sentry
+
+        sentry = MockSentryClient()
+        l0_sentry = Sentry(sentry)
+
+        l0_sentry.record_retry(attempt=2, reason="rate_limit", is_network_error=False)
+
+        assert len(sentry.breadcrumbs) == 1
+        assert "Retry attempt 2" in sentry.breadcrumbs[0]["message"]
+
+    def test_record_guardrail_violations(self):
+        """Test recording guardrail violations."""
+        from l0.monitoring import Sentry
+
+        sentry = MockSentryClient()
+        l0_sentry = Sentry(sentry)
+
+        violations = [
+            {"rule": "pii", "severity": "error", "message": "PII detected"},
+            {"rule": "length", "severity": "warning", "message": "Too long"},
+        ]
+        l0_sentry.record_guardrail_violations(violations)
+
+        # Should capture message for error severity
+        assert len(sentry.messages) == 1
+        # Message includes the violation message
+        assert "PII detected" in sentry.messages[0]["message"]
+
+    def test_record_guardrail_violations_with_debug_severity(self):
+        """Test that debug/info severity levels don't raise ValueError."""
+        from l0.monitoring.sentry import Sentry, SentryConfig
+
+        sentry = MockSentryClient()
+
+        # Test with debug severity - should not raise
+        config = SentryConfig(min_guardrail_severity="debug")
+        l0_sentry = Sentry(sentry, config=config)
+
+        violations = [
+            {"rule": "test", "severity": "debug", "message": "Debug message"},
+            {"rule": "test2", "severity": "info", "message": "Info message"},
+            {"rule": "test3", "severity": "warning", "message": "Warning message"},
+        ]
+        l0_sentry.record_guardrail_violations(violations)
+
+        # All violations should be captured since min_severity is "debug"
+        assert len(sentry.messages) == 3
+
+    def test_record_guardrail_violations_with_info_severity(self):
+        """Test filtering with info as minimum severity."""
+        from l0.monitoring.sentry import Sentry, SentryConfig
+
+        sentry = MockSentryClient()
+
+        config = SentryConfig(min_guardrail_severity="info")
+        l0_sentry = Sentry(sentry, config=config)
+
+        violations = [
+            {"rule": "test", "severity": "debug", "message": "Debug message"},
+            {"rule": "test2", "severity": "info", "message": "Info message"},
+            {"rule": "test3", "severity": "warning", "message": "Warning message"},
+        ]
+        l0_sentry.record_guardrail_violations(violations)
+
+        # Only info and above should be captured (debug is below threshold)
+        assert len(sentry.messages) == 2
+
+    def test_record_drift(self):
+        """Test recording drift detection."""
+        from l0.monitoring import Sentry
+
+        sentry = MockSentryClient()
+        l0_sentry = Sentry(sentry)
+
+        l0_sentry.record_drift(detected=True, types=["semantic", "format"])
+
+        assert len(sentry.breadcrumbs) == 1
+        assert "Drift detected" in sentry.breadcrumbs[0]["message"]
+
+    def test_complete_stream(self):
+        """Test completing a stream."""
+        from l0.monitoring import Sentry
+
+        sentry = MockSentryClient()
+        l0_sentry = Sentry(sentry)
+        # Record tokens to set the token count
+        for _ in range(100):
+            l0_sentry.record_token("x")
+
+        l0_sentry.complete_stream(token_count=100)
+
+        assert len(sentry.breadcrumbs) == 1
+        assert "Stream completed" in sentry.breadcrumbs[0]["message"]
+
+    def test_record_failure(self):
+        """Test recording a failure."""
+        from l0.monitoring import Sentry
+
+        sentry = MockSentryClient()
+        l0_sentry = Sentry(sentry)
+
+        error = ValueError("Something went wrong")
+        l0_sentry.record_failure(error, telemetry=None)
+
+        assert len(sentry.exceptions) == 1
+        assert sentry.exceptions[0]["error"] is error
+
+
+class TestCreateSentryHandler:
+    """Tests for create_sentry_handler factory."""
+
+    def test_create_handler(self):
+        """Test creating a Sentry handler."""
+        from l0.monitoring import create_sentry_handler
+
+        sentry = MockSentryClient()
+        handler = create_sentry_handler(sentry)
+        assert callable(handler)
+
+    def test_handler_processes_events(self):
+        """Test handler processes observability events."""
+        from l0.monitoring import create_sentry_handler
+
+        sentry = MockSentryClient()
+        handler = create_sentry_handler(sentry)
+
+        # Session start
+        handler(
+            ObservabilityEvent(
+                type=ObservabilityEventType.SESSION_START,
+                ts=1000.0,
+                stream_id="test-1",
+                meta={},
+            )
+        )
+
+        # Should have breadcrumb for stream start
+        assert len(sentry.breadcrumbs) >= 1
+
+    def test_handler_captures_errors(self):
+        """Test handler captures error events."""
+        from l0.monitoring import create_sentry_handler
+
+        sentry = MockSentryClient()
+        handler = create_sentry_handler(sentry)
+
+        handler(
+            ObservabilityEvent(
+                type=ObservabilityEventType.ERROR,
+                ts=1000.0,
+                stream_id="test-1",
+                meta={"error": "Test error", "failure_type": "model"},
+            )
+        )
+
+        # Should capture the error
+        assert len(sentry.exceptions) == 1
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Tests for OpenTelemetry
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestSemanticAttributes:
+    """Tests for SemanticAttributes constants."""
+
+    def test_semantic_attributes_exist(self):
+        """Test that semantic attributes are defined."""
+        from l0.monitoring import SemanticAttributes
+
+        assert SemanticAttributes.LLM_SYSTEM == "gen_ai.system"
+        assert SemanticAttributes.LLM_REQUEST_MODEL == "gen_ai.request.model"
+        assert SemanticAttributes.L0_SESSION_ID == "l0.session_id"
+        assert SemanticAttributes.L0_RETRY_COUNT == "l0.retry.count"
+        assert SemanticAttributes.L0_TIME_TO_FIRST_TOKEN == "l0.time_to_first_token_ms"
+
+
+class TestNoOpSpan:
+    """Tests for NoOpSpan class."""
+
+    def test_noop_span_methods(self):
+        """Test NoOpSpan methods don't raise."""
+        from l0.monitoring import NoOpSpan
+
+        span = NoOpSpan()
+
+        # All methods should return self or None without raising
+        assert span.set_attribute("key", "value") is span
+        assert span.set_attributes({"a": 1}) is span
+        assert span.add_event("test") is span
+        assert span.set_status("OK") is span
+        span.record_exception(ValueError("test"))
+        span.end()
+        assert span.is_recording() is False
+
+
+class TestOpenTelemetry:
+    """Tests for OpenTelemetry class."""
+
+    def test_create_without_tracer(self):
+        """Test creating OpenTelemetry without tracer/meter."""
+        from l0.monitoring import OpenTelemetry
+
+        otel = OpenTelemetry()
+        assert otel is not None
+        assert otel.get_active_streams() == 0
+
+    def test_create_span_without_tracer(self):
+        """Test creating span without tracer returns NoOpSpan."""
+        from l0.monitoring import NoOpSpan, OpenTelemetry
+
+        otel = OpenTelemetry()
+        span = otel.create_span("test")
+        assert isinstance(span, NoOpSpan)
+
+    def test_record_token_no_op(self):
+        """Test record_token without tracer."""
+        from l0.monitoring import OpenTelemetry
+
+        otel = OpenTelemetry()
+        # Should not raise
+        otel.record_token(span=None, content="hello")
+
+    def test_record_retry_no_op(self):
+        """Test record_retry without tracer."""
+        from l0.monitoring import OpenTelemetry
+
+        otel = OpenTelemetry()
+        # Should not raise
+        otel.record_retry(reason="rate_limit", attempt=1, span=None)
+
+    def test_record_network_error_no_op(self):
+        """Test record_network_error without tracer."""
+        from l0.monitoring import OpenTelemetry
+
+        otel = OpenTelemetry()
+        # Should not raise
+        otel.record_network_error(
+            error=ConnectionError("test"),
+            error_type="connection",
+            span=None,
+        )
+
+    def test_record_guardrail_violation_no_op(self):
+        """Test record_guardrail_violation without tracer."""
+        from l0.monitoring import OpenTelemetry
+
+        otel = OpenTelemetry()
+        # Should not raise
+        otel.record_guardrail_violation(
+            violation={"rule": "pii", "severity": "error"},
+            span=None,
+        )
+
+    def test_record_drift_no_op(self):
+        """Test record_drift without tracer."""
+        from l0.monitoring import OpenTelemetry
+
+        otel = OpenTelemetry()
+        # Should not raise
+        otel.record_drift(drift_type="semantic", confidence=0.9, span=None)
+
+
+class TestCreateOpenTelemetryHandler:
+    """Tests for create_opentelemetry_handler factory."""
+
+    def test_create_handler(self):
+        """Test creating an OpenTelemetry handler."""
+        from l0.monitoring import create_opentelemetry_handler
+
+        handler = create_opentelemetry_handler()
+        assert callable(handler)
+
+    def test_handler_processes_session_start(self):
+        """Test handler processes SESSION_START events."""
+        from l0.monitoring import create_opentelemetry_handler
+
+        handler = create_opentelemetry_handler()
+
+        # Should not raise
+        handler(
+            ObservabilityEvent(
+                type=ObservabilityEventType.SESSION_START,
+                ts=1000.0,
+                stream_id="test-1",
+                meta={"attempt": 1, "is_retry": False},
+            )
+        )
+
+    def test_handler_processes_retry_attempt(self):
+        """Test handler processes RETRY_ATTEMPT events."""
+        from l0.monitoring import create_opentelemetry_handler
+
+        handler = create_opentelemetry_handler()
+
+        handler(
+            ObservabilityEvent(
+                type=ObservabilityEventType.RETRY_ATTEMPT,
+                ts=1000.0,
+                stream_id="test-1",
+                meta={"attempt": 2, "reason": "rate_limit"},
+            )
+        )
+
+    def test_handler_processes_complete(self):
+        """Test handler processes COMPLETE events."""
+        from l0.monitoring import create_opentelemetry_handler
+
+        handler = create_opentelemetry_handler()
+
+        # Start session first
+        handler(
+            ObservabilityEvent(
+                type=ObservabilityEventType.SESSION_START,
+                ts=1000.0,
+                stream_id="test-1",
+                meta={},
+            )
+        )
+
+        # Complete - without opentelemetry installed, should not raise
+        # The handler gracefully handles missing opentelemetry module
+        try:
+            handler(
+                ObservabilityEvent(
+                    type=ObservabilityEventType.COMPLETE,
+                    ts=2000.0,
+                    stream_id="test-1",
+                    meta={
+                        "token_count": 100,
+                        "content_length": 500,
+                        "duration_ms": 1000,
+                    },
+                )
+            )
+        except ModuleNotFoundError:
+            # Expected when opentelemetry is not installed
+            pass
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Tests for Event Handler Combinators
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestEventHandlerCombinators:
+    """Tests for event handler combinator functions."""
+
+    def test_combine_events(self):
+        """Test combining multiple handlers."""
+        from l0.monitoring import combine_events
+
+        results1 = []
+        results2 = []
+
+        def handler1(event: ObservabilityEvent) -> None:
+            results1.append(event)
+
+        def handler2(event: ObservabilityEvent) -> None:
+            results2.append(event)
+
+        combined = combine_events(handler1, handler2)
+
+        event = ObservabilityEvent(
+            type=ObservabilityEventType.TOKEN,
+            ts=1000.0,
+            stream_id="test",
+            meta={},
+        )
+        combined(event)
+
+        assert len(results1) == 1
+        assert len(results2) == 1
+
+    def test_filter_events(self):
+        """Test filtering events by type."""
+        from l0.monitoring import filter_events
+
+        results = []
+
+        def handler(event: ObservabilityEvent) -> None:
+            results.append(event)
+
+        # filter_events takes (types, handler) - types first
+        filtered = filter_events([ObservabilityEventType.TOKEN], handler)
+
+        # Token event - should pass
+        filtered(
+            ObservabilityEvent(
+                type=ObservabilityEventType.TOKEN,
+                ts=1000.0,
+                stream_id="test",
+                meta={},
+            )
+        )
+
+        # Error event - should be filtered
+        filtered(
+            ObservabilityEvent(
+                type=ObservabilityEventType.ERROR,
+                ts=1001.0,
+                stream_id="test",
+                meta={},
+            )
+        )
+
+        assert len(results) == 1
+        assert results[0].type == ObservabilityEventType.TOKEN
+
+    def test_exclude_events(self):
+        """Test excluding events by type."""
+        from l0.monitoring import exclude_events
+
+        results = []
+
+        def handler(event: ObservabilityEvent) -> None:
+            results.append(event)
+
+        # exclude_events takes (types, handler) - types first
+        excluded = exclude_events([ObservabilityEventType.TOKEN], handler)
+
+        # Token event - should be excluded
+        excluded(
+            ObservabilityEvent(
+                type=ObservabilityEventType.TOKEN,
+                ts=1000.0,
+                stream_id="test",
+                meta={},
+            )
+        )
+
+        # Error event - should pass
+        excluded(
+            ObservabilityEvent(
+                type=ObservabilityEventType.ERROR,
+                ts=1001.0,
+                stream_id="test",
+                meta={},
+            )
+        )
+
+        assert len(results) == 1
+        assert results[0].type == ObservabilityEventType.ERROR
+
+    def test_tap_events(self):
+        """Test tapping events for side effects."""
+        from l0.monitoring import tap_events
+
+        tapped = []
+
+        def tap_fn(event: ObservabilityEvent) -> None:
+            tapped.append(event)
+
+        # tap_events takes only a handler and returns a pass-through handler
+        tapped_handler = tap_events(tap_fn)
+
+        event = ObservabilityEvent(
+            type=ObservabilityEventType.TOKEN,
+            ts=1000.0,
+            stream_id="test",
+            meta={},
+        )
+        tapped_handler(event)
+
+        # tap_events observes events
+        assert len(tapped) == 1
+
+    @pytest.mark.asyncio
+    async def test_batch_events(self):
+        """Test batching events."""
+        from l0.monitoring import batch_events
+
+        batches: list[list[ObservabilityEvent]] = []
+
+        def handler(events: list[ObservabilityEvent]) -> None:
+            batches.append(events)
+
+        # batch_events takes (size, max_wait_seconds, handler)
+        batched = batch_events(3, 1.0, handler)
+
+        for i in range(5):
+            batched(
+                ObservabilityEvent(
+                    type=ObservabilityEventType.TOKEN,
+                    ts=1000.0 + i,
+                    stream_id="test",
+                    meta={"i": i},
+                )
+            )
+
+        # First batch of 3 should be complete
+        assert len(batches) >= 1
+        assert len(batches[0]) == 3
+
+    @pytest.mark.asyncio
+    async def test_batch_events_timer_flush(self):
+        """Test that partial batches flush after max_wait_seconds."""
+        import asyncio
+
+        from l0.monitoring import batch_events
+
+        batches: list[list[ObservabilityEvent]] = []
+
+        def handler(events: list[ObservabilityEvent]) -> None:
+            batches.append(events.copy())
+
+        # batch_events with short timeout
+        batched = batch_events(10, 0.05, handler)  # batch size 10, 50ms timeout
+
+        # Send only 2 events (less than batch size)
+        for i in range(2):
+            batched(
+                ObservabilityEvent(
+                    type=ObservabilityEventType.TOKEN,
+                    ts=1000.0 + i,
+                    stream_id="test",
+                    meta={"i": i},
+                )
+            )
+
+        # No batch should be flushed yet (not full, timer pending)
+        assert len(batches) == 0
+
+        # Wait for timer to trigger
+        await asyncio.sleep(0.1)
+
+        # Now the partial batch should be flushed
+        assert len(batches) == 1
+        assert len(batches[0]) == 2
+
+    def test_batch_events_no_event_loop(self):
+        """Test batching events without event loop flushes immediately to avoid data loss."""
+        from l0.monitoring import batch_events
+
+        batches: list[list[ObservabilityEvent]] = []
+
+        def handler(events: list[ObservabilityEvent]) -> None:
+            batches.append(events)
+
+        # batch_events takes (size, max_wait_seconds, handler)
+        batched = batch_events(3, 1.0, handler)
+
+        # Send 2 events (less than batch size)
+        for i in range(2):
+            batched(
+                ObservabilityEvent(
+                    type=ObservabilityEventType.TOKEN,
+                    ts=1000.0 + i,
+                    stream_id="test",
+                    meta={"i": i},
+                )
+            )
+
+        # Without event loop, events should be flushed immediately to avoid loss
+        # Each event triggers an immediate flush since no timer can be scheduled
+        assert len(batches) == 2
+
+    def test_sample_events(self):
+        """Test sampling events."""
+        from l0.monitoring import sample_events
+
+        results = []
+
+        def handler(event: ObservabilityEvent) -> None:
+            results.append(event)
+
+        # sample_events takes (rate, handler)
+        # Sample rate of 0 should filter everything
+        sampled = sample_events(0.0, handler)
+
+        for i in range(10):
+            sampled(
+                ObservabilityEvent(
+                    type=ObservabilityEventType.TOKEN,
+                    ts=1000.0 + i,
+                    stream_id="test",
+                    meta={},
+                )
+            )
+
+        assert len(results) == 0
+
+        # Sample rate of 1 should pass everything
+        results.clear()
+        sampled_all = sample_events(1.0, handler)
+
+        for i in range(10):
+            sampled_all(
+                ObservabilityEvent(
+                    type=ObservabilityEventType.TOKEN,
+                    ts=1000.0 + i,
+                    stream_id="test",
+                    meta={},
+                )
+            )
+
+        assert len(results) == 10

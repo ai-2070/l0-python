@@ -108,31 +108,49 @@ class ConsensusAnalysis:
 
 
 @dataclass
-class FieldConsensusInfo:
-    """Per-field consensus information."""
+class FieldAgreement:
+    """Per-field consensus information (matches TS FieldAgreement)."""
 
-    value: Any
-    agreement: float  # 0-1
-    count: int
-    indices: list[int]
+    path: str  # Field path
+    value: Any  # Consensus value for this field
+    agreement: float  # 0-1 agreement ratio
+    votes: dict[str, int]  # Vote counts per value
+    values: list[Any]  # All values seen
+    unanimous: bool  # Whether field had unanimous agreement
+    confidence: float  # 0-1 confidence in this field's consensus
+
+
+# Alias for backwards compatibility
+FieldConsensusInfo = FieldAgreement
 
 
 @dataclass
 class FieldConsensus:
     """Field-by-field consensus for structured outputs."""
 
-    fields: dict[str, FieldConsensusInfo] = field(default_factory=dict)
+    fields: dict[str, FieldAgreement] = field(default_factory=dict)
+    overall_agreement: float = 0.0  # 0-1 overall field agreement ratio
+    agreed_fields: list[str] = field(default_factory=list)  # Fields with full agreement
+    disagreed_fields: list[str] = field(
+        default_factory=list
+    )  # Fields with disagreement
 
 
 @dataclass
 class ConsensusOutput:
     """Individual output from a stream."""
 
-    value: Any
-    index: int
-    success: bool
-    error: str | None = None
-    duration_ms: float = 0.0
+    index: int  # Output index
+    text: str  # Raw text output
+    value: Any  # Parsed value (for compatibility)
+    success: bool  # Status of this output
+    data: Any = None  # Parsed data (if structured)
+    l0_result: Any = None  # L0 result (if text-based)
+    structured_result: Any = None  # Structured result (if schema)
+    error: str | None = None  # Error if output failed
+    duration_ms: float = 0.0  # Execution duration (ms)
+    weight: float = 1.0  # Weight assigned to this output
+    similarities: list[float] | None = None  # Similarity scores with other outputs
 
 
 @dataclass
@@ -336,7 +354,9 @@ def _compute_field_consensus(
     threshold: float,
 ) -> FieldConsensus:
     """Compute field-by-field consensus for structured outputs."""
-    field_consensus = FieldConsensus()
+    fields: dict[str, FieldAgreement] = {}
+    agreed_fields: list[str] = []
+    disagreed_fields: list[str] = []
 
     # Get field names from schema
     field_names = list(schema.model_fields.keys())
@@ -356,28 +376,801 @@ def _compute_field_consensus(
         if not field_values:
             continue
 
-        # Count occurrences
-        counter = Counter(_stable_repr(fv) for _, fv in field_values)
-        most_common, count = counter.most_common(1)[0]
+        # Count occurrences (votes)
+        votes: dict[str, int] = {}
+        all_values: list[Any] = []
+        for _, fv in field_values:
+            key = _stable_repr(fv)
+            votes[key] = votes.get(key, 0) + 1
+            all_values.append(fv)
+
+        # Find winning value
+        most_common = max(votes.items(), key=lambda x: x[1])
+        most_common_repr, count = most_common
         agreement = count / len(field_values)
+        unanimous = count == len(field_values)
 
-        # Find the actual value and indices
+        # Find the actual value
         winning_value = None
-        indices = []
-        for i, fv in field_values:
-            if _stable_repr(fv) == most_common:
-                if winning_value is None:
-                    winning_value = fv
-                indices.append(i)
+        for _, fv in field_values:
+            if _stable_repr(fv) == most_common_repr:
+                winning_value = fv
+                break
 
-        field_consensus.fields[field_name] = FieldConsensusInfo(
+        fields[field_name] = FieldAgreement(
+            path=field_name,
             value=winning_value,
             agreement=agreement,
-            count=count,
-            indices=indices,
+            votes=votes,
+            values=all_values,
+            unanimous=unanimous,
+            confidence=agreement,
         )
 
-    return field_consensus
+        if unanimous:
+            agreed_fields.append(field_name)
+        else:
+            disagreed_fields.append(field_name)
+
+    # Calculate overall agreement
+    overall_agreement = (
+        sum(f.agreement for f in fields.values()) / len(fields) if fields else 0.0
+    )
+
+    return FieldConsensus(
+        fields=fields,
+        overall_agreement=overall_agreement,
+        agreed_fields=agreed_fields,
+        disagreed_fields=disagreed_fields,
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Similarity Utilities (matches TS consensusUtils.ts)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def calculate_similarity_matrix(outputs: list[ConsensusOutput]) -> list[list[float]]:
+    """Calculate pairwise similarity matrix for all outputs.
+
+    Args:
+        outputs: Array of consensus outputs
+
+    Returns:
+        Similarity matrix (NxN)
+    """
+    n = len(outputs)
+    matrix: list[list[float]] = [[0.0] * n for _ in range(n)]
+
+    for i in range(n):
+        matrix[i][i] = 1.0  # Self-similarity
+
+        for j in range(i + 1, n):
+            similarity = calculate_output_similarity(outputs[i], outputs[j])
+            matrix[i][j] = similarity
+            matrix[j][i] = similarity
+
+    return matrix
+
+
+def calculate_output_similarity(a: ConsensusOutput, b: ConsensusOutput) -> float:
+    """Calculate similarity between two outputs.
+
+    Args:
+        a: First output
+        b: Second output
+
+    Returns:
+        Similarity score (0-1)
+    """
+    # If both have structured data, compare structurally
+    if a.data is not None and b.data is not None:
+        return calculate_structural_similarity(a.data, b.data)
+
+    # Otherwise, compare text
+    return _calculate_similarity(a.text, b.text)
+
+
+def calculate_structural_similarity(a: Any, b: Any) -> float:
+    """Calculate structural similarity between two objects.
+
+    Optimized with early termination for identical values.
+
+    Args:
+        a: First object
+        b: Second object
+
+    Returns:
+        Similarity score (0-1)
+    """
+    # Fast path: reference equality
+    if a is b:
+        return 1.0
+
+    # Fast path: null/None
+    if a is None:
+        return 1.0 if b is None else 0.0
+    if b is None:
+        return 0.0
+
+    type_a = type(a)
+    type_b = type(b)
+
+    # Type mismatch - early termination
+    if type_a != type_b:
+        # Allow BaseModel vs dict comparison
+        if isinstance(a, BaseModel) and isinstance(b, dict):
+            a = a.model_dump() if hasattr(a, "model_dump") else dict(a)
+        elif isinstance(b, BaseModel) and isinstance(a, dict):
+            b = b.model_dump() if hasattr(b, "model_dump") else dict(b)
+        elif not (isinstance(a, (int, float)) and isinstance(b, (int, float))):
+            return 0.0
+
+    # Primitives
+    if isinstance(a, str) and isinstance(b, str):
+        if a == b:
+            return 1.0
+        return _calculate_similarity(a, b)
+
+    if isinstance(a, (int, float)) and isinstance(b, (int, float)):
+        if a == b:
+            return 1.0
+        max_diff = max(abs(a), abs(b))
+        if max_diff == 0:
+            return 1.0
+        return float(1 - abs(a - b) / max_diff)
+
+    if isinstance(a, bool) and isinstance(b, bool):
+        return 1.0 if a == b else 0.0
+
+    # Array comparison
+    if isinstance(a, list):
+        if not isinstance(b, list):
+            return 0.0
+
+        len_a = len(a)
+        len_b = len(b)
+        max_length = max(len_a, len_b)
+
+        if max_length == 0:
+            return 1.0
+
+        # Fast path: check if arrays are equal
+        if len_a == len_b and a == b:
+            return 1.0
+
+        matches = 0.0
+        min_length = min(len_a, len_b)
+        for i in range(min_length):
+            matches += calculate_structural_similarity(a[i], b[i])
+
+        return matches / max_length
+
+    # Object/dict comparison
+    if isinstance(a, dict):
+        if not isinstance(b, dict):
+            return 0.0
+
+        keys_a = set(a.keys())
+        keys_b = set(b.keys())
+
+        # Fast path: check if dicts are equal
+        if keys_a == keys_b and a == b:
+            return 1.0
+
+        all_keys = keys_a | keys_b
+        total = len(all_keys)
+
+        if total == 0:
+            return 1.0
+
+        matches = 0.0
+        for key in all_keys:
+            if key in a and key in b:
+                matches += calculate_structural_similarity(a[key], b[key])
+
+        return matches / total
+
+    # BaseModel comparison
+    if isinstance(a, BaseModel) and isinstance(b, BaseModel):
+        a_dict = a.model_dump()
+        b_dict = b.model_dump()
+        return calculate_structural_similarity(a_dict, b_dict)
+
+    # Fallback: string comparison
+    return 1.0 if _stable_repr(a) == _stable_repr(b) else 0.0
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Agreement/Disagreement Utilities (matches TS consensusUtils.ts)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def find_agreements(
+    outputs: list[ConsensusOutput],
+    threshold: float = 0.8,
+) -> list[Agreement]:
+    """Find agreements across outputs.
+
+    Args:
+        outputs: Array of consensus outputs
+        threshold: Similarity threshold for agreement
+
+    Returns:
+        Array of agreements
+    """
+    agreements: list[Agreement] = []
+
+    # For text-based consensus
+    if outputs and outputs[0].data is None:
+        agreements.extend(_find_text_agreements(outputs, threshold))
+    else:
+        # For structured consensus
+        agreements.extend(_find_structured_agreements(outputs, threshold))
+
+    return agreements
+
+
+def _find_text_agreements(
+    outputs: list[ConsensusOutput],
+    threshold: float,
+) -> list[Agreement]:
+    """Find text-based agreements."""
+    agreements: list[Agreement] = []
+
+    # Group similar outputs
+    groups: list[list[int]] = []
+    used: set[int] = set()
+
+    for i in range(len(outputs)):
+        if i in used:
+            continue
+
+        group = [i]
+        used.add(i)
+
+        for j in range(i + 1, len(outputs)):
+            if j in used:
+                continue
+
+            similarity = calculate_output_similarity(outputs[i], outputs[j])
+            if similarity >= threshold:
+                group.append(j)
+                used.add(j)
+
+        if len(group) > 1:
+            groups.append(group)
+
+    # Create agreements from groups
+    for group in groups:
+        content = outputs[group[0]].text
+        agreement_type: AgreementType = (
+            "exact" if len(group) == len(outputs) else "similar"
+        )
+
+        agreements.append(
+            Agreement(
+                content=content,
+                count=len(group),
+                ratio=len(group) / len(outputs),
+                indices=group,
+                type=agreement_type,
+            )
+        )
+
+    return agreements
+
+
+def _find_structured_agreements(
+    outputs: list[ConsensusOutput],
+    threshold: float,
+) -> list[Agreement]:
+    """Find structured agreements (field-by-field)."""
+    agreements: list[Agreement] = []
+
+    # Get all field paths
+    all_paths: set[str] = set()
+    for output in outputs:
+        if output.data:
+            all_paths.update(_get_all_paths(output.data))
+
+    # Check agreement for each field
+    for path in all_paths:
+        values = [
+            _get_value_at_path(o.data, path) for o in outputs if o.data is not None
+        ]
+        values = [v for v in values if v is not None]
+
+        if not values:
+            continue
+
+        # Count identical values
+        value_counts: dict[str, list[int]] = {}
+        for i, v in enumerate(values):
+            key = _stable_repr(v)
+            if key not in value_counts:
+                value_counts[key] = []
+            value_counts[key].append(i)
+
+        # Find majority
+        max_count = 0
+        majority_value: Any = None
+        majority_indices: list[int] = []
+
+        for key, indices in value_counts.items():
+            if len(indices) > max_count:
+                max_count = len(indices)
+                majority_value = values[indices[0]] if indices else None
+                majority_indices = indices
+
+        ratio = max_count / len(outputs)
+        if ratio >= threshold:
+            agreements.append(
+                Agreement(
+                    content=majority_value,
+                    path=path,
+                    count=max_count,
+                    ratio=ratio,
+                    indices=majority_indices,
+                    type="exact" if ratio == 1.0 else "structural",
+                )
+            )
+
+    return agreements
+
+
+def find_disagreements(
+    outputs: list[ConsensusOutput],
+    threshold: float = 0.8,
+) -> list[Disagreement]:
+    """Find disagreements across outputs.
+
+    Args:
+        outputs: Array of consensus outputs
+        threshold: Disagreement threshold
+
+    Returns:
+        Array of disagreements
+    """
+    disagreements: list[Disagreement] = []
+
+    # For structured outputs
+    if outputs and outputs[0].data is not None:
+        disagreements.extend(_find_structured_disagreements(outputs, threshold))
+    else:
+        # For text outputs
+        disagreements.extend(_find_text_disagreements(outputs, threshold))
+
+    return disagreements
+
+
+def _find_text_disagreements(
+    outputs: list[ConsensusOutput],
+    threshold: float,
+) -> list[Disagreement]:
+    """Find text-based disagreements."""
+    disagreements: list[Disagreement] = []
+
+    # Group outputs by similarity
+    value_counts: dict[str, list[int]] = {}
+
+    for i, output in enumerate(outputs):
+        text = output.text.strip()
+        grouped = False
+
+        # Try to group with existing
+        for key in list(value_counts.keys()):
+            similarity = _calculate_similarity(text, key)
+            if similarity >= threshold:
+                value_counts[key].append(i)
+                grouped = True
+                break
+
+        if not grouped:
+            value_counts[text] = [i]
+
+    # If more than one group, it's a disagreement
+    if len(value_counts) > 1:
+        values = [
+            DisagreementValue(
+                value=value,
+                count=len(indices),
+                indices=indices,
+            )
+            for value, indices in value_counts.items()
+        ]
+
+        max_count = max(v.count for v in values)
+        ratio = max_count / len(outputs)
+        severity = _determine_severity(ratio)
+
+        disagreements.append(
+            Disagreement(
+                values=values,
+                severity=severity,
+            )
+        )
+
+    return disagreements
+
+
+def _find_structured_disagreements(
+    outputs: list[ConsensusOutput],
+    threshold: float,
+) -> list[Disagreement]:
+    """Find structured disagreements (field-by-field)."""
+    disagreements: list[Disagreement] = []
+
+    # Get all field paths
+    all_paths: set[str] = set()
+    for output in outputs:
+        if output.data:
+            all_paths.update(_get_all_paths(output.data))
+
+    # Check each field for disagreement
+    for path in all_paths:
+        values_with_indices: list[tuple[Any, int]] = []
+        for i, output in enumerate(outputs):
+            if output.data is not None:
+                value = _get_value_at_path(output.data, path)
+                if value is not None:
+                    values_with_indices.append((value, i))
+
+        # Group by value
+        value_counts: dict[str, list[int]] = {}
+        for value, index in values_with_indices:
+            key = _stable_repr(value)
+            if key not in value_counts:
+                value_counts[key] = []
+            value_counts[key].append(index)
+
+        # If more than one value, check if it's a significant disagreement
+        if len(value_counts) > 1:
+            distinct_values = []
+            for key, indices in value_counts.items():
+                # Find actual value
+                actual_value = None
+                for value, idx in values_with_indices:
+                    if _stable_repr(value) == key:
+                        actual_value = value
+                        break
+                distinct_values.append(
+                    DisagreementValue(
+                        value=actual_value,
+                        count=len(indices),
+                        indices=indices,
+                    )
+                )
+
+            # Find the majority agreement ratio
+            max_count = max(v.count for v in distinct_values)
+            majority_ratio = max_count / len(outputs)
+
+            # Skip if majority agrees above threshold
+            if majority_ratio >= threshold:
+                continue
+
+            severity = _determine_severity(majority_ratio)
+
+            disagreements.append(
+                Disagreement(
+                    path=path,
+                    values=distinct_values,
+                    severity=severity,
+                )
+            )
+
+    return disagreements
+
+
+def calculate_field_consensus(outputs: list[ConsensusOutput]) -> FieldConsensus:
+    """Calculate field-level consensus for structured outputs.
+
+    Args:
+        outputs: Array of consensus outputs
+
+    Returns:
+        Field consensus information
+    """
+    fields: dict[str, FieldAgreement] = {}
+
+    # Get all field paths
+    all_paths: set[str] = set()
+    for output in outputs:
+        if output.data:
+            all_paths.update(_get_all_paths(output.data))
+
+    # Calculate consensus for each field
+    for path in all_paths:
+        values_with_indices: list[tuple[Any, int]] = []
+        for i, output in enumerate(outputs):
+            if output.data is not None:
+                value = _get_value_at_path(output.data, path)
+                if value is not None:
+                    values_with_indices.append((value, i))
+
+        if not values_with_indices:
+            continue
+
+        # Count votes
+        votes: dict[str, int] = {}
+        all_values: list[Any] = []
+
+        for value, _ in values_with_indices:
+            key = _stable_repr(value)
+            votes[key] = votes.get(key, 0) + 1
+            all_values.append(value)
+
+        # Find consensus value
+        max_votes = 0
+        consensus_value: Any = None
+        for key, count in votes.items():
+            if count > max_votes:
+                max_votes = count
+                # Find actual value
+                for value, _ in values_with_indices:
+                    if _stable_repr(value) == key:
+                        consensus_value = value
+                        break
+
+        agreement = max_votes / len(outputs)
+        unanimous = max_votes == len(outputs)
+        confidence = agreement
+
+        fields[path] = FieldAgreement(
+            path=path,
+            value=consensus_value,
+            agreement=agreement,
+            votes=votes,
+            values=all_values,
+            unanimous=unanimous,
+            confidence=confidence,
+        )
+
+    # Calculate overall metrics
+    agreed_fields = [k for k, v in fields.items() if v.unanimous]
+    disagreed_fields = [k for k, v in fields.items() if not v.unanimous]
+    overall_agreement = (
+        sum(f.agreement for f in fields.values()) / len(fields) if fields else 0.0
+    )
+
+    return FieldConsensus(
+        fields=fields,
+        overall_agreement=overall_agreement,
+        agreed_fields=agreed_fields,
+        disagreed_fields=disagreed_fields,
+    )
+
+
+def _get_all_paths(obj: Any, prefix: str = "") -> list[str]:
+    """Get all paths in an object (dot notation)."""
+    paths: list[str] = []
+
+    if isinstance(obj, BaseModel):
+        obj = obj.model_dump() if hasattr(obj, "model_dump") else {}
+
+    if isinstance(obj, dict):
+        for key in obj.keys():
+            path = f"{prefix}.{key}" if prefix else key
+            paths.append(path)
+
+            value = obj[key]
+            if isinstance(value, dict) or isinstance(value, BaseModel):
+                paths.extend(_get_all_paths(value, path))
+
+    return paths
+
+
+def _get_value_at_path(obj: Any, path: str) -> Any:
+    """Get value at path in object."""
+    if obj is None:
+        return None
+
+    if isinstance(obj, BaseModel):
+        obj = obj.model_dump() if hasattr(obj, "model_dump") else {}
+
+    parts = path.split(".")
+    current = obj
+
+    for part in parts:
+        if isinstance(current, dict) and part in current:
+            current = current[part]
+        elif isinstance(current, BaseModel) and hasattr(current, part):
+            current = getattr(current, part)
+        else:
+            return None
+
+    return current
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Resolution Utilities (matches TS consensusUtils.ts)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def resolve_majority(
+    outputs: list[ConsensusOutput],
+    weights: list[float] | None = None,
+) -> ConsensusOutput:
+    """Resolve consensus using majority vote.
+
+    Args:
+        outputs: Array of consensus outputs
+        weights: Optional weights for each output
+
+    Returns:
+        Consensus output
+    """
+    if not outputs:
+        raise ValueError("No outputs to resolve")
+
+    # Use weights if provided
+    output_weights = weights or [o.weight for o in outputs]
+
+    # For structured outputs, do field-by-field voting
+    if outputs[0].data is not None:
+        field_consensus = calculate_field_consensus(outputs)
+        consensus_data: dict[str, Any] = {}
+
+        for path, field_info in field_consensus.fields.items():
+            _set_value_at_path(consensus_data, path, field_info.value)
+
+        return ConsensusOutput(
+            index=outputs[0].index,
+            text=_stable_repr(consensus_data),
+            value=consensus_data,
+            success=True,
+            data=consensus_data,
+            weight=outputs[0].weight,
+        )
+
+    # For text outputs, find most similar to all
+    best_index = 0
+    best_score = -1.0
+
+    for i in range(len(outputs)):
+        score = 0.0
+        for j in range(len(outputs)):
+            if i != j:
+                similarity = calculate_output_similarity(outputs[i], outputs[j])
+                score += similarity * output_weights[j]
+
+        if score > best_score:
+            best_score = score
+            best_index = i
+
+    return outputs[best_index]
+
+
+def resolve_best(
+    outputs: list[ConsensusOutput],
+    weights: list[float] | None = None,
+) -> ConsensusOutput:
+    """Resolve consensus by choosing best output.
+
+    Args:
+        outputs: Array of consensus outputs
+        weights: Optional weights for each output
+
+    Returns:
+        Best output
+    """
+    if not outputs:
+        raise ValueError("No outputs to resolve")
+
+    output_weights = weights or [o.weight for o in outputs]
+
+    # Find output with highest weight
+    best_index = 0
+    best_weight = output_weights[0]
+
+    for i in range(1, len(outputs)):
+        if output_weights[i] > best_weight:
+            best_weight = output_weights[i]
+            best_index = i
+
+    return outputs[best_index]
+
+
+def resolve_merge(outputs: list[ConsensusOutput]) -> ConsensusOutput:
+    """Resolve consensus by merging all outputs.
+
+    Args:
+        outputs: Array of consensus outputs
+
+    Returns:
+        Merged output
+    """
+    if not outputs:
+        raise ValueError("No outputs to resolve")
+
+    if len(outputs) == 1:
+        return outputs[0]
+
+    # For structured outputs, merge field by field
+    if outputs[0].data is not None:
+        merged: dict[str, Any] = {}
+        all_paths: set[str] = set()
+
+        for output in outputs:
+            if output.data:
+                all_paths.update(_get_all_paths(output.data))
+
+        for path in all_paths:
+            values = [
+                _get_value_at_path(o.data, path) for o in outputs if o.data is not None
+            ]
+            values = [v for v in values if v is not None]
+
+            # Take first non-None value
+            if values:
+                _set_value_at_path(merged, path, values[0])
+
+        return ConsensusOutput(
+            index=outputs[0].index,
+            text=_stable_repr(merged),
+            value=merged,
+            success=True,
+            data=merged,
+            weight=outputs[0].weight,
+        )
+
+    # For text outputs, concatenate unique parts
+    unique_texts = list(dict.fromkeys(o.text.strip() for o in outputs))
+    merged_text = "\n\n".join(unique_texts)
+
+    return ConsensusOutput(
+        index=outputs[0].index,
+        text=merged_text,
+        value=merged_text,
+        success=True,
+        weight=outputs[0].weight,
+    )
+
+
+def _set_value_at_path(obj: dict[str, Any], path: str, value: Any) -> None:
+    """Set value at path in object."""
+    parts = path.split(".")
+    current = obj
+
+    for i in range(len(parts) - 1):
+        part = parts[i]
+        if part not in current:
+            current[part] = {}
+        current = current[part]
+
+    current[parts[-1]] = value
+
+
+def meets_minimum_agreement(
+    agreements: list[Agreement],
+    outputs_count: int,
+    threshold: float,
+) -> bool:
+    """Check if consensus meets minimum agreement threshold.
+
+    Args:
+        agreements: Array of agreements
+        outputs_count: Total outputs
+        threshold: Minimum agreement ratio
+
+    Returns:
+        Whether consensus is sufficient
+    """
+    # If threshold is 0, any level of agreement is acceptable
+    if threshold == 0:
+        return True
+
+    # Single output is trivially unanimous
+    if outputs_count == 1:
+        return True
+
+    if not agreements:
+        return False
+
+    # Find highest agreement ratio
+    max_ratio = max(a.count / outputs_count for a in agreements)
+    return max_ratio >= threshold
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -394,11 +1187,17 @@ class Consensus:
         # Run consensus
         result = await Consensus.run(tasks, strategy="majority")
 
-        # Presets
+        # Presets (as methods)
         result = await Consensus.strict(tasks)   # All must agree
         result = await Consensus.standard(tasks) # Majority rules (default)
         result = await Consensus.lenient(tasks)  # Flexible
         result = await Consensus.best(tasks)     # Pick best single output
+
+        # Presets (as config objects)
+        Consensus.STRICT   # ConsensusPreset for unanimous agreement
+        Consensus.STANDARD # ConsensusPreset for majority rules
+        Consensus.LENIENT  # ConsensusPreset for flexible matching
+        Consensus.BEST     # ConsensusPreset for best output
 
         # Quick check
         if Consensus.quick(outputs, threshold=0.8):
@@ -411,6 +1210,42 @@ class Consensus:
         if Consensus.validate(result, min_confidence=0.8):
             print("Valid consensus")
     """
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Preset Configurations (class attributes)
+    # ─────────────────────────────────────────────────────────────────────────
+
+    # Strict consensus - all must agree
+    STRICT: ConsensusPreset = ConsensusPreset(
+        strategy="unanimous",
+        threshold=1.0,
+        resolve_conflicts="fail",
+        minimum_agreement=1.0,
+    )
+
+    # Standard consensus - majority rules (default)
+    STANDARD: ConsensusPreset = ConsensusPreset(
+        strategy="majority",
+        threshold=0.8,
+        resolve_conflicts="vote",
+        minimum_agreement=0.6,
+    )
+
+    # Lenient consensus - flexible agreement
+    LENIENT: ConsensusPreset = ConsensusPreset(
+        strategy="majority",
+        threshold=0.7,
+        resolve_conflicts="merge",
+        minimum_agreement=0.5,
+    )
+
+    # Best-of consensus - choose highest quality
+    BEST: ConsensusPreset = ConsensusPreset(
+        strategy="best",
+        threshold=0.8,
+        resolve_conflicts="best",
+        minimum_agreement=0.5,
+    )
 
     # ─────────────────────────────────────────────────────────────────────────
     # Main Run Method
@@ -491,17 +1326,30 @@ class Consensus:
                     duration_ms=duration,
                     status="success",
                 )
+                # Determine text representation and data
+                text = str(result) if result is not None else ""
+                data = None
+                if isinstance(result, BaseModel):
+                    data = result.model_dump() if hasattr(result, "model_dump") else {}
+                    text = _stable_repr(data)
+                elif isinstance(result, dict):
+                    data = result
+                    text = _stable_repr(data)
+
                 event_bus.emit(
                     ObservabilityEventType.CONSENSUS_OUTPUT_COLLECTED,
                     stream_index=idx,
-                    length=len(str(result)),
+                    length=len(text),
                     has_errors=False,
                 )
                 return ConsensusOutput(
-                    value=result,
                     index=idx,
+                    text=text,
+                    value=result,
                     success=True,
+                    data=data,
                     duration_ms=duration,
+                    weight=weights[idx],
                 )
             except Exception as e:
                 duration = (time.time() - start) * 1000
@@ -513,11 +1361,13 @@ class Consensus:
                     error=str(e),
                 )
                 return ConsensusOutput(
-                    value=None,
                     index=idx,
+                    text="",
+                    value=None,
                     success=False,
                     error=str(e),
                     duration_ms=duration,
+                    weight=weights[idx],
                 )
 
         # Run all tasks concurrently
@@ -944,6 +1794,260 @@ class Consensus:
 
         return True
 
+    # ─────────────────────────────────────────────────────────────────────────
+    # Similarity Utilities (scoped)
+    # ─────────────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def similarity_matrix(outputs: list[ConsensusOutput]) -> list[list[float]]:
+        """Calculate pairwise similarity matrix for all outputs.
+
+        Args:
+            outputs: Array of consensus outputs
+
+        Returns:
+            Similarity matrix (NxN)
+        """
+        return calculate_similarity_matrix(outputs)
+
+    @staticmethod
+    def output_similarity(a: ConsensusOutput, b: ConsensusOutput) -> float:
+        """Calculate similarity between two outputs.
+
+        Args:
+            a: First output
+            b: Second output
+
+        Returns:
+            Similarity score (0-1)
+        """
+        return calculate_output_similarity(a, b)
+
+    @staticmethod
+    def structural_similarity(a: Any, b: Any) -> float:
+        """Calculate structural similarity between two objects.
+
+        Args:
+            a: First object
+            b: Second object
+
+        Returns:
+            Similarity score (0-1)
+        """
+        return calculate_structural_similarity(a, b)
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Agreement/Disagreement Utilities (scoped)
+    # ─────────────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def agreements(
+        outputs: list[ConsensusOutput],
+        threshold: float = 0.8,
+    ) -> list[Agreement]:
+        """Find agreements across outputs.
+
+        Args:
+            outputs: Array of consensus outputs
+            threshold: Similarity threshold for agreement
+
+        Returns:
+            Array of agreements
+        """
+        return find_agreements(outputs, threshold)
+
+    @staticmethod
+    def disagreements(
+        outputs: list[ConsensusOutput],
+        threshold: float = 0.8,
+    ) -> list[Disagreement]:
+        """Find disagreements across outputs.
+
+        Args:
+            outputs: Array of consensus outputs
+            threshold: Disagreement threshold
+
+        Returns:
+            Array of disagreements
+        """
+        return find_disagreements(outputs, threshold)
+
+    @staticmethod
+    def field_consensus(outputs: list[ConsensusOutput]) -> FieldConsensus:
+        """Calculate field-level consensus for structured outputs.
+
+        Args:
+            outputs: Array of consensus outputs
+
+        Returns:
+            Field consensus information
+        """
+        return calculate_field_consensus(outputs)
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Resolution Utilities (scoped)
+    # ─────────────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def majority(
+        outputs: list[ConsensusOutput],
+        weights: list[float] | None = None,
+    ) -> ConsensusOutput:
+        """Resolve consensus using majority vote.
+
+        Args:
+            outputs: Array of consensus outputs
+            weights: Optional weights for each output
+
+        Returns:
+            Consensus output
+        """
+        return resolve_majority(outputs, weights)
+
+    @staticmethod
+    def best_output(
+        outputs: list[ConsensusOutput],
+        weights: list[float] | None = None,
+    ) -> ConsensusOutput:
+        """Resolve consensus by choosing best output.
+
+        Args:
+            outputs: Array of consensus outputs
+            weights: Optional weights for each output
+
+        Returns:
+            Best output
+        """
+        return resolve_best(outputs, weights)
+
+    @staticmethod
+    def merge(outputs: list[ConsensusOutput]) -> ConsensusOutput:
+        """Resolve consensus by merging all outputs.
+
+        Args:
+            outputs: Array of consensus outputs
+
+        Returns:
+            Merged output
+        """
+        return resolve_merge(outputs)
+
+    @staticmethod
+    def meets_agreement(
+        agreements: list[Agreement],
+        outputs_count: int,
+        threshold: float,
+    ) -> bool:
+        """Check if consensus meets minimum agreement threshold.
+
+        Args:
+            agreements: Array of agreements
+            outputs_count: Total outputs
+            threshold: Minimum agreement ratio
+
+        Returns:
+            Whether consensus is sufficient
+        """
+        return meets_minimum_agreement(agreements, outputs_count, threshold)
+
 
 # Convenience alias - consensus() triggers model calls, so shorthand is useful
 consensus = Consensus.run
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Module-Level Presets (matches TS consensus presets)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Strict consensus - all must agree
+strict_consensus: ConsensusPreset = ConsensusPreset(
+    strategy="unanimous",
+    threshold=1.0,
+    resolve_conflicts="fail",
+    minimum_agreement=1.0,
+)
+
+# Standard consensus - majority rules (default)
+standard_consensus: ConsensusPreset = ConsensusPreset(
+    strategy="majority",
+    threshold=0.8,
+    resolve_conflicts="vote",
+    minimum_agreement=0.6,
+)
+
+# Lenient consensus - flexible agreement
+lenient_consensus: ConsensusPreset = ConsensusPreset(
+    strategy="majority",
+    threshold=0.7,
+    resolve_conflicts="merge",
+    minimum_agreement=0.5,
+)
+
+# Best-of consensus - choose highest quality
+best_consensus: ConsensusPreset = ConsensusPreset(
+    strategy="best",
+    threshold=0.8,
+    resolve_conflicts="best",
+    minimum_agreement=0.5,
+)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Module-Level Utility Functions (matches TS helper functions)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def quick_consensus(outputs: list[Any], threshold: float = 0.8) -> bool:
+    """Quick consensus check - returns true if outputs agree.
+
+    Args:
+        outputs: Array of text outputs
+        threshold: Similarity threshold (default 0.8)
+
+    Returns:
+        Whether outputs have consensus
+
+    Example:
+        ```python
+        outputs = ['answer A', 'answer A', 'answer B']
+        quick_consensus(outputs)  # False (not 80% agreement)
+        quick_consensus(outputs, 0.6)  # True (66% >= 60%)
+        ```
+    """
+    return Consensus.quick(outputs, threshold)
+
+
+def get_consensus_value(outputs: list[T]) -> T | None:
+    """Get consensus value from array of outputs.
+
+    Args:
+        outputs: Array of outputs
+
+    Returns:
+        Most common output
+
+    Example:
+        ```python
+        get_consensus_value(['A', 'A', 'B'])  # 'A'
+        get_consensus_value([1, 2, 1, 1])  # 1
+        ```
+    """
+    return Consensus.get_value(outputs)
+
+
+def validate_consensus(
+    result: ConsensusResult[Any],
+    min_confidence: float = 0.8,
+    max_disagreements: int = 0,
+) -> bool:
+    """Validate consensus result meets criteria.
+
+    Args:
+        result: Consensus result to validate
+        min_confidence: Minimum confidence required (default 0.8)
+        max_disagreements: Maximum disagreements allowed (default 0)
+
+    Returns:
+        True if confidence >= min_confidence and no major/critical disagreements
+    """
+    return Consensus.validate(result, min_confidence, max_disagreements)

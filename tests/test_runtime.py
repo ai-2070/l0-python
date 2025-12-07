@@ -6,11 +6,11 @@ from typing import Any
 
 import pytest
 
-from src.l0 import Retry, Timeout, TimeoutError
-from src.l0.adapters import AdaptedEvent, Adapters
-from src.l0.guardrails import GuardrailRule, GuardrailViolation
-from src.l0.runtime import _internal_run
-from src.l0.types import Event, EventType, State
+from l0 import Retry, Timeout, TimeoutError
+from l0.adapters import AdaptedEvent, Adapters
+from l0.guardrails import GuardrailRule, GuardrailViolation
+from l0.runtime import _internal_run
+from l0.types import Event, EventType, State
 
 
 class PassthroughAdapter:
@@ -22,7 +22,9 @@ class PassthroughAdapter:
         """Detect async generators (our test streams)."""
         return hasattr(stream, "__anext__")
 
-    async def wrap(self, stream: Any) -> AsyncIterator[AdaptedEvent[Any]]:
+    async def wrap(
+        self, stream: Any, options: Any = None
+    ) -> AsyncIterator[AdaptedEvent[Any]]:
         """Pass through events wrapped in AdaptedEvent."""
         async for event in stream:
             yield AdaptedEvent(event=event, raw_chunk=None)
@@ -42,7 +44,7 @@ class TestLazyWrap:
     @pytest.mark.asyncio
     async def test_wrap_returns_immediately(self):
         """Test that wrap() is sync and returns LazyStream."""
-        import src.l0 as l0
+        import l0 as l0
 
         async def my_stream():
             yield Event(type=EventType.TOKEN, text="hello")
@@ -55,7 +57,7 @@ class TestLazyWrap:
     @pytest.mark.asyncio
     async def test_wrap_read_works(self):
         """Test that await result.read() works."""
-        import src.l0 as l0
+        import l0 as l0
 
         async def my_stream():
             yield Event(type=EventType.TOKEN, text="hello")
@@ -68,7 +70,7 @@ class TestLazyWrap:
     @pytest.mark.asyncio
     async def test_wrap_iteration_works(self):
         """Test that async for works directly."""
-        import src.l0 as l0
+        import l0 as l0
 
         async def my_stream():
             yield Event(type=EventType.TOKEN, text="hello")
@@ -85,15 +87,15 @@ class TestLazyWrap:
     @pytest.mark.asyncio
     async def test_wrap_context_manager_works(self):
         """Test that async with works without double await."""
-        import src.l0 as l0
+        import l0 as l0
 
         async def my_stream():
             yield Event(type=EventType.TOKEN, text="test")
             yield Event(type=EventType.COMPLETE)
 
         # No double await!
+        tokens = []
         async with l0.wrap(my_stream()) as result:
-            tokens = []
             async for event in result:
                 if event.is_token:
                     tokens.append(event.text)
@@ -133,23 +135,29 @@ class TestCompletionGuardrails:
             yield Event(type=EventType.TOKEN, text="Hi")
             yield Event(type=EventType.COMPLETE)
 
+        from l0.errors import Error, ErrorCode
+
         result = await _internal_run(
             stream=short_stream,
             guardrails=[completion_rule],
         )
 
-        async for _ in result:
-            pass
+        # Fatal guardrail violation (recoverable=False) should raise error
+        with pytest.raises(Error) as exc_info:
+            async for _ in result:
+                pass
+
+        assert exc_info.value.code == ErrorCode.FATAL_GUARDRAIL_VIOLATION
 
         # Should have been called with completed=True at least once
         completed_calls = [c for c in check_calls if c["completed"]]
         assert len(completed_calls) > 0, "Guardrail should run after completion"
-        assert result.state.violations, "Should have violation for short output"
 
     @pytest.mark.asyncio
     async def test_zero_output_rule_detects_empty(self):
         """Test that zero_output_rule works on completion."""
-        from src.l0.guardrails import zero_output_rule
+        from l0.errors import Error, ErrorCode
+        from l0.guardrails import zero_output_rule
 
         async def empty_stream():
             yield Event(type=EventType.COMPLETE)
@@ -159,19 +167,20 @@ class TestCompletionGuardrails:
             guardrails=[zero_output_rule()],
         )
 
-        async for _ in result:
-            pass
+        # Recoverable guardrail violation should raise error (triggers retry attempt)
+        with pytest.raises(Error) as exc_info:
+            async for _ in result:
+                pass
 
-        # Should detect zero output
-        zero_violations = [
-            v for v in result.state.violations if v.rule == "zero_output"
-        ]
-        assert len(zero_violations) > 0, "Should detect zero output"
+        # Zero output is a recoverable error that triggers retry
+        assert exc_info.value.code == ErrorCode.GUARDRAIL_VIOLATION
+        assert "Empty or whitespace-only output" in str(exc_info.value)
 
     @pytest.mark.asyncio
     async def test_strict_json_rule_validates_on_completion(self):
         """Test that strict_json_rule validates complete JSON."""
-        from src.l0.guardrails import strict_json_rule
+        from l0.errors import Error, ErrorCode
+        from l0.guardrails import strict_json_rule
 
         async def invalid_json_stream():
             yield Event(
@@ -184,19 +193,19 @@ class TestCompletionGuardrails:
             guardrails=[strict_json_rule()],
         )
 
-        async for _ in result:
-            pass
+        # Recoverable guardrail violation should raise error (triggers retry attempt)
+        with pytest.raises(Error) as exc_info:
+            async for _ in result:
+                pass
 
-        # Should detect invalid JSON
-        json_violations = [
-            v for v in result.state.violations if v.rule == "strict_json"
-        ]
-        assert len(json_violations) > 0, "Should detect invalid JSON on completion"
+        # Invalid JSON is a recoverable error that triggers retry
+        assert exc_info.value.code == ErrorCode.GUARDRAIL_VIOLATION
+        assert "Invalid JSON" in str(exc_info.value)
 
     @pytest.mark.asyncio
     async def test_valid_json_passes_strict_rule(self):
         """Test that valid JSON passes strict_json_rule."""
-        from src.l0.guardrails import strict_json_rule
+        from l0.guardrails import strict_json_rule
 
         async def valid_json_stream():
             yield Event(type=EventType.TOKEN, text='{"key": "value"}')
@@ -223,7 +232,7 @@ class TestFallback:
         """Test that FALLBACK_END is emitted when fallback succeeds."""
         events_received = []
 
-        def on_event(event):
+        def on_event(event: Any) -> None:
             events_received.append(event.type.value)
 
         async def failing_stream():
@@ -263,7 +272,7 @@ class TestTimeout:
         with pytest.raises(TimeoutError) as exc_info:
             result = await _internal_run(
                 stream=slow_start_stream,
-                timeout=Timeout(initial_token=0.1, inter_token=1.0),
+                timeout=Timeout(initial_token=100, inter_token=1000),
                 retry=Retry(attempts=1, max_retries=1),  # No retries
             )
             async for _ in result:
@@ -287,7 +296,7 @@ class TestTimeout:
         with pytest.raises(TimeoutError) as exc_info:
             result = await _internal_run(
                 stream=stalling_stream,
-                timeout=Timeout(initial_token=1.0, inter_token=0.1),
+                timeout=Timeout(initial_token=1000, inter_token=100),
                 retry=Retry(attempts=1, max_retries=1),  # No retries
             )
             async for _ in result:
@@ -308,7 +317,7 @@ class TestTimeout:
 
         result = await _internal_run(
             stream=fast_stream,
-            timeout=Timeout(initial_token=1.0, inter_token=1.0),
+            timeout=Timeout(initial_token=1000, inter_token=1000),
         )
 
         tokens = []
@@ -369,7 +378,7 @@ class TestTimeout:
 
         result = await _internal_run(
             stream=stalling_then_succeeding_stream,
-            timeout=Timeout(initial_token=1.0, inter_token=0.1),
+            timeout=Timeout(initial_token=1000, inter_token=100),
             retry=Retry(attempts=3, max_retries=3),
             continue_from_last_good_token=True,
         )
@@ -552,7 +561,7 @@ class TestToolCallBuffering:
     @pytest.mark.asyncio
     async def test_buffer_tool_calls_with_wrap(self):
         """Test that buffer_tool_calls works with l0.wrap()."""
-        import src.l0 as l0
+        import l0 as l0
 
         async def stream_with_chunked_tool_call():
             yield Event(

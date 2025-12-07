@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from src.l0.formatting.memory import (
+from l0.formatting.memory import (
     MemoryEntry,
     MemoryFormatOptions,
     calculate_memory_size,
@@ -38,6 +38,7 @@ class TestCreateMemoryEntry:
         before = datetime.now()
         entry = create_memory_entry("user", "Test")
         after = datetime.now()
+        assert entry.timestamp is not None
         assert before <= entry.timestamp <= after
 
 

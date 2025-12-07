@@ -2,7 +2,7 @@
 
 import pytest
 
-from src.l0.events import EventBus, ObservabilityEvent, ObservabilityEventType
+from l0.events import EventBus, ObservabilityEvent, ObservabilityEventType
 
 
 class TestObservabilityEventType:
@@ -22,11 +22,13 @@ class TestObservabilityEvent:
             type=ObservabilityEventType.STREAM_INIT,
             ts=1234567890.0,
             stream_id="test-id",
+            context={"requestId": "req-123"},
             meta={"key": "value"},
         )
         assert event.type == ObservabilityEventType.STREAM_INIT
         assert event.ts == 1234567890.0
         assert event.stream_id == "test-id"
+        assert event.context == {"requestId": "req-123"}
         assert event.meta == {"key": "value"}
 
 
@@ -63,17 +65,17 @@ class TestEventBus:
         assert events[0].type == ObservabilityEventType.STREAM_INIT
         assert events[0].stream_id == bus.stream_id
 
-    def test_emit_with_meta(self):
+    def test_emit_with_context(self):
         events = []
 
         def handler(event: ObservabilityEvent):
             events.append(event)
 
-        bus = EventBus(handler=handler, meta={"session": "abc"})
+        bus = EventBus(handler=handler, context={"session": "abc"})
         bus.emit(ObservabilityEventType.RETRY_ATTEMPT, attempt=3)
 
         assert len(events) == 1
-        assert events[0].meta["session"] == "abc"
+        assert events[0].context["session"] == "abc"
         assert events[0].meta["attempt"] == 3
 
     def test_emit_timestamp_in_milliseconds(self):

@@ -14,6 +14,8 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Typing :: Typed",
 ]
@@ -23,28 +25,33 @@ dependencies = [
     "pydantic>=2.0.0",
     "orjson>=3.9.0",
     "typing-extensions>=4.9.0",
-    "uuid6>=2024.1.12",
+    "uuid6>=2024.1.12,<2026",
 ]
 
 [project.optional-dependencies]
-openai = ["openai>=1.30"]
-litellm = ["litellm>=1.40"]
+openai = ["openai>=2.0,<3.0"]
+litellm = ["litellm>=1.40,<2.0"]
 
 observability = [
-    "opentelemetry-api>=1.20",
-    "opentelemetry-sdk>=1.20",
-    "opentelemetry-instrumentation-httpx>=0.45",
-    "sentry-sdk>=1.40",
+    "opentelemetry-api>=1.20,<2.0",
+    "opentelemetry-sdk>=1.20,<2.0",
+    "opentelemetry-instrumentation-httpx>=0.45,<1.0",
+    "sentry-sdk>=2.0,<3.0",
 ]
 
 speed = [
     "uvloop>=0.19; platform_system!='Windows'",
 ]
-
 dev = [
-    "pytest>=8.0",
-    "pytest-asyncio>=0.23",
-    "pytest-cov>=4.0",
+    "litellm>=1.80.7",
+]
+
+[dependency-groups]
+dev = [
+    "basedpyright>=1.35.0",
+    "pytest>=9.0",
+    "pytest-asyncio>=1.3.0",
+    "pytest-cov>=7.0",
     "pytest-mock>=3.12",
     "ruff>=0.1",
     "mypy>=1.8",
@@ -59,6 +66,9 @@ Repository = "https://github.com/your-org/l0-python"
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/l0"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
@@ -82,6 +92,40 @@ exclude_lines = [
 python_version = "3.10"
 strict = true
 ignore_missing_imports = true
+# Disable overly strict generic type parameter requirements
+# Type inference handles these cases correctly
+disallow_any_generics = false
+mypy_path = "src"
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+disallow_untyped_calls = false
+warn_return_any = false
+check_untyped_defs = false
+
+[tool.basedpyright]
+pythonVersion = "3.10"
+typeCheckingMode = "strict"
+reportMissingImports = "warning"
+reportMissingTypeStubs = false
+reportImportCycles = false
+# Allow type inference to handle generic type arguments
+reportMissingTypeArgument = false
+# Suppress noise from optional dependencies
+reportUnknownVariableType = false
+reportUnknownMemberType = false
+reportUnknownArgumentType = false
+reportUnknownParameterType = false
+reportUnknownLambdaType = false
+# Internal implementation details
+reportPrivateUsage = false
+reportUnnecessaryIsInstance = false
+reportUnnecessaryCast = false
+reportUnusedImport = "warning"
+reportUnusedVariable = "warning"
+reportUnusedFunction = "warning"
 
 [tool.ruff]
 target-version = "py310"
@@ -89,8 +133,3 @@ line-length = 88
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
-
-[dependency-groups]
-dev = [
-    "pytest-asyncio>=1.3.0",
-]

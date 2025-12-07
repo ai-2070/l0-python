@@ -2,7 +2,7 @@
 
 import pytest
 
-from src.l0.types import (
+from l0.types import (
     BackoffStrategy,
     ErrorCategory,
     Event,
@@ -129,15 +129,15 @@ class TestRetry:
 class TestTimeout:
     def test_default_values(self):
         config = Timeout()
-        assert config.initial_token == 5.0  # seconds
-        assert config.inter_token == 10.0  # seconds
+        assert config.initial_token == 5000  # milliseconds
+        assert config.inter_token == 10000  # milliseconds
 
 
 class TestStream:
     @pytest.mark.asyncio
     async def test_read_returns_content(self):
         """Test that read() returns accumulated content."""
-        from src.l0.types import Stream
+        from l0.types import Stream
 
         # Create a simple async iterator
         async def token_iterator():
@@ -163,7 +163,7 @@ class TestStream:
     @pytest.mark.asyncio
     async def test_read_consumes_stream(self):
         """Test that read() consumes the stream and returns text."""
-        from src.l0.types import Stream
+        from l0.types import Stream
 
         async def token_iterator():
             for token in ["Test", " ", "content"]:

@@ -2,7 +2,7 @@
 
 import pytest
 
-from src.l0.continuation import (
+from l0.continuation import (
     ContinuationConfig,
     DeduplicationOptions,
     OverlapResult,

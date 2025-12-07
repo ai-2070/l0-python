@@ -120,7 +120,6 @@ class Monitor:
         if self.config.sampling.sample_errors:
             if event.type in (
                 ObservabilityEventType.ERROR,
-                ObservabilityEventType.NETWORK_ERROR,
                 ObservabilityEventType.RETRY_GIVE_UP,
             ):
                 self._should_sample[event.stream_id] = True
@@ -238,15 +237,6 @@ class Monitor:
                 # Force sample errors
                 if self.config.sampling.sample_errors:
                     self._should_sample[telemetry.stream_id] = True
-
-        elif event_type == ObservabilityEventType.NETWORK_ERROR:
-            if self.config.metrics.collect_errors:
-                telemetry.error.occurred = True
-                telemetry.error.category = ErrorCategory.NETWORK
-                if "error" in meta:
-                    telemetry.error.message = str(meta["error"])
-                if "type" in meta:
-                    telemetry.error.code = meta["type"]
 
         # Completion events
         elif event_type == ObservabilityEventType.COMPLETE:

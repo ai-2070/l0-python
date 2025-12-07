@@ -5,10 +5,14 @@ from __future__ import annotations
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Generic, TypeVar
+from types import TracebackType
+from typing import TYPE_CHECKING, Any, Coroutine, Generic, TypeVar
 
 if TYPE_CHECKING:
+    from .adapters import Adapter
+    from .errors import NetworkError
     from .events import ObservabilityEvent
+    from .guardrails import GuardrailRule, GuardrailViolation
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Type Aliases for Stream Factories
@@ -24,17 +28,26 @@ ChunkT_co = TypeVar("ChunkT_co")
 # Raw stream from LLM provider (before adapter conversion)
 RawStream = AsyncIterator[Any]
 
+# Raw stream or coroutine that resolves to a stream (for unawaited async calls)
+AwaitableStream = AsyncIterator[Any] | Coroutine[Any, Any, AsyncIterator[Any]]
+
 # Generic raw stream with specific chunk type
 RawStreamOf = AsyncIterator[ChunkT_co]
 
 # Factory that creates a raw stream (for retry support)
 StreamFactory = Callable[[], RawStream]
 
+# Factory that can return either a stream or a coroutine resolving to a stream
+AwaitableStreamFactory = Callable[[], AwaitableStream]
+
 # Generic factory with specific chunk type
 StreamFactoryOf = Callable[[], "AsyncIterator[ChunkT_co]"]
 
 # Stream or factory (accepted by structured() and other APIs)
 StreamSource = RawStream | StreamFactory
+
+# Stream source that also accepts coroutines (for OpenAI-style unawaited calls)
+AwaitableStreamSource = AwaitableStream | AwaitableStreamFactory
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -257,7 +270,7 @@ class State:
     model_retry_count: int = 0
     network_retry_count: int = 0
     fallback_index: int = 0
-    violations: list[Any] = field(default_factory=list)
+    violations: "list[GuardrailViolation]" = field(default_factory=list)
     drift_detected: bool = False
     completed: bool = False
     aborted: bool = False
@@ -265,7 +278,7 @@ class State:
     last_token_at: float | None = None
     duration: float | None = None
     resumed: bool = False  # Whether stream was resumed from checkpoint
-    network_errors: list[Any] = field(default_factory=list)
+    network_errors: "list[NetworkError]" = field(default_factory=list)
     # Multimodal state
     data_outputs: list[DataPayload] = field(default_factory=list)
     last_progress: Progress | None = None
@@ -278,7 +291,8 @@ class State:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Retry + Timeout (seconds, not milliseconds - Pythonic!)
+# Retry + Timeout
+# Retry delays are in seconds (Pythonic). Timeout uses milliseconds (TS parity).
 # ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -287,6 +301,166 @@ class ErrorTypeDelays:
     """Per-error-type delay configuration.
 
     All delays are in seconds (float), matching Python conventions.
+    Default values are sourced from ERROR_TYPE_DELAY_DEFAULTS for consistency.
+
+    Usage:
+        from l0 import ErrorTypeDelays, ERROR_TYPE_DELAY_DEFAULTS
+
+        # Use all defaults
+        delays = ErrorTypeDelays()
+
+        # Override specific delays
+        delays = ErrorTypeDelays(timeout=3.0, dns_error=5.0)
+
+        # Check default values
+        print(ERROR_TYPE_DELAY_DEFAULTS.timeout)  # 1.0
+    """
+
+    connection_dropped: float | None = None
+    fetch_error: float | None = None
+    econnreset: float | None = None
+    econnrefused: float | None = None
+    sse_aborted: float | None = None
+    no_bytes: float | None = None
+    partial_chunks: float | None = None
+    runtime_killed: float | None = None
+    background_throttle: float | None = None
+    dns_error: float | None = None
+    ssl_error: float | None = None
+    timeout: float | None = None
+    unknown: float | None = None
+
+    def __post_init__(self) -> None:
+        """Apply defaults from ERROR_TYPE_DELAY_DEFAULTS for any unset values."""
+        # Import here to avoid circular dependency at module load time
+        # ERROR_TYPE_DELAY_DEFAULTS is defined after this class
+        from . import types as _types
+
+        defaults = _types.ERROR_TYPE_DELAY_DEFAULTS
+        if self.connection_dropped is None:
+            object.__setattr__(self, "connection_dropped", defaults.connection_dropped)
+        if self.fetch_error is None:
+            object.__setattr__(self, "fetch_error", defaults.fetch_error)
+        if self.econnreset is None:
+            object.__setattr__(self, "econnreset", defaults.econnreset)
+        if self.econnrefused is None:
+            object.__setattr__(self, "econnrefused", defaults.econnrefused)
+        if self.sse_aborted is None:
+            object.__setattr__(self, "sse_aborted", defaults.sse_aborted)
+        if self.no_bytes is None:
+            object.__setattr__(self, "no_bytes", defaults.no_bytes)
+        if self.partial_chunks is None:
+            object.__setattr__(self, "partial_chunks", defaults.partial_chunks)
+        if self.runtime_killed is None:
+            object.__setattr__(self, "runtime_killed", defaults.runtime_killed)
+        if self.background_throttle is None:
+            object.__setattr__(
+                self, "background_throttle", defaults.background_throttle
+            )
+        if self.dns_error is None:
+            object.__setattr__(self, "dns_error", defaults.dns_error)
+        if self.ssl_error is None:
+            object.__setattr__(self, "ssl_error", defaults.ssl_error)
+        if self.timeout is None:
+            object.__setattr__(self, "timeout", defaults.timeout)
+        if self.unknown is None:
+            object.__setattr__(self, "unknown", defaults.unknown)
+
+
+class RetryableErrorType(str, Enum):
+    """Error types that can be retried."""
+
+    ZERO_OUTPUT = "zero_output"
+    GUARDRAIL_VIOLATION = "guardrail_violation"
+    DRIFT = "drift"
+    INCOMPLETE = "incomplete"
+    NETWORK_ERROR = "network_error"
+    TIMEOUT = "timeout"
+    RATE_LIMIT = "rate_limit"
+    SERVER_ERROR = "server_error"
+
+
+# Default retryable error types
+DEFAULT_RETRY_ON: list[RetryableErrorType] = [
+    RetryableErrorType.ZERO_OUTPUT,
+    RetryableErrorType.GUARDRAIL_VIOLATION,
+    RetryableErrorType.DRIFT,
+    RetryableErrorType.INCOMPLETE,
+    RetryableErrorType.NETWORK_ERROR,
+    RetryableErrorType.TIMEOUT,
+    RetryableErrorType.RATE_LIMIT,
+    RetryableErrorType.SERVER_ERROR,
+]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Centralized Retry Defaults (matching TypeScript RETRY_DEFAULTS)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class RetryDefaults:
+    """Centralized retry configuration defaults.
+
+    All retry-related code should import these constants instead of hardcoding values.
+    All delays are in seconds (float), matching Python conventions.
+
+    Usage:
+        from l0 import RETRY_DEFAULTS
+
+        # Access defaults
+        max_attempts = RETRY_DEFAULTS.attempts
+        base_delay = RETRY_DEFAULTS.base_delay
+        strategy = RETRY_DEFAULTS.backoff
+    """
+
+    attempts: int = 3
+    """Maximum retry attempts for model failures."""
+
+    max_retries: int = 6
+    """Absolute maximum retries across all error types."""
+
+    base_delay: float = 1.0
+    """Base delay in seconds."""
+
+    max_delay: float = 10.0
+    """Maximum delay cap in seconds."""
+
+    network_max_delay: float = 30.0
+    """Maximum delay for network error suggestions in seconds."""
+
+    backoff: BackoffStrategy = BackoffStrategy.FIXED_JITTER
+    """Default backoff strategy (AWS-style fixed jitter for predictable retry timing)."""
+
+    retry_on: tuple[RetryableErrorType, ...] = (
+        RetryableErrorType.ZERO_OUTPUT,
+        RetryableErrorType.GUARDRAIL_VIOLATION,
+        RetryableErrorType.DRIFT,
+        RetryableErrorType.INCOMPLETE,
+        RetryableErrorType.NETWORK_ERROR,
+        RetryableErrorType.TIMEOUT,
+        RetryableErrorType.RATE_LIMIT,
+        RetryableErrorType.SERVER_ERROR,
+    )
+    """Default retry reasons (unknown errors are not retried by default)."""
+
+
+# Singleton instance - use this in all retry-related code
+RETRY_DEFAULTS = RetryDefaults()
+
+
+@dataclass(frozen=True)
+class ErrorTypeDelayDefaults:
+    """Default error-type-specific delays for network errors.
+
+    All delays are in seconds (float), matching Python conventions.
+
+    Usage:
+        from l0 import ERROR_TYPE_DELAY_DEFAULTS
+
+        # Access defaults
+        timeout_delay = ERROR_TYPE_DELAY_DEFAULTS.timeout
+        dns_delay = ERROR_TYPE_DELAY_DEFAULTS.dns_error
     """
 
     connection_dropped: float = 1.0
@@ -299,9 +473,13 @@ class ErrorTypeDelays:
     runtime_killed: float = 2.0
     background_throttle: float = 5.0
     dns_error: float = 3.0
-    ssl_error: float = 2.0
+    ssl_error: float = 0.0  # SSL errors are config issues, don't retry
     timeout: float = 1.0
     unknown: float = 1.0
+
+
+# Singleton instance - use this in all error-type delay code
+ERROR_TYPE_DELAY_DEFAULTS = ErrorTypeDelayDefaults()
 
 
 @dataclass
@@ -311,11 +489,23 @@ class Retry:
     All delays are in seconds (float), matching Python conventions
     like asyncio.sleep(), time.sleep(), etc.
 
-    Usage:
-        from l0 import Retry
+    Default values are sourced from RETRY_DEFAULTS for consistency.
 
-        # Use presets
+    Usage:
+        from l0 import Retry, RetryableErrorType, RETRY_DEFAULTS
+        from l0 import MINIMAL_RETRY, RECOMMENDED_RETRY, STRICT_RETRY, EXPONENTIAL_RETRY
+
+        # Use preset constants (matches TypeScript API)
+        retry = MINIMAL_RETRY
+        retry = RECOMMENDED_RETRY
+        retry = STRICT_RETRY
+        retry = EXPONENTIAL_RETRY
+
+        # Use class method presets
         retry = Retry.recommended()
+        retry = Retry.minimal()
+        retry = Retry.strict()
+        retry = Retry.exponential()
         retry = Retry.mobile()
         retry = Retry.edge()
 
@@ -328,17 +518,93 @@ class Retry:
                 connection_dropped=2.0,
             ),
         )
+
+        # Only retry on specific error types
+        retry = Retry(
+            attempts=3,
+            retry_on=[
+                RetryableErrorType.NETWORK_ERROR,
+                RetryableErrorType.TIMEOUT,
+            ],
+        )
+
+        # Custom retry veto callback
+        async def should_retry(error, state, attempt, category):
+            # Return False to skip retry
+            return attempt < 3 and not is_auth_error(error)
+
+        retry = Retry(
+            attempts=3,
+            should_retry=should_retry,
+        )
+
+        # Custom delay calculation
+        def custom_delay(context):
+            # Return delay in seconds
+            return min(context.attempt * 2.0, 30.0)
+
+        retry = Retry(
+            attempts=3,
+            calculate_delay=custom_delay,
+        )
     """
 
-    attempts: int = 3  # Model errors only
-    max_retries: int = 6  # Absolute cap (all errors)
-    base_delay: float = 1.0  # Starting delay (seconds)
-    max_delay: float = 10.0  # Maximum delay (seconds)
-    strategy: BackoffStrategy = BackoffStrategy.FIXED_JITTER
+    attempts: int | None = None  # Model errors only (default: RETRY_DEFAULTS.attempts)
+    max_retries: int | None = None  # Absolute cap (default: RETRY_DEFAULTS.max_retries)
+    base_delay: float | None = (
+        None  # Starting delay in seconds (default: RETRY_DEFAULTS.base_delay)
+    )
+    max_delay: float | None = (
+        None  # Maximum delay in seconds (default: RETRY_DEFAULTS.max_delay)
+    )
+    strategy: BackoffStrategy | None = (
+        None  # Backoff strategy (default: RETRY_DEFAULTS.backoff)
+    )
     error_type_delays: ErrorTypeDelays | None = None  # Per-error-type delays
+    retry_on: list[RetryableErrorType] | None = None  # Which error types to retry
+    should_retry: Callable[..., bool | Coroutine[Any, Any, bool]] | None = (
+        None  # Veto callback (sync or async)
+    )
+    calculate_delay: Callable[..., float] | None = None  # Custom delay calculation
+
+    def __post_init__(self) -> None:
+        """Apply defaults from RETRY_DEFAULTS for any unset values."""
+        if self.attempts is None:
+            object.__setattr__(self, "attempts", RETRY_DEFAULTS.attempts)
+        if self.max_retries is None:
+            object.__setattr__(self, "max_retries", RETRY_DEFAULTS.max_retries)
+        if self.base_delay is None:
+            object.__setattr__(self, "base_delay", RETRY_DEFAULTS.base_delay)
+        if self.max_delay is None:
+            object.__setattr__(self, "max_delay", RETRY_DEFAULTS.max_delay)
+        if self.strategy is None:
+            object.__setattr__(self, "strategy", RETRY_DEFAULTS.backoff)
 
     @classmethod
-    def recommended(cls) -> Retry:
+    def minimal(cls) -> "Retry":
+        """Get minimal retry configuration.
+
+        Lightweight retry for simple use cases:
+        - 2 model error retries
+        - 4 max total retries
+        - Linear backoff strategy
+
+        Matches TypeScript's minimalRetry preset.
+
+        Returns:
+            Retry configuration with minimal overhead.
+        """
+        return cls(
+            attempts=2,
+            max_retries=4,
+            base_delay=1.0,
+            max_delay=10.0,
+            strategy=BackoffStrategy.LINEAR,
+            error_type_delays=ErrorTypeDelays(),
+        )
+
+    @classmethod
+    def recommended(cls) -> "Retry":
         """Get recommended retry configuration.
 
         Handles all network errors automatically with sensible defaults:
@@ -346,6 +612,8 @@ class Retry:
         - 6 max total retries
         - Fixed-jitter backoff strategy
         - Per-error-type delays for network errors
+
+        Matches TypeScript's recommendedRetry preset.
 
         Returns:
             Retry configuration optimized for most use cases.
@@ -360,7 +628,53 @@ class Retry:
         )
 
     @classmethod
-    def mobile(cls) -> Retry:
+    def strict(cls) -> "Retry":
+        """Get strict retry configuration.
+
+        More aggressive jitter for high-load scenarios:
+        - 3 model error retries
+        - 6 max total retries
+        - Full-jitter backoff strategy (AWS-recommended for thundering herd)
+
+        Matches TypeScript's strictRetry preset.
+
+        Returns:
+            Retry configuration with full jitter for better load distribution.
+        """
+        return cls(
+            attempts=3,
+            max_retries=6,
+            base_delay=1.0,
+            max_delay=10.0,
+            strategy=BackoffStrategy.FULL_JITTER,
+            error_type_delays=ErrorTypeDelays(),
+        )
+
+    @classmethod
+    def exponential(cls) -> "Retry":
+        """Get exponential retry configuration.
+
+        More retries with exponential backoff:
+        - 4 model error retries
+        - 8 max total retries
+        - Exponential backoff strategy
+
+        Matches TypeScript's exponentialRetry preset.
+
+        Returns:
+            Retry configuration with exponential backoff for longer operations.
+        """
+        return cls(
+            attempts=4,
+            max_retries=8,
+            base_delay=1.0,
+            max_delay=10.0,
+            strategy=BackoffStrategy.EXPONENTIAL,
+            error_type_delays=ErrorTypeDelays(),
+        )
+
+    @classmethod
+    def mobile(cls) -> "Retry":
         """Get retry configuration optimized for mobile environments.
 
         Higher delays for background throttling and connection issues.
@@ -379,7 +693,7 @@ class Retry:
         )
 
     @classmethod
-    def edge(cls) -> Retry:
+    def edge(cls) -> "Retry":
         """Get retry configuration optimized for edge runtimes.
 
         Shorter delays to stay within edge runtime limits.
@@ -401,12 +715,41 @@ class Retry:
 class Timeout:
     """Timeout configuration.
 
-    All timeouts are in seconds (float), matching Python conventions
-    like asyncio.wait_for(), socket.settimeout(), etc.
+    All timeouts are in milliseconds (int), matching TypeScript l0.
+
+    Examples:
+        timeout=Timeout(initial_token=5000, inter_token=10000)  # 5s, 10s
     """
 
-    initial_token: float = 5.0  # Seconds to first token
-    inter_token: float = 10.0  # Seconds between tokens
+    initial_token: int = 5000  # Milliseconds to first token (default: 5s)
+    inter_token: int = 10000  # Milliseconds between tokens (default: 10s)
+
+
+@dataclass
+class CheckIntervals:
+    """Configuration for check frequencies during streaming.
+
+    Controls how often guardrails, drift detection, and checkpoints
+    are evaluated during streaming. Lower values = more frequent checks
+    (more CPU, better responsiveness). Higher values = less frequent
+    (better performance for long outputs).
+
+    Usage:
+        from l0 import CheckIntervals
+
+        # Default intervals
+        intervals = CheckIntervals()
+
+        # More frequent checks (for short, critical outputs)
+        intervals = CheckIntervals(guardrails=2, drift=5, checkpoint=5)
+
+        # Less frequent checks (for long outputs, better performance)
+        intervals = CheckIntervals(guardrails=50, drift=100, checkpoint=50)
+    """
+
+    guardrails: int = 5  # Check guardrails every N tokens
+    drift: int = 10  # Check drift every N tokens
+    checkpoint: int = 10  # Save checkpoint every N tokens
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -499,7 +842,12 @@ class Stream(Generic[_StreamChunkT]):
     async def __aenter__(self) -> "Stream[_StreamChunkT]":
         return self
 
-    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> bool:
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> bool:
         self.abort()
         return False  # Don't suppress exceptions
 
@@ -594,7 +942,10 @@ class LazyStream(Generic[_LazyStreamChunkT]):
         "_timeout",
         "_adapter",
         "_on_event",
-        "_meta",
+        "_on_token",
+        "_on_tool_call",
+        "_on_violation",
+        "_context",
         "_buffer_tool_calls",
         "_runner",
         "_started",
@@ -604,11 +955,14 @@ class LazyStream(Generic[_LazyStreamChunkT]):
         self,
         stream: AsyncIterator[_LazyStreamChunkT],
         *,
-        guardrails: list[Any] | None = None,
+        guardrails: "list[GuardrailRule] | None" = None,
         timeout: Timeout | None = None,
-        adapter: Any | str | None = None,
+        adapter: "Adapter | str | None" = None,
         on_event: Callable[[ObservabilityEvent], None] | None = None,
-        meta: dict[str, Any] | None = None,
+        on_token: Callable[[str], None] | None = None,
+        on_tool_call: Callable[[str, str, dict[str, Any]], None] | None = None,
+        on_violation: "Callable[[GuardrailViolation], None] | None" = None,
+        context: dict[str, Any] | None = None,
         buffer_tool_calls: bool = False,
     ) -> None:
         self._stream = stream
@@ -616,7 +970,10 @@ class LazyStream(Generic[_LazyStreamChunkT]):
         self._timeout = timeout
         self._adapter = adapter
         self._on_event = on_event
-        self._meta = meta
+        self._on_token = on_token
+        self._on_tool_call = on_tool_call
+        self._on_violation = on_violation
+        self._context = context
         self._buffer_tool_calls = buffer_tool_calls
         self._runner: Stream[_LazyStreamChunkT] | None = None
         self._started = False
@@ -641,7 +998,10 @@ class LazyStream(Generic[_LazyStreamChunkT]):
                 timeout=self._timeout,
                 adapter=self._adapter,
                 on_event=self._on_event,
-                meta=self._meta,
+                on_token=self._on_token,
+                on_tool_call=self._on_tool_call,
+                on_violation=self._on_violation,
+                context=self._context,
                 buffer_tool_calls=self._buffer_tool_calls,
             )
             self._started = True
@@ -690,7 +1050,12 @@ class LazyStream(Generic[_LazyStreamChunkT]):
         await self._ensure_started()
         return self
 
-    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> bool:
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> bool:
         self.abort()
         return False
 
@@ -720,3 +1085,50 @@ class LazyStream(Generic[_LazyStreamChunkT]):
         if self._runner is None:
             return []
         return self._runner.raw()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Retry Presets (TypeScript parity)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# These match TypeScript's minimalRetry, recommendedRetry, strictRetry, exponentialRetry
+
+MINIMAL_RETRY = Retry(
+    attempts=2,
+    max_retries=4,
+    base_delay=1.0,
+    max_delay=10.0,
+    strategy=BackoffStrategy.LINEAR,
+    error_type_delays=ErrorTypeDelays(),
+)
+"""Minimal retry preset: 2 attempts, 4 max retries, linear backoff."""
+
+RECOMMENDED_RETRY = Retry(
+    attempts=3,
+    max_retries=6,
+    base_delay=1.0,
+    max_delay=10.0,
+    strategy=BackoffStrategy.FIXED_JITTER,
+    error_type_delays=ErrorTypeDelays(),
+)
+"""Recommended retry preset: 3 attempts, 6 max retries, fixed-jitter backoff."""
+
+STRICT_RETRY = Retry(
+    attempts=3,
+    max_retries=6,
+    base_delay=1.0,
+    max_delay=10.0,
+    strategy=BackoffStrategy.FULL_JITTER,
+    error_type_delays=ErrorTypeDelays(),
+)
+"""Strict retry preset: 3 attempts, 6 max retries, full-jitter backoff."""
+
+EXPONENTIAL_RETRY = Retry(
+    attempts=4,
+    max_retries=8,
+    base_delay=1.0,
+    max_delay=10.0,
+    strategy=BackoffStrategy.EXPONENTIAL,
+    error_type_delays=ErrorTypeDelays(),
+)
+"""Exponential retry preset: 4 attempts, 8 max retries, exponential backoff."""

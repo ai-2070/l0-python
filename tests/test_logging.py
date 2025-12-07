@@ -2,7 +2,7 @@
 
 import logging
 
-from src.l0.logging import enable_debug, logger
+from l0.logging import enable_debug, logger
 
 
 class TestEnableDebug:

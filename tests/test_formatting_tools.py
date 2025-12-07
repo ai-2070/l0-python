@@ -6,7 +6,7 @@ import json
 
 import pytest
 
-from src.l0.formatting.tools import (
+from l0.formatting.tools import (
     FunctionCall,
     Tool,
     ToolParameter,
@@ -95,9 +95,10 @@ class TestValidateTool:
         assert any("valid identifier" in e for e in errors)
 
     def test_missing_description(self):
+        """Test that missing description is an error (not just a warning)."""
         tool = Tool(name="test_tool", description="")
         errors = validate_tool(tool)
-        assert "Tool description is recommended" in errors
+        assert any("description is required" in e.lower() for e in errors)
 
     def test_duplicate_parameter_names(self):
         tool = Tool(
@@ -410,3 +411,104 @@ class TestFormatFunctionArguments:
         result = format_function_arguments(args, True)
         parsed = json.loads(result)
         assert parsed["user"]["name"] == "John"
+
+
+class TestFormatToolsIncludeTypes:
+    """Tests for include_types option in tool formatting."""
+
+    def test_json_schema_include_types_default(self):
+        """Test that types are included by default in json-schema."""
+        tool = create_tool(
+            "test",
+            "Test tool",
+            [create_parameter("param", "string", "A param", True)],
+        )
+        result = format_tool(tool, {"style": "json-schema"})
+        assert isinstance(result, dict)
+        assert result["parameters"]["properties"]["param"]["type"] == "string"
+
+    def test_json_schema_include_types_false(self):
+        """Test that types can be excluded from json-schema."""
+        tool = create_tool(
+            "test",
+            "Test tool",
+            [create_parameter("param", "string", "A param", True)],
+        )
+        result = format_tool(tool, {"style": "json-schema", "include_types": False})
+        assert isinstance(result, dict)
+        assert "type" not in result["parameters"]["properties"]["param"]
+
+
+class TestFormatToolsIncludeExamples:
+    """Tests for include_examples option in tool formatting."""
+
+    def test_natural_include_examples_with_enum(self):
+        """Test that examples show enum values when include_examples=True."""
+        tool = create_tool(
+            "set_color",
+            "Set a color",
+            [
+                create_parameter(
+                    "color", "string", "The color", True, enum=["red", "green", "blue"]
+                )
+            ],
+        )
+        result = format_tool(tool, {"style": "natural", "include_examples": True})
+        assert "red" in result
+        assert "green" in result
+        assert "blue" in result
+
+    def test_natural_include_examples_with_default(self):
+        """Test that examples show default value when include_examples=True."""
+        tool = create_tool(
+            "set_limit",
+            "Set a limit",
+            [create_parameter("limit", "integer", "Max items", False, default=10)],
+        )
+        result = format_tool(tool, {"style": "natural", "include_examples": True})
+        assert "10" in result
+
+    def test_natural_include_examples_false(self):
+        """Test that examples are not shown when include_examples=False."""
+        tool = create_tool(
+            "set_color",
+            "Set a color",
+            [
+                create_parameter(
+                    "color", "string", "The color", True, enum=["red", "green", "blue"]
+                )
+            ],
+        )
+        result = format_tool(tool, {"style": "natural", "include_examples": False})
+        # The "Example usage:" section should not appear when include_examples=False
+        assert "Example usage:" not in result
+
+
+class TestFormatToolsSeparator:
+    """Tests for tool separator in format_tools."""
+
+    def test_separator_is_50_equals(self):
+        """Test that the separator between tools is 50 equals signs."""
+        tools = [
+            create_tool("tool1", "First tool"),
+            create_tool("tool2", "Second tool"),
+        ]
+        result = format_tools(tools, {"style": "natural"})
+        assert isinstance(result, str)
+        # Should contain exactly 50 equals signs as separator
+        assert "=" * 50 in result
+
+    def test_separator_not_30_equals(self):
+        """Test that the old 30 equals separator is not used."""
+        tools = [
+            create_tool("tool1", "First tool"),
+            create_tool("tool2", "Second tool"),
+        ]
+        result = format_tools(tools, {"style": "natural"})
+        # Should not have exactly 30 equals (the old value)
+        # Check that 30 equals followed by newline is not present without more equals
+        assert isinstance(result, str)
+        lines = result.split("\n")
+        for line in lines:
+            if line.strip() and all(c == "=" for c in line.strip()):
+                assert len(line.strip()) == 50

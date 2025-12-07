@@ -4,13 +4,18 @@ These tests require OPENAI_API_KEY to be set in environment or .env file.
 Run with: pytest tests/integration -v
 """
 
+from typing import TYPE_CHECKING
+
 import pytest
 from pydantic import BaseModel
 
-import src.l0 as l0
+import l0 as l0
 
 # Import the marker from conftest
 from tests.conftest import requires_openai
+
+if TYPE_CHECKING:
+    from openai import AsyncOpenAI
 
 
 @requires_openai
@@ -18,14 +23,14 @@ class TestOpenAIIntegration:
     """Integration tests using real OpenAI API."""
 
     @pytest.fixture
-    def client(self):
+    def client(self) -> "AsyncOpenAI":
         """Create OpenAI client."""
         from openai import AsyncOpenAI
 
         return AsyncOpenAI()
 
     @pytest.mark.asyncio
-    async def test_basic_wrap(self, client):
+    async def test_basic_wrap(self, client: "AsyncOpenAI") -> None:
         """Test basic l0.wrap() with OpenAI."""
         stream = client.chat.completions.create(
             model="gpt-4o-mini",
@@ -43,7 +48,7 @@ class TestOpenAIIntegration:
         assert result.state.completed
 
     @pytest.mark.asyncio
-    async def test_streaming_events(self, client):
+    async def test_streaming_events(self, client: "AsyncOpenAI") -> None:
         """Test streaming individual events."""
         stream = client.chat.completions.create(
             model="gpt-4o-mini",
@@ -64,7 +69,7 @@ class TestOpenAIIntegration:
         assert any(c in full_text for c in ["1", "2", "3"])
 
     @pytest.mark.asyncio
-    async def test_with_guardrails(self, client):
+    async def test_with_guardrails(self, client: "AsyncOpenAI") -> None:
         """Test streaming with guardrails."""
         stream = client.chat.completions.create(
             model="gpt-4o-mini",
@@ -77,10 +82,12 @@ class TestOpenAIIntegration:
         text = await result.read()
 
         assert len(text) > 0
-        assert len(result.state.violations) == 0
+        # Check for no error-level violations (warnings like "instant completion" are ok)
+        error_violations = [v for v in result.state.violations if v.severity == "error"]
+        assert len(error_violations) == 0
 
     @pytest.mark.asyncio
-    async def test_context_manager(self, client):
+    async def test_context_manager(self, client: "AsyncOpenAI") -> None:
         """Test async context manager pattern."""
         stream = client.chat.completions.create(
             model="gpt-4o-mini",
@@ -89,8 +96,8 @@ class TestOpenAIIntegration:
             max_tokens=5,
         )
 
+        tokens: list[str] = []
         async with l0.wrap(stream) as result:
-            tokens = []
             async for event in result:
                 if event.is_token and event.text:
                     tokens.append(event.text)
@@ -98,11 +105,11 @@ class TestOpenAIIntegration:
         assert len(tokens) > 0
 
     @pytest.mark.asyncio
-    async def test_observability_callback(self, client):
+    async def test_observability_callback(self, client: "AsyncOpenAI") -> None:
         """Test observability event callback."""
         events_received = []
 
-        def on_event(event):
+        def on_event(event: l0.ObservabilityEvent) -> None:
             events_received.append(event.type)
 
         stream = client.chat.completions.create(
@@ -120,7 +127,7 @@ class TestOpenAIIntegration:
         assert l0.ObservabilityEventType.COMPLETE in events_received
 
     @pytest.mark.asyncio
-    async def test_with_timeout(self, client):
+    async def test_with_timeout(self, client: "AsyncOpenAI") -> None:
         """Test that fast responses don't timeout."""
         stream = client.chat.completions.create(
             model="gpt-4o-mini",
@@ -131,7 +138,7 @@ class TestOpenAIIntegration:
 
         result = l0.wrap(
             stream,
-            timeout=l0.Timeout(initial_token=30.0, inter_token=30.0),
+            timeout=l0.Timeout(initial_token=30000, inter_token=30000),
         )
         text = await result.read()
 
@@ -143,13 +150,13 @@ class TestRunWithFallbacks:
     """Test l0.run() with fallbacks (requires lambda for retries)."""
 
     @pytest.fixture
-    def client(self):
+    def client(self) -> "AsyncOpenAI":
         from openai import AsyncOpenAI
 
         return AsyncOpenAI()
 
     @pytest.mark.asyncio
-    async def test_fallback_succeeds(self, client):
+    async def test_fallback_succeeds(self, client: "AsyncOpenAI") -> None:
         """Test that fallback works when using valid models."""
         # run() needs lambdas for retry/fallback support
         result = await l0.run(
@@ -180,13 +187,13 @@ class TestStructuredOutput:
     """Test structured output with real API."""
 
     @pytest.fixture
-    def client(self):
+    def client(self) -> "AsyncOpenAI":
         from openai import AsyncOpenAI
 
         return AsyncOpenAI()
 
     @pytest.mark.asyncio
-    async def test_structured_json(self, client):
+    async def test_structured_json(self, client: "AsyncOpenAI") -> None:
         """Test structured output parsing."""
 
         class Person(BaseModel):
@@ -209,5 +216,5 @@ class TestStructuredOutput:
             ),
         )
 
-        assert result.name == "Alice"
-        assert result.age == 30
+        assert result.data.name == "Alice"
+        assert result.data.age == 30

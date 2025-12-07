@@ -47,12 +47,58 @@ class ErrorCode(str, Enum):
 
     # Configuration errors
     INVALID_STREAM = "INVALID_STREAM"
+    ADAPTER_NOT_FOUND = "ADAPTER_NOT_FOUND"
+    FEATURE_NOT_ENABLED = "FEATURE_NOT_ENABLED"
 
     # Exhaustion errors
     ALL_STREAMS_EXHAUSTED = "ALL_STREAMS_EXHAUSTED"
 
     # Network errors
     NETWORK_ERROR = "NETWORK_ERROR"
+
+
+def get_error_category(code: ErrorCode) -> ErrorCategory:
+    """Map error code to category.
+
+    Args:
+        code: L0 error code
+
+    Returns:
+        ErrorCategory for the given code
+
+    Usage:
+        from l0 import get_error_category, ErrorCode, ErrorCategory
+
+        category = get_error_category(ErrorCode.NETWORK_ERROR)
+        if category == ErrorCategory.NETWORK:
+            # Network error - retry forever
+            pass
+    """
+    if code == ErrorCode.NETWORK_ERROR:
+        return ErrorCategory.NETWORK
+
+    if code in (ErrorCode.INITIAL_TOKEN_TIMEOUT, ErrorCode.INTER_TOKEN_TIMEOUT):
+        return ErrorCategory.TRANSIENT
+
+    if code in (
+        ErrorCode.GUARDRAIL_VIOLATION,
+        ErrorCode.FATAL_GUARDRAIL_VIOLATION,
+        ErrorCode.DRIFT_DETECTED,
+        ErrorCode.ZERO_OUTPUT,
+    ):
+        return ErrorCategory.CONTENT
+
+    if code in (
+        ErrorCode.INVALID_STREAM,
+        ErrorCode.ADAPTER_NOT_FOUND,
+        ErrorCode.FEATURE_NOT_ENABLED,
+    ):
+        return ErrorCategory.INTERNAL
+
+    if code in (ErrorCode.STREAM_ABORTED, ErrorCode.ALL_STREAMS_EXHAUSTED):
+        return ErrorCategory.PROVIDER
+
+    return ErrorCategory.MODEL
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -106,7 +152,7 @@ class RecoveryPolicy:
     max_retries: int = 3
     max_fallbacks: int = 0
     attempt: int = 1  # Current retry attempt (1-based)
-    fallback_index: int = 0  # Current fallback index (0 = primary)
+    fallback_index: int | None = None  # Current fallback index (0 = primary)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -123,12 +169,13 @@ class ErrorContext:
 
     code: ErrorCode
     checkpoint: str | None = None  # Last good content for continuation
-    token_count: int = 0  # Tokens before failure
-    content_length: int = 0  # Content length before failure
-    model_retry_count: int = 0  # Retry attempts made
-    network_retry_count: int = 0  # Network retries made
-    fallback_index: int = 0  # Which fallback was tried
-    metadata: dict[str, Any] | None = None
+    token_count: int | None = None  # Tokens before failure
+    content_length: int | None = None  # Content length before failure
+    model_retry_count: int | None = None  # Retry attempts made
+    network_retry_count: int | None = None  # Network retries made
+    fallback_index: int | None = None  # Which fallback was tried
+    metadata: dict[str, Any] | None = None  # Internal metadata
+    context: dict[str, Any] | None = None  # User-provided context
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -165,49 +212,92 @@ class Error(Exception):
     def __init__(
         self,
         message: str,
-        code: ErrorCode,
-        context: ErrorContext | None = None,
+        context: ErrorContext,
     ) -> None:
         super().__init__(message)
-        self.code = code
-        self.context = context or ErrorContext(code=code)
+        self.context = context
+        self.code = context.code
         self.timestamp = time.time()
+
+    @property
+    def category(self) -> ErrorCategory:
+        """Get error category for routing decisions."""
+        return get_error_category(self.code)
 
     @property
     def has_checkpoint(self) -> bool:
         """Check if error has a checkpoint for continuation."""
         return bool(self.context.checkpoint)
 
+    @property
+    def is_recoverable(self) -> bool:
+        """Check if error has checkpoint for recovery.
+
+        Deprecated: Use has_checkpoint instead.
+        """
+        return self.has_checkpoint
+
     def get_checkpoint(self) -> str | None:
         """Get checkpoint content if available."""
         return self.context.checkpoint
 
     def to_detailed_string(self) -> str:
-        """Get detailed string representation for logging."""
-        lines = [
-            f"Error [{self.code.value}]: {self.args[0]}",
-            f"  Timestamp: {self.timestamp}",
-            f"  Token count: {self.context.token_count}",
-            f"  Content length: {self.context.content_length}",
-            f"  Model retries: {self.context.model_retry_count}",
-            f"  Network retries: {self.context.network_retry_count}",
-            f"  Fallback index: {self.context.fallback_index}",
-            f"  Has checkpoint: {self.has_checkpoint}",
-        ]
+        """Get detailed string representation for logging.
 
-        if self.context.metadata:
-            lines.append(f"  Metadata: {self.context.metadata}")
+        Returns a pipe-separated string with key information,
+        matching the TypeScript format.
+        """
+        parts = [str(self.args[0]) if self.args else ""]
 
-        if self.has_checkpoint:
-            checkpoint_preview = (self.context.checkpoint or "")[:100]
-            if len(self.context.checkpoint or "") > 100:
-                checkpoint_preview += "..."
-            lines.append(f"  Checkpoint preview: {checkpoint_preview!r}")
+        if self.context.token_count:
+            parts.append(f"Tokens: {self.context.token_count}")
 
-        return "\n".join(lines)
+        if self.context.model_retry_count:
+            parts.append(f"Retries: {self.context.model_retry_count}")
+
+        if self.context.fallback_index and self.context.fallback_index > 0:
+            parts.append(f"Fallback: {self.context.fallback_index}")
+
+        if self.context.checkpoint:
+            parts.append(f"Checkpoint: {len(self.context.checkpoint)} chars")
+
+        return " | ".join(parts)
 
     def __repr__(self) -> str:
         return f"Error(code={self.code.value!r}, message={self.args[0]!r})"
+
+    def to_json(self) -> dict[str, Any]:
+        """Serialize error for logging/transport.
+
+        Returns:
+            Dictionary with error details suitable for JSON serialization.
+
+        Example:
+            ```python
+            try:
+                result = await l0.run(stream)
+            except Error as e:
+                # Log to monitoring service
+                import json
+                log_entry = json.dumps(e.to_json())
+                send_to_monitoring(log_entry)
+            ```
+        """
+        return {
+            "name": self.__class__.__name__,
+            "code": self.code.value,
+            "category": self.category.value,
+            "message": str(self.args[0]) if self.args else "",
+            "timestamp": self.timestamp,
+            "hasCheckpoint": self.has_checkpoint,
+            "checkpoint": self.context.checkpoint,
+            "tokenCount": self.context.token_count,
+            "modelRetryCount": self.context.model_retry_count,
+            "networkRetryCount": self.context.network_retry_count,
+            "fallbackIndex": self.context.fallback_index,
+            "metadata": self.context.metadata,
+            "context": self.context.context,
+        }
 
     # ─────────────────────────────────────────────────────────────────────────
     # Static Methods for Any Exception
@@ -254,6 +344,51 @@ class Error(Exception):
                 pass
         """
         return _is_retryable(error)
+
+    @staticmethod
+    def is_error(error: Any) -> bool:
+        """Type guard for L0 Error.
+
+        Args:
+            error: Any value to check
+
+        Returns:
+            True if error is an L0 Error instance
+
+        Usage:
+            from l0 import Error
+
+            try:
+                result = await l0.run(stream)
+            except Exception as e:
+                if Error.is_error(e):
+                    print(e.code)  # Access L0-specific properties
+                    print(e.category)
+        """
+        return isinstance(error, Error)
+
+    # Alias for TypeScript parity
+    is_l0_error = is_error
+
+    @staticmethod
+    def get_category(code: ErrorCode) -> ErrorCategory:
+        """Map error code to category.
+
+        Args:
+            code: L0 error code
+
+        Returns:
+            ErrorCategory for the given code
+
+        Usage:
+            from l0 import Error, ErrorCode, ErrorCategory
+
+            category = Error.get_category(ErrorCode.NETWORK_ERROR)
+            if category == ErrorCategory.NETWORK:
+                # Network error - retry forever
+                pass
+        """
+        return get_error_category(code)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -685,6 +820,7 @@ class NetworkError:
     def suggest_delay(
         error: Exception,
         attempt: int,
+        custom_delays: dict[NetworkErrorType, float] | None = None,
         max_delay: float = 30.0,
     ) -> float:
         """Suggest retry delay based on network error type.
@@ -692,22 +828,81 @@ class NetworkError:
         Args:
             error: Error to analyze
             attempt: Retry attempt number (0-based)
+            custom_delays: Optional custom delays per error type (in seconds)
             max_delay: Maximum delay cap (default: 30.0 seconds)
 
         Returns:
             Suggested delay in seconds
+
+        Example:
+            ```python
+            from l0 import NetworkError, NetworkErrorType
+
+            # With default delays
+            delay = NetworkError.suggest_delay(error, attempt=0)
+
+            # With custom delays
+            custom = {
+                NetworkErrorType.CONNECTION_DROPPED: 2.0,
+                NetworkErrorType.TIMEOUT: 1.5,
+            }
+            delay = NetworkError.suggest_delay(error, attempt=0, custom_delays=custom)
+            ```
         """
         from .types import ErrorTypeDelays
 
         analysis = NetworkError.analyze(error)
-        delays = ErrorTypeDelays()
 
-        base_delay = NetworkError._get_type_delay(analysis.type, delays)
+        # Use custom delay if provided
+        if custom_delays and analysis.type in custom_delays:
+            base_delay = custom_delays[analysis.type]
+        else:
+            delays = ErrorTypeDelays()
+            base_delay = NetworkError._get_type_delay(analysis.type, delays)
+
         if base_delay == 0:
             return 0.0
 
         # Exponential backoff
         return float(min(base_delay * (2**attempt), max_delay))
+
+    @staticmethod
+    def create(
+        original: Exception,
+        analysis: NetworkErrorAnalysis | None = None,
+    ) -> Exception:
+        """Create enhanced network error with analysis attached.
+
+        Args:
+            original: Original exception
+            analysis: Optional pre-computed analysis (will compute if not provided)
+
+        Returns:
+            Enhanced exception with .analysis attribute
+
+        Example:
+            ```python
+            from l0 import NetworkError
+
+            try:
+                # some network operation
+                pass
+            except Exception as e:
+                if NetworkError.check(e):
+                    enhanced = NetworkError.create(e)
+                    print(enhanced.analysis.type)
+                    print(enhanced.analysis.suggestion)
+            ```
+        """
+        if analysis is None:
+            analysis = NetworkError.analyze(original)
+
+        # Create a new exception with the analysis attached
+        msg = f"{original} [{analysis.type.value}]"
+        enhanced = type(original)(msg)
+        enhanced.analysis = analysis  # type: ignore
+        enhanced.__cause__ = original
+        return enhanced
 
     # ─────────────────────────────────────────────────────────────────────────
     # Private Helpers
@@ -716,31 +911,36 @@ class NetworkError:
     @staticmethod
     def _get_error_code(error: Exception) -> str | None:
         """Get error code if present (for OSError, etc.)."""
-        if hasattr(error, "errno"):
-            return str(error.errno)
-        if hasattr(error, "code"):
-            return str(error.code)
+        errno = getattr(error, "errno", None)
+        if errno is not None:
+            return str(errno)
+        code = getattr(error, "code", None)
+        if code is not None:
+            return str(code)
         return None
 
     @staticmethod
     def _get_type_delay(error_type: NetworkErrorType, delays: ErrorTypeDelays) -> float:
         """Get base delay for a specific network error type."""
+        default_delay = 1.0
         mapping: dict[NetworkErrorType, float] = {
-            NetworkErrorType.CONNECTION_DROPPED: delays.connection_dropped,
-            NetworkErrorType.FETCH_ERROR: delays.fetch_error,
-            NetworkErrorType.ECONNRESET: delays.econnreset,
-            NetworkErrorType.ECONNREFUSED: delays.econnrefused,
-            NetworkErrorType.SSE_ABORTED: delays.sse_aborted,
-            NetworkErrorType.NO_BYTES: delays.no_bytes,
-            NetworkErrorType.PARTIAL_CHUNKS: delays.partial_chunks,
-            NetworkErrorType.RUNTIME_KILLED: delays.runtime_killed,
-            NetworkErrorType.BACKGROUND_THROTTLE: delays.background_throttle,
-            NetworkErrorType.DNS_ERROR: delays.dns_error,
-            NetworkErrorType.SSL_ERROR: 0.0,
-            NetworkErrorType.TIMEOUT: delays.timeout,
-            NetworkErrorType.UNKNOWN: delays.unknown,
+            NetworkErrorType.CONNECTION_DROPPED: delays.connection_dropped
+            or default_delay,
+            NetworkErrorType.FETCH_ERROR: delays.fetch_error or default_delay,
+            NetworkErrorType.ECONNRESET: delays.econnreset or default_delay,
+            NetworkErrorType.ECONNREFUSED: delays.econnrefused or default_delay,
+            NetworkErrorType.SSE_ABORTED: delays.sse_aborted or default_delay,
+            NetworkErrorType.NO_BYTES: delays.no_bytes or default_delay,
+            NetworkErrorType.PARTIAL_CHUNKS: delays.partial_chunks or default_delay,
+            NetworkErrorType.RUNTIME_KILLED: delays.runtime_killed or default_delay,
+            NetworkErrorType.BACKGROUND_THROTTLE: delays.background_throttle
+            or default_delay,
+            NetworkErrorType.DNS_ERROR: delays.dns_error or default_delay,
+            NetworkErrorType.SSL_ERROR: delays.ssl_error or 0.0,
+            NetworkErrorType.TIMEOUT: delays.timeout or default_delay,
+            NetworkErrorType.UNKNOWN: delays.unknown or default_delay,
         }
-        return mapping.get(error_type, delays.unknown)
+        return mapping.get(error_type, delays.unknown or default_delay)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -751,6 +951,28 @@ class NetworkError:
 def _categorize_error(error: Exception) -> ErrorCategory:
     """Categorize error for retry decisions (internal)."""
     msg = str(error).lower()
+
+    # Check for L0 Error class with specific error codes
+    if isinstance(error, Error):
+        if error.code == ErrorCode.GUARDRAIL_VIOLATION:
+            # Recoverable guardrail violation - should retry
+            return ErrorCategory.CONTENT
+        if error.code == ErrorCode.FATAL_GUARDRAIL_VIOLATION:
+            # Non-recoverable guardrail violation - halt
+            return ErrorCategory.FATAL
+        if error.code == ErrorCode.DRIFT_DETECTED:
+            return ErrorCategory.CONTENT
+        if error.code == ErrorCode.ZERO_OUTPUT:
+            return ErrorCategory.CONTENT
+        if error.code in (
+            ErrorCode.INITIAL_TOKEN_TIMEOUT,
+            ErrorCode.INTER_TOKEN_TIMEOUT,
+        ):
+            return ErrorCategory.TRANSIENT
+        if error.code == ErrorCode.STREAM_ABORTED:
+            return ErrorCategory.FATAL
+        if error.code == ErrorCode.NETWORK_ERROR:
+            return ErrorCategory.NETWORK
 
     # Check for L0 TimeoutError (inter-token timeout is transient, can retry with continuation)
     # Import here to avoid circular import
@@ -791,6 +1013,136 @@ def _is_retryable(error: Exception) -> bool:
     """Determine if error should trigger retry (internal)."""
     category = _categorize_error(error)
     return category not in (ErrorCategory.FATAL, ErrorCategory.INTERNAL)
+
+
+def is_error(error: Any) -> bool:
+    """Type guard for L0 Error.
+
+    Args:
+        error: Any value to check
+
+    Returns:
+        True if error is an L0 Error instance
+
+    Usage:
+        from l0 import is_error, Error
+
+        try:
+            result = await l0.run(stream)
+        except Exception as e:
+            if is_error(e):
+                print(e.code)  # Access L0-specific properties
+                print(e.category)
+    """
+    return isinstance(error, Error)
+
+
+# Alias for TypeScript parity
+is_l0_error = is_error
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Standalone Network Error Detection Functions
+# ─────────────────────────────────────────────────────────────────────────────
+# These mirror the TypeScript exports for convenience
+
+
+def is_connection_dropped(error: Exception) -> bool:
+    """Detect if error is a connection drop."""
+    return NetworkError.is_connection_dropped(error)
+
+
+def is_fetch_error(error: Exception) -> bool:
+    """Detect if error is a fetch/request TypeError."""
+    return NetworkError.is_fetch_error(error)
+
+
+def is_econnreset(error: Exception) -> bool:
+    """Detect if error is ECONNRESET."""
+    return NetworkError.is_econnreset(error)
+
+
+def is_econnrefused(error: Exception) -> bool:
+    """Detect if error is ECONNREFUSED."""
+    return NetworkError.is_econnrefused(error)
+
+
+def is_sse_aborted(error: Exception) -> bool:
+    """Detect if error is SSE abortion."""
+    return NetworkError.is_sse_aborted(error)
+
+
+def is_no_bytes(error: Exception) -> bool:
+    """Detect if error is due to no bytes arriving."""
+    return NetworkError.is_no_bytes(error)
+
+
+def is_partial_chunks(error: Exception) -> bool:
+    """Detect if error is due to partial/incomplete chunks."""
+    return NetworkError.is_partial_chunks(error)
+
+
+def is_runtime_killed(error: Exception) -> bool:
+    """Detect if error is due to runtime being killed."""
+    return NetworkError.is_runtime_killed(error)
+
+
+def is_background_throttle(error: Exception) -> bool:
+    """Detect if error is due to mobile/browser background throttling."""
+    return NetworkError.is_background_throttle(error)
+
+
+def is_dns_error(error: Exception) -> bool:
+    """Detect DNS errors."""
+    return NetworkError.is_dns(error)
+
+
+def is_ssl_error(error: Exception) -> bool:
+    """Detect SSL/TLS errors."""
+    return NetworkError.is_ssl(error)
+
+
+def is_timeout_error(error: Exception) -> bool:
+    """Detect timeout errors."""
+    return NetworkError.is_timeout(error)
+
+
+def is_network_error(error: Exception) -> bool:
+    """Check if error is any type of network error."""
+    return NetworkError.check(error)
+
+
+def analyze_network_error(error: Exception) -> NetworkErrorAnalysis:
+    """Analyze network error and provide detailed information."""
+    return NetworkError.analyze(error)
+
+
+def describe_network_error(error: Exception) -> str:
+    """Get human-readable description of network error."""
+    return NetworkError.describe(error)
+
+
+def create_network_error(
+    original: Exception,
+    analysis: NetworkErrorAnalysis | None = None,
+) -> Exception:
+    """Create enhanced network error with analysis attached."""
+    return NetworkError.create(original, analysis)
+
+
+def is_stream_interrupted(error: Exception, token_count: int) -> bool:
+    """Check if error indicates stream was interrupted mid-flight."""
+    return NetworkError.is_stream_interrupted(error, token_count)
+
+
+def suggest_retry_delay(
+    error: Exception,
+    attempt: int,
+    custom_delays: dict[NetworkErrorType, float] | None = None,
+    max_delay: float = 30.0,
+) -> float:
+    """Suggest retry delay based on network error type."""
+    return NetworkError.suggest_delay(error, attempt, custom_delays, max_delay)
 
 
 # Legacy aliases for backwards compatibility
