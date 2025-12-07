@@ -5,7 +5,7 @@ description = "Reliability layer for AI/LLM streaming with retry, guardrails, an
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "Apache-2.0" }
-keywords = ["llm", "ai", "streaming", "reliability", "retry", "guardrails", "openai", "anthropic"]
+keywords = ["llm", "ai", "streaming", "reliability", "retry", "guardrails", "openai", "anthropic", "litellm", "observability", "timeout", "fallback", "resilience"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -59,9 +59,11 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/your-org/l0-python"
-Documentation = "https://github.com/your-org/l0-python#readme"
-Repository = "https://github.com/your-org/l0-python"
+Homepage = "https://github.com/ai-2070/l0"
+Documentation = "https://github.com/ai-2070/l0/tree/main/l0-python#readme"
+Repository = "https://github.com/ai-2070/l0"
+Changelog = "https://github.com/ai-2070/l0/releases"
+Issues = "https://github.com/ai-2070/l0/issues"
 
 [build-system]
 requires = ["hatchling"]
