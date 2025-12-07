@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -7,6 +8,8 @@ from enum import Enum
 from typing import Any
 
 from uuid6 import uuid7
+
+_logger = logging.getLogger(__name__)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Event Types (matches TS EventType - UPPER_CASE values)
@@ -171,6 +174,5 @@ class EventBus:
         try:
             self._handler(event)
         except Exception:
-            # Callback errors are non-fatal - silently ignore
-            # to prevent user code from crashing the stream
-            pass
+            # Callback errors are non-fatal - log but don't crash the stream
+            _logger.debug("Event handler failed for %s", event_type, exc_info=True)
