@@ -281,6 +281,8 @@ class TestNetworkEventSignatures:
     @pytest.mark.asyncio
     async def test_network_error_has_correct_fields(self) -> None:
         """NETWORK_ERROR should have error, code, retryable fields."""
+        from l0.types import Retry
+
         capture = EventCapture()
 
         # Create a stream that raises a network-like error
@@ -292,6 +294,7 @@ class TestNetworkEventSignatures:
             result = await _internal_run(
                 stream=stream_with_network_error,
                 on_event=capture,
+                retry=Retry(max_retries=0),  # Disable retries
             )
             async for _ in result:
                 pass
