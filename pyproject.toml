@@ -21,28 +21,29 @@ classifiers = [
 ]
 
 dependencies = [
-    "httpx>=0.28.1",
+    "httpx>=0.27.0",
     "pydantic>=2.0.0",
     "orjson>=3.9.0",
     "typing-extensions>=4.9.0",
-    "uuid6>=2025.0.0",
+    "uuid6>=2024.1.12,<2026",
 ]
 
 [project.optional-dependencies]
-openai = ["openai>=2.0"]
-litellm = ["litellm>=1.40"]
+openai = ["openai>=2.0,<3.0"]
+litellm = ["litellm>=1.40,<2.0"]
 
 observability = [
-    "opentelemetry-api>=1.20",
-    "opentelemetry-sdk>=1.20",
-    "opentelemetry-instrumentation-httpx>=0.45",
-    "sentry-sdk>=2.0",
+    "opentelemetry-api>=1.20,<2.0",
+    "opentelemetry-sdk>=1.20,<2.0",
+    "opentelemetry-instrumentation-httpx>=0.45,<1.0",
+    "sentry-sdk>=2.0,<3.0",
 ]
 
 speed = [
     "uvloop>=0.19; platform_system!='Windows'",
 ]
 
+[dependency-groups]
 dev = [
     "basedpyright>=1.35.0",
     "pytest>=9.0",
@@ -92,7 +93,6 @@ ignore_missing_imports = true
 # Type inference handles these cases correctly
 disallow_any_generics = false
 mypy_path = "src"
-exclude = ["src/"]
 
 [[tool.mypy.overrides]]
 module = "tests.*"
