@@ -286,6 +286,7 @@ for prompt, result in zip(prompts, results):
 | [FORMATTING.md](./FORMATTING.md)                 | Context, memory, output, and tool formatting |
 | [PARALLEL_OPERATIONS.md](./PARALLEL_OPERATIONS.md) | Parallel, race, batch, and pool operations |
 | [MULTIMODAL.md](./MULTIMODAL.md)                 | Image, audio, video, and multimodal adapters |
+| [PERFORMANCE.md](./PERFORMANCE.md)               | Performance tuning guide                 |
 
 ## Installation
 
