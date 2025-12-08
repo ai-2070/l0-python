@@ -51,6 +51,30 @@ L0 includes 1,800+ tests covering all major reliability features.
                            L0 = Token-Level Reliability
 ```
 
+## Table of Contents
+
+- [Features](#features)
+- [Quick Start](#quick-start)
+- [Core Features](#core-features)
+- [Streaming Runtime](#streaming-runtime)
+- [Retry Logic](#retry-logic)
+- [Network Protection](#network-protection)
+- [Structured Output](#structured-output)
+- [Fallback Models](#fallback-models)
+- [Last-Known-Good Token Resumption](#last-known-good-token-resumption)
+- [Guardrails](#guardrails)
+- [Consensus](#consensus)
+- [Parallel Operations](#parallel-operations)
+- [Custom Adapters](#custom-adapters)
+- [Lifecycle Callbacks](#lifecycle-callbacks)
+- [Observability Events](#observability-events)
+- [Error Handling](#error-handling)
+- [Testing](#testing)
+- [Installation](#installation)
+- [Philosophy](#philosophy)
+- [Documentation](#documentation)
+- [License](#license)
+
 ## Features
 
 | Feature                                        | Description                                                                                                                                                                                           |
