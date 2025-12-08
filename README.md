@@ -347,8 +347,8 @@ L0 sustains **90K+ tokens/s** with full guardrails, drift detection, and checkpo
 
 | Scenario | Tokens/s | Overhead |
 |----------|----------|----------|
-| Baseline | 1,077,345 | - |
-| L0 Full Stack | 92,878 | 1058% |
+| Baseline | 1,114,767 | - |
+| L0 Full Stack | 92,843 | 1099% |
 
 See [BENCHMARKS.md](./BENCHMARKS.md) for full results and methodology.
 
