@@ -341,17 +341,6 @@ uv add ai2070-l0 --extra litellm
 | `speed` | `uvloop` (Unix only) |
 | `dev` | `pytest`, `pytest-asyncio`, `pytest-cov`, `mypy`, `ruff` |
 
-## Benchmarks
-
-L0 sustains **90K+ tokens/s** with full guardrails, drift detection, and checkpointing - ready for Nvidia Blackwell's 1000+ tokens/s streaming.
-
-| Scenario | Tokens/s | Overhead |
-|----------|----------|----------|
-| Baseline | 1,114,767 | - |
-| L0 Full Stack | 92,843 | 1099% |
-
-See [BENCHMARKS.md](./BENCHMARKS.md) for full results and methodology.
-
 ## License
 
 Apache-2.0
