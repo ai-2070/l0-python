@@ -280,6 +280,7 @@ for prompt, result in zip(prompts, results):
 | [NETWORK_ERRORS.md](./NETWORK_ERRORS.md)         | Network error handling                   |
 | [ERROR_HANDLING.md](./ERROR_HANDLING.md)         | Error handling guide                     |
 | [CUSTOM_ADAPTERS.md](./CUSTOM_ADAPTERS.md)       | Build your own adapters                  |
+| [DOCUMENT_WINDOWS.md](./DOCUMENT_WINDOWS.md)     | Chunking and processing long documents   |
 | [EVENT_SOURCING.md](./EVENT_SOURCING.md)         | Record/replay, audit trails              |
 | [MONITORING.md](./MONITORING.md)                 | OpenTelemetry and Sentry integrations    |
 
