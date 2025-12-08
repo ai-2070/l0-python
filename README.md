@@ -285,6 +285,7 @@ for prompt, result in zip(prompts, results):
 | [MONITORING.md](./MONITORING.md)                 | OpenTelemetry and Sentry integrations    |
 | [FORMATTING.md](./FORMATTING.md)                 | Context, memory, output, and tool formatting |
 | [PARALLEL_OPERATIONS.md](./PARALLEL_OPERATIONS.md) | Parallel, race, batch, and pool operations |
+| [MULTIMODAL.md](./MULTIMODAL.md)                 | Image, audio, video, and multimodal adapters |
 
 ## Installation
 
