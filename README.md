@@ -77,7 +77,7 @@ L0 includes 1,800+ tests covering all major reliability features.
 | **🔧 Own Retry Logic**                         | No external dependencies (no tenacity). L0 controls all retry behavior for predictable execution.                                                                                                     |
 | **📝 Type-Safe**                               | Full type hints with `py.typed` marker. Passes mypy strict mode.                                                                                                                                      |
 | **📦 Minimal Dependencies**                    | Only httpx, pydantic, orjson, typing-extensions, uuid6. No heavy abstractions.                                                                                                                        |
-| **🚀 Blackwell-Ready**                         | Optimized for 1000+ tokens/s streaming with incremental guardrails, sliding window drift detection, and tunable check intervals. Ready for next-gen GPU inference speeds.                             |
+| **🚀 Nvidia Blackwell-Ready**                    | Optimized for 1000+ tokens/s streaming. Ready for next-gen GPU inference speeds.                                                                                                                      |
 | **🧪 Battle-Tested**                           | 1,800+ unit tests and 100+ integration tests validating real streaming, retries, and advanced behavior.                                                                                               |
 
 > **Know what you're doing?** [Skip the tutorial](./ADVANCED.md)
