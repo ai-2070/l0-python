@@ -277,6 +277,7 @@ async def run_benchmark(
     mem_before = _get_memory_usage()
 
     timer = Timer()
+    start_time = time.perf_counter()
 
     # Create drift detector if needed
     drift_detector = DriftDetector() if detect_drift else None
@@ -287,8 +288,6 @@ async def run_benchmark(
         drift_detector=drift_detector,
         check_intervals=check_intervals,
     )
-
-    start_time = time.perf_counter()
 
     async for event in result:
         if event.is_token and first_token_time is None:
