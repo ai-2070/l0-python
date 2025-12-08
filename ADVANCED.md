@@ -58,8 +58,8 @@ async def main():
         # Checkpoint resumption (resume from last good token on failure)
         continue_from_last_good_token=True,
         
-        # Check intervals
-        check_intervals={"guardrails": 5, "drift": 10, "checkpoint": 10},
+        # Check intervals (optimized for high-throughput streaming)
+        check_intervals={"guardrails": 15, "drift": 25, "checkpoint": 20},
         
         # Event callback for observability
         on_event=lambda event: print(f"[{event.type}]"),
