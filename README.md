@@ -271,6 +271,7 @@ for prompt, result in zip(prompts, results):
 
 | Guide                                            | Description                              |
 | ------------------------------------------------ | ---------------------------------------- |
+| [QUICKSTART.md](./QUICKSTART.md)                 | Get started in 5 minutes                 |
 | [ADVANCED.md](./ADVANCED.md)                     | Advanced usage and full examples         |
 | [API.md](./API.md)                               | Complete API reference                   |
 | [GUARDRAILS.md](./GUARDRAILS.md)                 | Guardrails and validation                |
