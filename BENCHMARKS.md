@@ -67,10 +67,14 @@ Even with full guardrails, drift detection, and checkpointing enabled, L0 sustai
 | Current (H100)   | ~100-200          | 600-1200x   |
 | Blackwell (B200) | ~1000+            | 120x        |
 
+## Python Version Note
+
+Benchmarks are run on Python 3.13. Python 3.14 shows ~30% slower async iteration performance when pydantic is imported, which affects L0's benchmark results. This appears to be a pydantic + Python 3.14 compatibility issue rather than a Python regression - raw async iteration without pydantic is nearly identical between versions. This will likely be resolved as pydantic adds better 3.14 support.
+
 ## Running Benchmarks
 
 ```bash
-uv run pytest tests/test_benchmark.py::TestComprehensiveReport -v -s
+uv run --python 3.13 pytest tests/test_benchmark.py::TestComprehensiveReport -v -s
 ```
 
 To run all benchmark tests:
