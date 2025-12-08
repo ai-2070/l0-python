@@ -1356,7 +1356,13 @@ pip install ai2070-l0[openai]
 # With LiteLLM (100+ providers)
 pip install ai2070-l0[litellm]
 
-# With observability
+# With OpenTelemetry
+pip install ai2070-l0[otel]
+
+# With Sentry
+pip install ai2070-l0[sentry]
+
+# With full observability (both)
 pip install ai2070-l0[observability]
 
 # Development
@@ -1387,7 +1393,9 @@ uv add ai2070-l0 --extra litellm
 | ----- | -------- |
 | `openai` | `openai>=1.30` |
 | `litellm` | `litellm>=1.40` |
-| `observability` | `opentelemetry-api`, `opentelemetry-sdk`, `opentelemetry-instrumentation-httpx`, `sentry-sdk` |
+| `otel` | `opentelemetry-api`, `opentelemetry-sdk`, `opentelemetry-instrumentation-httpx` |
+| `sentry` | `sentry-sdk` |
+| `observability` | All of the above (convenience) |
 | `speed` | `uvloop` (Unix only) |
 | `dev` | `pytest`, `pytest-asyncio`, `pytest-cov`, `mypy`, `ruff` |
 
