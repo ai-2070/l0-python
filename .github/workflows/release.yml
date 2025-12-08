@@ -54,14 +54,14 @@ jobs:
         if: github.event_name == 'release'
         run: |
           VERSION="${GITHUB_REF#refs/tags/v}"
-          sed -i "s/^version = .*/version = \"$VERSION\"/" pyproject.toml
+          sed -i "s|^version = .*|version = \"$VERSION\"|" pyproject.toml
           echo "Building version: $VERSION"
 
       - name: Update version from input
         if: github.event_name == 'workflow_dispatch' && github.event.inputs.version != ''
         run: |
           VERSION="${{ github.event.inputs.version }}"
-          sed -i "s/^version = .*/version = \"$VERSION\"/" pyproject.toml
+          sed -i "s|^version = .*|version = \"$VERSION\"|" pyproject.toml
           echo "Building version: $VERSION"
 
       - name: Build package
