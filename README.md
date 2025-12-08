@@ -283,6 +283,7 @@ for prompt, result in zip(prompts, results):
 | [DOCUMENT_WINDOWS.md](./DOCUMENT_WINDOWS.md)     | Chunking and processing long documents   |
 | [EVENT_SOURCING.md](./EVENT_SOURCING.md)         | Record/replay, audit trails              |
 | [MONITORING.md](./MONITORING.md)                 | OpenTelemetry and Sentry integrations    |
+| [FORMATTING.md](./FORMATTING.md)                 | Context, memory, output, and tool formatting |
 
 ## Installation
 
