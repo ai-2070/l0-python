@@ -47,12 +47,14 @@ Default intervals optimized for high throughput:
 
 Configure via `check_intervals`:
 ```python
-from l0 import l0
+from l0.guardrails import json_rule
+from l0.types import CheckIntervals
+import l0
 
 result = await l0.run(
     stream=my_stream,
     guardrails=[json_rule()],
-    check_intervals={"guardrails": 15, "drift": 25, "checkpoint": 20},
+    check_intervals=CheckIntervals(guardrails=15, drift=25, checkpoint=20),
 )
 ```
 
