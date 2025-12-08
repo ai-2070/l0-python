@@ -33,7 +33,7 @@ It works with **OpenAI** and **LiteLLM** (100+ providers including Anthropic, Co
 pip install ai2070-l0
 ```
 
-**Also available in TypeScript:** [l0](https://github.com/ai-2070/l0) `npm install @ai2070/l0` - native implementation with full lifecycle and event signature parity.
+**Also available in TypeScript:** [@ai-2070/l0](https://github.com/ai-2070/l0) `npm install @ai2070/l0` - native implementation with full lifecycle and event signature parity.
 
 _Production-grade reliability. Just pass your stream. L0'll take it from here._
 
