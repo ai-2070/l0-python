@@ -1553,6 +1553,9 @@ def json_rule() -> GuardrailRule:
 
     Uses incremental state tracking for O(delta) per-token updates instead of
     O(content) full scans during streaming. Only does full analysis at completion.
+
+    Note: State is reset when content is empty or shorter than processed length
+    to handle new streams, aborted streams, or rule reuse.
     """
     # Incremental state for O(delta) streaming checks
     incremental_state = IncrementalJsonState()
@@ -1563,11 +1566,23 @@ def json_rule() -> GuardrailRule:
 
         content = state.content
         if not content.strip():
+            # Reset state when content is empty (new stream starting)
+            incremental_state = IncrementalJsonState()
+            last_content_length = 0
             return []
 
         # Only check if it looks like JSON
         if not looks_like_json(content):
+            # Reset state when content doesn't look like JSON
+            incremental_state = IncrementalJsonState()
+            last_content_length = 0
             return []
+
+        # Reset state if content is shorter than what we've processed
+        # (indicates a new stream or aborted stream being reused)
+        if len(content) < last_content_length:
+            incremental_state = IncrementalJsonState()
+            last_content_length = 0
 
         violations = []
 
