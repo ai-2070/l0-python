@@ -676,10 +676,3 @@ if result.state.network_retry_count > 0:
 | `Retry.exponential()` | 4 | 8 | Exponential |
 | `Retry.mobile()` | 3 | 6 | Full-Jitter (tuned) |
 | `Retry.edge()` | 3 | 6 | Fixed-Jitter (short) |
-
----
-
-## See Also
-
-- [API.md](./API.md) - Complete API reference
-- [ERROR_HANDLING.md](./ERROR_HANDLING.md) - Error codes and L0Error
