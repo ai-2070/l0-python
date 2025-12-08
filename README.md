@@ -722,6 +722,83 @@ for violation in result.state.violations:
     print(f"Recoverable: {violation.recoverable}")
 ```
 
+### Async Guardrail Checks
+
+L0 uses a two-path strategy to avoid blocking the streaming loop:
+
+#### Fast Path (Synchronous)
+
+Runs immediately on each chunk for quick checks:
+
+- **Delta-only checks**: Only examines the latest chunk (`context.delta`)
+- **Small content**: Full check if total content < 5KB
+- **Instant violations**: Blocked words, obvious patterns
+
+```python
+# Fast path triggers for:
+# - Delta < 1KB
+# - Total content < 5KB
+# - Any violation found in delta
+```
+
+#### Slow Path (Asynchronous)
+
+Deferred to `call_soon()` to avoid blocking:
+
+- **Large content**: Full content scan for content > 5KB
+- **Complex rules**: Pattern matching, structure analysis
+- **Non-blocking**: Results delivered via callback
+
+```python
+from l0.guardrails import (
+    run_async_guardrail_check,
+    run_guardrail_check_async,
+    create_guardrail_engine,
+    json_rule,
+    GuardrailContext,
+)
+
+engine = create_guardrail_engine([json_rule()])
+context = GuardrailContext(content="...", completed=False, delta="...")
+
+# Fast/slow path with immediate result if possible
+def handle_result(result):
+    if result.should_halt:
+        print("Halting due to violation!")
+
+result = run_async_guardrail_check(engine, context, handle_result)
+
+if result is not None:
+    # Fast path returned immediately
+    print(f"Fast path: passed={result.passed}")
+else:
+    # Deferred to async callback
+    print("Waiting for slow path...")
+
+# Always async version (for async/await contexts)
+result = await run_guardrail_check_async(engine, context)
+print(f"Async result: passed={result.passed}")
+```
+
+#### Rule Complexity
+
+| Rule | Complexity | When Checked |
+| ---- | ---------- | ------------ |
+| `zero_output_rule` | O(1) | Fast path |
+| `json_rule` | O(n) | Scans full content |
+| `markdown_rule` | O(n) | Scans full content |
+| `pattern_rule` | O(n × p) | Scans full content × patterns |
+
+For long outputs, increase `check_intervals["guardrails"]` to reduce frequency:
+
+```python
+result = await l0.run(
+    stream=my_stream,
+    guardrails=l0.Guardrails.recommended(),
+    check_intervals={"guardrails": 50},  # Check every 50 tokens instead of default
+)
+```
+
 ---
 
 ## Consensus
