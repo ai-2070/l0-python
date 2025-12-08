@@ -682,7 +682,7 @@ class SentryExporter:
             import sentry_sdk
         except ImportError as e:
             raise ImportError(
-                "Sentry SDK not installed. Install with: pip install l0[observability]"
+                "Sentry SDK not installed. Install with: pip install ai2070-l0[observability]"
             ) from e
 
         sentry_sdk.init(

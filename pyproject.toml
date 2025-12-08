@@ -32,18 +32,20 @@ dependencies = [
 openai = ["openai>=2.0,<3.0"]
 litellm = ["litellm>=1.40,<2.0"]
 
-observability = [
+otel = [
     "opentelemetry-api>=1.20,<2.0",
     "opentelemetry-sdk>=1.20,<2.0",
     "opentelemetry-instrumentation-httpx>=0.45,<1.0",
+]
+sentry = [
     "sentry-sdk>=2.0,<3.0",
+]
+observability = [
+    "ai2070-l0[otel,sentry]",
 ]
 
 speed = [
     "uvloop>=0.19; platform_system!='Windows'",
-]
-dev = [
-    "litellm>=1.80.7",
 ]
 
 [dependency-groups]

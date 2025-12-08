@@ -4,13 +4,29 @@ These tests require litellm to be installed and an API key to be set.
 LiteLLM supports 100+ providers - tests use OpenAI by default but can use any.
 
 Run with: pytest tests/integration/test_litellm.py -v
+
+Note: LiteLLM's CustomStreamWrapper implements AsyncIterator at runtime but isn't
+typed as such. We use cast() to satisfy the type checker.
 """
+
+from collections.abc import AsyncIterator
+from typing import Any, cast
 
 import pytest
 from pydantic import BaseModel
 
 import l0 as l0
 from tests.conftest import requires_litellm
+
+
+def as_stream(stream: Any) -> AsyncIterator[Any]:
+    """Cast LiteLLM stream to AsyncIterator for type checking."""
+    return cast(AsyncIterator[Any], stream)
+
+
+def as_stream_factory(factory: Any) -> l0.AwaitableStreamFactory:
+    """Cast LiteLLM stream factory for type checking."""
+    return cast(l0.AwaitableStreamFactory, factory)
 
 
 @requires_litellm
@@ -29,7 +45,7 @@ class TestLiteLLMIntegration:
             max_tokens=10,
         )
 
-        result = l0.wrap(stream, adapter="litellm")
+        result = l0.wrap(as_stream(stream), adapter="litellm")
         text = await result.read()
 
         assert "hello" in text.lower()
@@ -49,7 +65,7 @@ class TestLiteLLMIntegration:
         )
 
         tokens = []
-        async for event in l0.wrap(stream, adapter="litellm"):
+        async for event in l0.wrap(as_stream(stream), adapter="litellm"):
             if event.is_token:
                 tokens.append(event.text)
             elif event.is_complete:
@@ -72,7 +88,7 @@ class TestLiteLLMIntegration:
         )
 
         result = l0.wrap(
-            stream, adapter="litellm", guardrails=l0.Guardrails.recommended()
+            as_stream(stream), adapter="litellm", guardrails=l0.Guardrails.recommended()
         )
         text = await result.read()
 
@@ -91,8 +107,8 @@ class TestLiteLLMIntegration:
             max_tokens=5,
         )
 
-        async with l0.wrap(stream, adapter="litellm") as result:
-            tokens = []
+        tokens: list[str] = []
+        async with l0.wrap(as_stream(stream), adapter="litellm") as result:
             async for event in result:
                 if event.is_token and event.text:
                     tokens.append(event.text)
@@ -116,7 +132,7 @@ class TestLiteLLMIntegration:
             max_tokens=5,
         )
 
-        result = l0.wrap(stream, adapter="litellm", on_event=on_event)
+        result = l0.wrap(as_stream(stream), adapter="litellm", on_event=on_event)
         await result.read()
 
         assert len(events_received) > 0
@@ -136,7 +152,7 @@ class TestLiteLLMIntegration:
         )
 
         result = l0.wrap(
-            stream,
+            as_stream(stream),
             adapter="litellm",
             timeout=l0.Timeout(initial_token=30000, inter_token=30000),
         )
@@ -156,18 +172,22 @@ class TestLiteLLMRunWithFallbacks:
 
         # run() needs lambdas for retry/fallback support
         result = await l0.run(
-            stream=lambda: litellm.acompletion(
-                model="gpt-4o-mini",
-                messages=[{"role": "user", "content": "Say 'primary'."}],
-                stream=True,
-                max_tokens=10,
-            ),
-            fallbacks=[
+            stream=as_stream_factory(
                 lambda: litellm.acompletion(
                     model="gpt-4o-mini",
-                    messages=[{"role": "user", "content": "Say 'fallback'."}],
+                    messages=[{"role": "user", "content": "Say 'primary'."}],
                     stream=True,
                     max_tokens=10,
+                )
+            ),
+            fallbacks=[
+                as_stream_factory(
+                    lambda: litellm.acompletion(
+                        model="gpt-4o-mini",
+                        messages=[{"role": "user", "content": "Say 'fallback'."}],
+                        stream=True,
+                        max_tokens=10,
+                    )
                 ),
             ],
             adapter="litellm",
@@ -195,16 +215,18 @@ class TestLiteLLMStructuredOutput:
         # structured() needs lambda for potential retries
         result = await l0.structured(
             schema=Person,
-            stream=lambda: litellm.acompletion(
-                model="gpt-4o-mini",
-                messages=[
-                    {
-                        "role": "user",
-                        "content": 'Return JSON: {"name": "Alice", "age": 30}',
-                    }
-                ],
-                stream=True,
-                max_tokens=50,
+            stream=as_stream_factory(
+                lambda: litellm.acompletion(
+                    model="gpt-4o-mini",
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": 'Return JSON: {"name": "Alice", "age": 30}',
+                        }
+                    ],
+                    stream=True,
+                    max_tokens=50,
+                )
             ),
             adapter="litellm",
         )

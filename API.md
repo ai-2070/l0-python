@@ -12,6 +12,9 @@ Complete API reference for L0 Python.
 - [Streaming Runtime](#streaming-runtime)
 - [Retry Configuration](#retry-configuration)
 - [Checkpoint Resumption](#checkpoint-resumption)
+- [Smart Continuation Deduplication](#smart-continuation-deduplication)
+- [Document Windows](#document-windows)
+- [Pipeline](#pipeline)
 - [Network Protection](#network-protection)
 - [Structured Output](#structured-output)
 - [Fallback Models](#fallback-models)
@@ -23,6 +26,8 @@ Complete API reference for L0 Python.
 - [Error Handling](#error-handling)
 - [State Machine](#state-machine)
 - [Metrics](#metrics)
+- [Async Checks](#async-checks)
+- [Formatting Helpers](#formatting-helpers)
 - [Stream Utilities](#stream-utilities)
 - [Utility Functions](#utility-functions)
 - [Types](#types)
@@ -69,8 +74,8 @@ text = await response.read()
 client = l0.wrap(
     AsyncOpenAI(),
     guardrails=l0.Guardrails.recommended(),
-    retry=l0.Retry(max_attempts=5),
-    timeout=l0.Timeout(initial_token=10.0, inter_token=30.0),
+    retry=l0.Retry(attempts=5),
+    timeout=l0.Timeout(initial_token=10000, inter_token=30000),  # Milliseconds
     continue_from_last_good_token=True,  # Resume from checkpoint on failure
     on_event=lambda e: print(f"[{e.type}]"),
     context={"request_id": "req-123", "user_id": "user-456"},
@@ -144,10 +149,10 @@ result = await l0.run(
         strategy=l0.BackoffStrategy.FIXED_JITTER,
     ),
 
-    # Optional: Timeout configuration (defaults shown)
+    # Optional: Timeout configuration (defaults shown, in milliseconds)
     timeout=l0.Timeout(
-        initial_token=5.0,   # Seconds to first token
-        inter_token=10.0,    # Seconds between tokens
+        initial_token=5000,   # Milliseconds to first token
+        inter_token=10000,    # Milliseconds between tokens
     ),
 
     # Optional: Adapter hint
@@ -557,30 +562,233 @@ class BackoffStrategy(str, Enum):
 | Drift detected | Yes | **Yes** | Yes |
 | Auth error (401/403) | No | - | - |
 
-### RetryManager
+### Retry Presets
 
 ```python
-from l0.retry import RetryManager
-from l0.types import Retry, BackoffStrategy
+from l0 import (
+    MINIMAL_RETRY,      # 2 attempts, 4 max, linear backoff
+    RECOMMENDED_RETRY,  # 3 attempts, 6 max, fixed-jitter backoff
+    STRICT_RETRY,       # 3 attempts, 6 max, full-jitter backoff
+    EXPONENTIAL_RETRY,  # 4 attempts, 8 max, exponential backoff
+    Retry,
+)
 
-manager = RetryManager(Retry(
-    attempts=3,
-    strategy=BackoffStrategy.EXPONENTIAL,
-))
+# Use preset directly
+result = await l0.run(stream=my_stream, retry=RECOMMENDED_RETRY)
 
-# Check if should retry
-if manager.should_retry(error):
-    manager.record_attempt(error)
-    delay = manager.get_delay(error)  # Returns seconds (float)
-    await manager.wait(error)
+# Or use class method presets
+result = await l0.run(stream=my_stream, retry=Retry.recommended())
+result = await l0.run(stream=my_stream, retry=Retry.minimal())
+result = await l0.run(stream=my_stream, retry=Retry.strict())
+result = await l0.run(stream=my_stream, retry=Retry.exponential())
 
-# Get state
-state = manager.get_state()
-# {"model_retry_count": 1, "network_retry_count": 0, "total_retries": 1}
-
-# Reset
-manager.reset()
+# Environment-specific presets
+result = await l0.run(stream=my_stream, retry=Retry.mobile())  # Higher delays for mobile
+result = await l0.run(stream=my_stream, retry=Retry.edge())    # Shorter delays for edge runtimes
 ```
+
+| Preset | attempts | max_retries | backoff | base_delay | max_delay |
+| ------ | -------- | ----------- | ------- | ---------- | --------- |
+| `MINIMAL_RETRY` | 2 | 4 | `linear` | 1.0s | 10.0s |
+| `RECOMMENDED_RETRY` | 3 | 6 | `fixed-jitter` | 1.0s | 10.0s |
+| `STRICT_RETRY` | 3 | 6 | `full-jitter` | 1.0s | 10.0s |
+| `EXPONENTIAL_RETRY` | 4 | 8 | `exponential` | 1.0s | 10.0s |
+
+### Centralized Defaults
+
+```python
+from l0 import RETRY_DEFAULTS, ERROR_TYPE_DELAY_DEFAULTS
+
+# RETRY_DEFAULTS contains all default values
+RETRY_DEFAULTS.attempts      # 3
+RETRY_DEFAULTS.max_retries   # 6
+RETRY_DEFAULTS.base_delay    # 1.0 (seconds)
+RETRY_DEFAULTS.max_delay     # 10.0 (seconds)
+RETRY_DEFAULTS.backoff       # BackoffStrategy.FIXED_JITTER
+
+# ERROR_TYPE_DELAY_DEFAULTS for network error types
+ERROR_TYPE_DELAY_DEFAULTS.connection_dropped  # 1.0s
+ERROR_TYPE_DELAY_DEFAULTS.timeout             # 1.0s
+ERROR_TYPE_DELAY_DEFAULTS.dns_error           # 3.0s
+ERROR_TYPE_DELAY_DEFAULTS.ssl_error           # 0.0s (don't retry SSL errors)
+```
+
+### Custom Retry Logic
+
+Override default retry behavior with custom functions.
+
+#### shouldRetry (Async Veto Callback)
+
+The `should_retry` callback provides async control over retry decisions. It can only **veto** retries, never force them.
+
+```python
+from l0 import Retry, State, ErrorCategory
+
+async def custom_should_retry(
+    error: Exception,
+    state: State,
+    attempt: int,
+    category: ErrorCategory
+) -> bool:
+    # Veto retry if we already have substantial content
+    if state.token_count > 100:
+        return False
+    
+    # Veto retry for context length errors
+    if "context_length_exceeded" in str(error):
+        return False
+    
+    # Check external service before retrying
+    can_retry = await check_rate_limit_service()
+    if not can_retry:
+        return False
+    
+    # Return True to allow default retry behavior
+    return True
+
+result = await l0.run(
+    stream=my_stream,
+    retry=Retry(
+        attempts=5,
+        should_retry=custom_should_retry,
+    ),
+)
+```
+
+#### Key Behavior
+
+The final retry decision follows this formula:
+
+```
+final_should_retry = default_decision AND should_retry(...)
+```
+
+| Default Decision | should_retry Returns | Final Result | Explanation |
+| ---------------- | -------------------- | ------------ | ----------- |
+| `True` | `True` | **Retry** | Both agree to retry |
+| `True` | `False` | **No retry** | User vetoed the retry |
+| `False` | `True` | **No retry** | User cannot force retry |
+| `False` | `False` | **No retry** | Both agree not to retry |
+
+#### should_retry Parameters
+
+| Parameter | Type | Description |
+| --------- | ---- | ----------- |
+| `error` | `Exception` | The error that occurred |
+| `state` | `State` | Current state (content, token_count, etc.) |
+| `attempt` | `int` | Current attempt (0-based) |
+| `category` | `ErrorCategory` | Error category (network/transient/model/fatal) |
+
+#### calculateDelay
+
+Custom delay calculation function to override default backoff behavior:
+
+```python
+from l0 import Retry
+
+def custom_calculate_delay(context: dict) -> float:
+    """
+    context contains:
+    - attempt: int - Current retry attempt (0-based)
+    - total_attempts: int - Total attempts including network
+    - category: str - Error category (network/model/fatal)
+    - reason: str - Error reason code
+    - error: Exception - The error that occurred
+    - default_delay: float - Default delay that would be used
+    """
+    # Different delays based on error category
+    if context["category"] == "network":
+        return 0.5
+    if context["reason"] == "rate_limit":
+        return 5.0
+    
+    # Custom exponential backoff with full jitter
+    import random
+    base = 1.0
+    cap = 30.0
+    temp = min(cap, base * (2 ** context["attempt"]))
+    return random.random() * temp
+
+result = await l0.run(
+    stream=my_stream,
+    retry=Retry(
+        attempts=3,
+        base_delay=1.0,
+        calculate_delay=custom_calculate_delay,
+    ),
+)
+```
+
+### Error Type Delays
+
+Custom delays for specific network error types. Overrides `base_delay` for fine-grained control.
+
+```python
+from l0 import Retry, ErrorTypeDelays
+
+result = await l0.run(
+    stream=my_stream,
+    retry=Retry(
+        attempts=3,
+        error_type_delays=ErrorTypeDelays(
+            # Connection errors
+            connection_dropped=2.0,   # Connection dropped mid-stream
+            econnreset=1.5,           # Connection reset by peer
+            econnrefused=3.0,         # Connection refused
+            
+            # Network errors
+            fetch_error=0.5,          # Generic fetch failure
+            dns_error=5.0,            # DNS resolution failed
+            timeout=1.5,              # Request timeout
+            
+            # Streaming errors
+            sse_aborted=1.0,          # Server-sent events aborted
+            no_bytes=0.5,             # No bytes received
+            partial_chunks=1.0,       # Incomplete chunks received
+            
+            # Runtime errors
+            runtime_killed=5.0,       # Runtime process killed
+            background_throttle=2.0,  # Background tab throttling
+            
+            # Fallback
+            unknown=1.0,              # Unknown error type
+        ),
+    ),
+)
+```
+
+### Retryable Error Types
+
+```python
+from l0 import Retry, RetryableErrorType
+
+# Only retry on specific error types
+result = await l0.run(
+    stream=my_stream,
+    retry=Retry(
+        attempts=3,
+        retry_on=[
+            RetryableErrorType.NETWORK_ERROR,
+            RetryableErrorType.TIMEOUT,
+            RetryableErrorType.RATE_LIMIT,
+            # Exclude: ZERO_OUTPUT, GUARDRAIL_VIOLATION, DRIFT, etc.
+        ],
+    ),
+)
+```
+
+Available error types:
+
+| Error Type | Description |
+| ---------- | ----------- |
+| `ZERO_OUTPUT` | No meaningful output generated |
+| `GUARDRAIL_VIOLATION` | Guardrail rule failed |
+| `DRIFT` | Output drift detected |
+| `INCOMPLETE` | Incomplete output |
+| `NETWORK_ERROR` | Network/connection error |
+| `TIMEOUT` | Request timeout |
+| `RATE_LIMIT` | 429 rate limit |
+| `SERVER_ERROR` | 5xx server error |
 
 ---
 
@@ -654,6 +862,514 @@ print(response.state.checkpoint)           # Last checkpoint content
 print(response.state.continuation_used)    # True if resumed from checkpoint
 print(response.state.deduplication_applied)  # True if overlap removed
 print(response.state.overlap_removed)      # The overlapping text that was removed
+```
+
+---
+
+## Smart Continuation Deduplication
+
+When using `continue_from_last_good_token`, LLMs often repeat words from the end of the checkpoint at the beginning of their continuation. L0 automatically detects and removes this overlap.
+
+### How It Works
+
+```python
+# Checkpoint: "Hello world"
+# LLM continues with: "world is great"
+# Without deduplication: "Hello worldworld is great"
+# With deduplication: "Hello world is great" ✓
+```
+
+Deduplication is **enabled by default** when `continue_from_last_good_token=True`. The algorithm:
+
+1. Buffers incoming continuation tokens until overlap can be detected
+2. Finds the longest suffix of the checkpoint that matches a prefix of the continuation
+3. Removes the overlapping portion from the continuation
+4. Emits only the non-overlapping content
+
+### Configuration
+
+```python
+from l0 import ContinuationConfig, DeduplicationOptions
+
+config = ContinuationConfig(
+    enabled=True,
+    checkpoint_interval=5,
+    
+    # Deduplication enabled by default, explicitly disable:
+    deduplicate=False,
+    
+    # Or configure options:
+    deduplication_options=DeduplicationOptions(
+        min_overlap=2,       # Minimum chars to consider overlap (default: 2)
+        max_overlap=500,     # Maximum chars to check (default: 500)
+        case_sensitive=True, # Case-sensitive matching (default: True)
+        normalize_whitespace=False,  # Normalize whitespace for matching (default: False)
+    ),
+)
+
+result = await l0.run(
+    stream=lambda: client.chat.completions.create(..., stream=True),
+    continue_from_last_good_token=config,
+)
+```
+
+### Options
+
+| Option                | Type    | Default | Description                                                                   |
+| --------------------- | ------- | ------- | ----------------------------------------------------------------------------- |
+| `min_overlap`         | int     | 2       | Minimum overlap length to detect (avoids false positives)                     |
+| `max_overlap`         | int     | 500     | Maximum overlap length to check (performance limit)                           |
+| `case_sensitive`      | bool    | True    | Whether matching is case-sensitive                                            |
+| `normalize_whitespace`| bool    | False   | Normalize whitespace when matching (`"hello  world"` matches `"hello world"`) |
+
+### Utility Functions
+
+The overlap detection is also available as standalone utilities:
+
+```python
+from l0 import Continuation
+
+# Full result with metadata
+result = Continuation.detect_overlap("Hello world", "world is great")
+# OverlapResult(
+#     has_overlap=True,
+#     overlap_length=5,
+#     overlap_text="world",
+#     deduplicated=" is great"
+# )
+
+# Convenience wrapper - just the deduplicated string
+text = Continuation.deduplicate("Hello world", "world is great")
+# " is great"
+
+# With options
+from l0 import DeduplicationOptions
+
+options = DeduplicationOptions(case_sensitive=False, min_overlap=3)
+result = Continuation.detect_overlap("Hello World", "world test", options)
+```
+
+### Examples
+
+**Case-insensitive matching:**
+
+```python
+# Checkpoint: "Hello World"
+# Continuation: "world is great"
+# With case_sensitive=False → "Hello World is great"
+
+config = ContinuationConfig(
+    enabled=True,
+    deduplication_options=DeduplicationOptions(case_sensitive=False),
+)
+```
+
+**Multi-word overlap:**
+
+```python
+# Checkpoint: "The quick brown fox"
+# Continuation: "brown fox jumps over"
+# Result: "The quick brown fox jumps over"
+```
+
+---
+
+## Document Windows
+
+Process documents that exceed context limits with automatic chunking.
+
+### Window.create(document, *, size, overlap, strategy)
+
+Create a window for processing long documents.
+
+```python
+from l0 import Window
+
+window = Window.create(
+    long_document,
+    size=2000,           # Tokens per chunk
+    overlap=200,         # Overlap between chunks
+    strategy="paragraph", # "token" | "char" | "paragraph" | "sentence"
+)
+
+# Navigation
+chunk = window.current()     # Current chunk
+window.next()                # Move to next
+window.prev()                # Move to previous
+window.jump(5)               # Jump to chunk 5
+
+# Search
+matches = window.find_chunks("keyword")
+
+# Get context around a chunk
+context = window.get_context(chunk_index, before=1, after=1)
+
+# Statistics
+stats = window.get_stats()
+print(f"Total chunks: {stats.total_chunks}")
+print(f"Total tokens: {stats.total_tokens}")
+```
+
+### Window Presets
+
+```python
+from l0 import Window
+
+# Quick creation with presets
+window = Window.small(document)      # 1000 tokens, 100 overlap
+window = Window.medium(document)     # 2000 tokens, 200 overlap (default)
+window = Window.large(document)      # 4000 tokens, 400 overlap
+window = Window.paragraph(document)  # Paragraph-based chunking
+window = Window.sentence(document)   # Sentence-based chunking
+```
+
+### Processing All Chunks
+
+```python
+from l0 import Window, ChunkProcessConfig
+
+window = Window.create(document, size=2000, overlap=200)
+
+# Process all chunks in parallel
+results = await window.process_all(
+    lambda chunk: ChunkProcessConfig(
+        stream=lambda: client.chat.completions.create(
+            model="gpt-4o",
+            messages=[{"role": "user", "content": f"Summarize: {chunk.content}"}],
+            stream=True,
+        ),
+    ),
+    concurrency=3,  # Max 3 concurrent
+)
+
+# Check results
+for result in results:
+    if result.status == "success":
+        print(f"Chunk {result.chunk.index}: {result.content[:50]}...")
+    else:
+        print(f"Chunk {result.chunk.index} failed: {result.error}")
+
+# Get processing statistics
+stats = Window.get_stats(results)
+print(f"Success rate: {stats.success_rate}%")
+print(f"Average duration: {stats.avg_duration}ms")
+```
+
+### Merging Results
+
+```python
+# Merge all successful results
+merged_text = Window.merge_results(results, separator="\n\n")
+
+# Merge chunks back into document (handles overlap)
+merged_doc = Window.merge_chunks(window.get_all_chunks())
+```
+
+### DocumentChunk
+
+```python
+@dataclass
+class DocumentChunk:
+    index: int          # Position (0-based)
+    content: str        # Chunk text
+    start_pos: int      # Start position in original document
+    end_pos: int        # End position in original document
+    token_count: int    # Estimated tokens
+    char_count: int     # Character count
+    is_first: bool      # Is this the first chunk?
+    is_last: bool       # Is this the last chunk?
+    total_chunks: int   # Total number of chunks
+    metadata: dict      # Custom metadata
+```
+
+---
+
+## Pipeline
+
+Multi-phase streaming workflows where each step receives the output of the previous step.
+
+### pipe(steps, input, options)
+
+Execute a pipeline of streaming steps.
+
+```python
+from openai import AsyncOpenAI
+import l0
+
+client = AsyncOpenAI()
+
+async def summarize_step(text: str, ctx: l0.StepContext):
+    return lambda: client.chat.completions.create(
+        model="gpt-4o",
+        messages=[{"role": "user", "content": f"Summarize: {text}"}],
+        stream=True,
+    )
+
+async def refine_step(summary: str, ctx: l0.StepContext):
+    return lambda: client.chat.completions.create(
+        model="gpt-4o",
+        messages=[{"role": "user", "content": f"Refine this summary: {summary}"}],
+        stream=True,
+    )
+
+result = await l0.pipe(
+    [
+        l0.PipelineStep(name="summarize", fn=summarize_step),
+        l0.PipelineStep(name="refine", fn=refine_step),
+    ],
+    long_document,
+    l0.PipelineOptions(name="summarize-refine"),
+)
+
+print(result.output)  # Final refined summary
+print(f"Duration: {result.duration}ms")
+print(f"Steps completed: {len(result.steps)}")
+```
+
+### PipelineStep
+
+```python
+@dataclass
+class PipelineStep:
+    name: str           # Step name (for logging/debugging)
+    fn: Callable        # Step function: (input, context) -> stream factory
+    transform: Callable | None = None  # Transform output before next step
+    condition: Callable | None = None  # Condition to run this step
+    on_error: Callable | None = None   # Error handler for this step
+    on_complete: Callable | None = None  # Callback when step completes
+    metadata: dict = {}  # Step-specific metadata
+```
+
+### PipelineOptions
+
+```python
+@dataclass
+class PipelineOptions:
+    name: str | None = None      # Pipeline name
+    stop_on_error: bool = True   # Stop on first error
+    timeout: float | None = None # Max execution time (seconds)
+    on_start: Callable | None = None     # Called when pipeline starts
+    on_complete: Callable | None = None  # Called when pipeline completes
+    on_error: Callable | None = None     # Called on error (error, step_index)
+    on_progress: Callable | None = None  # Called for progress (step_index, total)
+    metadata: dict = {}          # Pipeline-wide metadata
+```
+
+### Reusable Pipelines
+
+```python
+from l0 import create_pipeline, PipelineStep, PipelineOptions
+
+# Create a reusable pipeline
+summarize_pipeline = create_pipeline(
+    [
+        PipelineStep(name="extract", fn=extract_step),
+        PipelineStep(name="summarize", fn=summarize_step),
+        PipelineStep(name="format", fn=format_step),
+    ],
+    PipelineOptions(name="document-summarizer"),
+)
+
+# Run multiple times
+result1 = await summarize_pipeline.run(document1)
+result2 = await summarize_pipeline.run(document2)
+
+# Clone and modify
+strict_pipeline = summarize_pipeline.clone()
+strict_pipeline.options.stop_on_error = True
+```
+
+### Conditional Steps
+
+```python
+from l0 import PipelineStep
+
+# Step with condition
+conditional_step = PipelineStep(
+    name="translate",
+    fn=translate_step,
+    condition=lambda input, ctx: ctx.metadata.get("language") != "en",
+)
+
+# Branch step
+from l0 import create_branch_step
+
+branch = create_branch_step(
+    "route",
+    condition=lambda input, ctx: len(input) > 1000,
+    if_true=summarize_step,   # Long text → summarize
+    if_false=passthrough_step, # Short text → pass through
+)
+```
+
+### Chaining and Parallel Pipelines
+
+```python
+from l0 import chain_pipelines, parallel_pipelines
+
+# Chain pipelines sequentially
+full_pipeline = chain_pipelines(
+    extract_pipeline,
+    analyze_pipeline,
+    format_pipeline,
+)
+
+# Run pipelines in parallel and combine
+results = await parallel_pipelines(
+    [sentiment_pipeline, entity_pipeline, summary_pipeline],
+    document,
+    lambda results: {
+        "sentiment": results[0].output,
+        "entities": results[1].output,
+        "summary": results[2].output,
+    },
+)
+```
+
+### Pipeline Presets
+
+```python
+from l0.pipeline import FAST_PIPELINE, RELIABLE_PIPELINE, PRODUCTION_PIPELINE
+
+# FAST_PIPELINE: stop_on_error=True (fail fast)
+# RELIABLE_PIPELINE: stop_on_error=False (graceful failures)
+# PRODUCTION_PIPELINE: stop_on_error=False, timeout=300s
+```
+
+---
+
+## Formatting Helpers
+
+Utilities for formatting prompts, context, memory, and tool definitions.
+
+### Context Formatting
+
+```python
+from l0 import Format
+
+# Wrap content with delimiters
+context = Format.context(
+    "User manual content here",
+    label="documentation",
+    delimiter="xml",  # "xml" | "markdown" | "brackets" | "none"
+)
+# Output: <documentation>\nUser manual content here\n</documentation>
+
+# Format multiple contexts
+contexts = Format.contexts([
+    {"content": "Doc 1", "label": "doc1"},
+    {"content": "Doc 2", "label": "doc2"},
+])
+
+# Format a document with metadata
+doc = Format.document(content, {"title": "Report", "author": "User"})
+
+# Format instructions
+instructions = Format.instructions("You are a helpful assistant")
+```
+
+### Memory Formatting
+
+```python
+from l0 import Format
+
+# Format conversation history
+memory = [
+    {"role": "user", "content": "Hello"},
+    {"role": "assistant", "content": "Hi there!"},
+    {"role": "user", "content": "How are you?"},
+]
+
+formatted = Format.memory(memory, {"style": "conversational", "max_entries": 10})
+# Output:
+# User: Hello
+# Assistant: Hi there!
+# User: How are you?
+
+# Create timestamped memory entries
+entry = Format.memory_entry("user", "New message")
+
+# Memory utilities
+filtered = Format.filter_memory(memory, "user")  # Only user messages
+last_5 = Format.last_n_entries(memory, 5)
+size = Format.memory_size(memory)  # Character count
+truncated = Format.truncate_memory(memory, max_size=1000)
+```
+
+### Output Formatting
+
+```python
+from l0 import Format
+
+# Request JSON output
+instruction = Format.json_output({"strict": True, "schema": "..."})
+
+# Request structured output
+instruction = Format.structured_output("yaml", {"strict": True})
+
+# Define output constraints
+constraints = Format.output_constraints({
+    "max_length": 500,
+    "format": "bullet_points",
+})
+
+# Clean model output
+cleaned = Format.clean_output("Sure! Here's the JSON: {...}")  # "{...}"
+
+# Extract JSON from output
+json_str = Format.extract_json(model_output)
+
+# Validate JSON
+is_valid, error = Format.validate_json(output)
+```
+
+### Tool Formatting
+
+```python
+from l0 import Format
+
+# Create a tool definition
+tool = Format.create_tool(
+    "search",
+    "Search the web for information",
+    [
+        Format.parameter("query", "string", "Search query", required=True),
+        Format.parameter("limit", "integer", "Max results", default=10),
+    ],
+)
+
+# Format for model
+formatted = Format.tool(tool, {"style": "json-schema"})
+
+# Format multiple tools
+formatted_tools = Format.tools([tool1, tool2])
+
+# Parse function call from output
+fn_call = Format.parse_function_call(model_output)
+if fn_call:
+    print(f"Function: {fn_call.name}, Args: {fn_call.arguments}")
+```
+
+### String Utilities
+
+```python
+from l0 import Format
+
+# Basic operations
+Format.trim("  hello  ")           # "hello"
+Format.truncate("Hello World", 8)  # "Hello..."
+Format.truncate_words("Hello World", 8)  # "Hello..."
+Format.wrap("Long text...", 80)    # Word-wrapped text
+Format.pad("hello", 10, align="center")  # "  hello   "
+
+# Escaping
+Format.escape("Hello\nWorld")      # "Hello\\nWorld"
+Format.unescape("Hello\\nWorld")   # "Hello\nWorld"
+Format.escape_html("<div>")        # "&lt;div&gt;"
+Format.unescape_html("&lt;div&gt;") # "<div>"
+Format.escape_regex("foo.*bar")    # "foo\\.\\*bar"
+Format.sanitize("text\x00here")    # "texthere" (removes control chars)
+Format.remove_ansi("\x1b[31mred\x1b[0m")  # "red"
 ```
 
 ---
@@ -1386,6 +2102,385 @@ except TimeoutError as e:
 
 ---
 
+## State Machine
+
+L0 includes a lightweight state machine for tracking runtime state. Useful for debugging and monitoring.
+
+### RuntimeState
+
+```python
+from l0 import StateMachine, RuntimeState, RuntimeStates
+
+# Use RuntimeState/RuntimeStates constants instead of string literals
+class RuntimeState(str, Enum):
+    INIT = "init"                           # Initial setup
+    WAITING_FOR_TOKEN = "waiting_for_token" # Waiting for first chunk
+    STREAMING = "streaming"                 # Receiving tokens
+    TOOL_CALL_DETECTED = "tool_call_detected"  # Tool call in progress
+    CONTINUATION_MATCHING = "continuation_matching"  # Buffering for overlap detection
+    CHECKPOINT_VERIFYING = "checkpoint_verifying"    # Validating checkpoint
+    RETRYING = "retrying"                   # About to retry same stream
+    FALLBACK = "fallback"                   # Switching to fallback stream
+    FINALIZING = "finalizing"               # Finalizing (final guardrails, etc.)
+    COMPLETE = "complete"                   # Success
+    ERROR = "error"                         # Failed
+
+# RuntimeStates is an alias for RuntimeState
+RuntimeStates = RuntimeState
+```
+
+### StateMachine
+
+```python
+from l0 import StateMachine, RuntimeState, create_state_machine
+
+# Create a state machine
+sm = StateMachine()
+# Or use the factory function
+sm = create_state_machine()
+
+# Transition to a new state (use constants)
+sm.transition(RuntimeState.STREAMING)
+
+# Get current state
+sm.get()  # RuntimeState.STREAMING
+
+# Check if in one of multiple states
+sm.is_(RuntimeState.STREAMING, RuntimeState.CONTINUATION_MATCHING)  # True
+
+# Alternative method name
+sm.is_state(RuntimeState.STREAMING)  # True
+
+# Check if terminal (complete or error)
+sm.is_terminal()  # False (True for COMPLETE or ERROR)
+
+# Subscribe to state changes
+def on_state_change(state: RuntimeState):
+    print(f"State changed to: {state}")
+
+unsubscribe = sm.subscribe(on_state_change)
+
+# Get history for debugging
+history = sm.get_history()
+# [StateTransition(from_state=INIT, to_state=STREAMING, timestamp=1234567890.123), ...]
+
+# Reset to initial state and clear history
+sm.reset()
+
+# Unsubscribe when done
+unsubscribe()
+```
+
+### StateTransition
+
+```python
+@dataclass
+class StateTransition:
+    from_state: RuntimeState   # Previous state
+    to_state: RuntimeState     # New state
+    timestamp: float           # Unix timestamp of transition
+```
+
+### Scoped API
+
+```python
+from l0 import StateMachine
+
+# Create via class method
+sm = StateMachine.create()
+```
+
+---
+
+## Metrics
+
+Simple counters for runtime metrics. OpenTelemetry is opt-in via separate adapter.
+
+### Metrics Class
+
+```python
+from l0 import Metrics, MetricsSnapshot, create_metrics
+
+# Create a new metrics instance
+metrics = Metrics()
+# Or use the factory function
+metrics = create_metrics()
+
+# Available counters (all integers)
+metrics.requests          # Total stream requests
+metrics.tokens            # Total tokens processed
+metrics.retries           # Total retry attempts
+metrics.network_retry_count  # Network retries (subset of retries)
+metrics.errors            # Total errors encountered
+metrics.violations        # Guardrail violations
+metrics.drift_detections  # Drift detections
+metrics.fallbacks         # Fallback activations
+metrics.completions       # Successful completions
+metrics.timeouts          # Timeouts (initial + inter-token)
+
+# Increment counters directly
+metrics.requests += 1
+metrics.tokens += 150
+metrics.completions += 1
+
+# Get snapshot (immutable copy)
+snapshot: MetricsSnapshot = metrics.snapshot()
+print(f"Total tokens: {snapshot.tokens}")
+print(f"Success rate: {snapshot.completions / snapshot.requests * 100}%")
+
+# Reset all counters to zero
+metrics.reset()
+
+# Serialize to dictionary
+data = metrics.to_dict()
+# {"requests": 10, "tokens": 1500, "retries": 2, ...}
+```
+
+### MetricsSnapshot
+
+```python
+@dataclass
+class MetricsSnapshot:
+    requests: int            # Total stream requests
+    tokens: int              # Total tokens processed
+    retries: int             # Total retry attempts
+    network_retry_count: int # Network retries (subset)
+    errors: int              # Total errors
+    violations: int          # Guardrail violations
+    drift_detections: int    # Drift detections
+    fallbacks: int           # Fallback activations
+    completions: int         # Successful completions
+    timeouts: int            # Timeouts
+```
+
+### Global Metrics
+
+```python
+from l0 import Metrics, get_global_metrics, reset_global_metrics
+
+# Get the global metrics singleton
+global_metrics = Metrics.get_global()
+# Or use the legacy function
+global_metrics = get_global_metrics()
+
+# Use global metrics
+global_metrics.requests += 1
+
+# Reset global metrics
+Metrics.reset_global()
+# Or use the legacy function
+reset_global_metrics()
+```
+
+### Scoped API
+
+```python
+from l0 import Metrics
+
+# Create via class method
+metrics = Metrics.create()
+
+# Access global instance via class method
+global_metrics = Metrics.get_global()
+
+# Reset global via class method
+Metrics.reset_global()
+```
+
+---
+
+## Async Checks
+
+Non-blocking wrappers for guardrails and drift detection. Uses fast/slow path pattern to prevent blocking the event loop during streaming.
+
+### How It Works
+
+1. **Fast path**: Delta-only check or small content - runs synchronously and returns immediately
+2. **Slow path**: Large content (>10KB) - defers via `asyncio.call_soon()` to avoid blocking event loop
+
+This prevents guardrails/drift from causing token delays that could trigger false timeouts.
+
+### Usage Pattern
+
+The async check pattern is used internally by L0's runtime but can be leveraged for custom implementations:
+
+```python
+import asyncio
+from l0 import Guardrails, State
+
+async def process_with_async_guardrails(content: str, state: State):
+    """Example of async guardrail pattern."""
+    rules = Guardrails.recommended()
+    
+    # For small content, check synchronously (fast path)
+    if len(content) < 10000:
+        for rule in rules:
+            violations = rule.check(state)
+            if violations:
+                return violations
+        return []
+    
+    # For large content, defer to avoid blocking (slow path)
+    loop = asyncio.get_event_loop()
+    future = loop.create_future()
+    
+    def run_check():
+        try:
+            all_violations = []
+            for rule in rules:
+                all_violations.extend(rule.check(state))
+            loop.call_soon_threadsafe(future.set_result, all_violations)
+        except Exception as e:
+            loop.call_soon_threadsafe(future.set_exception, e)
+    
+    loop.call_soon(run_check)
+    return await future
+```
+
+### Benefits
+
+- **No false timeouts**: Large guardrail checks don't block token processing
+- **Responsive streaming**: Tokens continue flowing while checks run in background
+- **Automatic optimization**: Small checks run inline, large checks are deferred
+
+---
+
+## Formatting Helpers
+
+Utilities for formatting prompts, context, memory, and tool definitions.
+
+### Context Formatting
+
+```python
+from l0 import Format
+
+# Wrap content with delimiters
+context = Format.context(
+    "User manual content here",
+    label="documentation",
+    delimiter="xml",  # "xml" | "markdown" | "brackets" | "none"
+)
+# Output: <documentation>\nUser manual content here\n</documentation>
+
+# Format multiple contexts
+contexts = Format.contexts([
+    {"content": "Doc 1", "label": "doc1"},
+    {"content": "Doc 2", "label": "doc2"},
+])
+
+# Format a document with metadata
+doc = Format.document(content, {"title": "Report", "author": "User"})
+
+# Format instructions
+instructions = Format.instructions("You are a helpful assistant")
+```
+
+### Memory Formatting
+
+```python
+from l0 import Format
+
+# Format conversation history
+memory = [
+    {"role": "user", "content": "Hello"},
+    {"role": "assistant", "content": "Hi there!"},
+    {"role": "user", "content": "How are you?"},
+]
+
+formatted = Format.memory(memory, {"style": "conversational", "max_entries": 10})
+# Output:
+# User: Hello
+# Assistant: Hi there!
+# User: How are you?
+
+# Create timestamped memory entries
+entry = Format.memory_entry("user", "New message")
+
+# Memory utilities
+filtered = Format.filter_memory(memory, "user")  # Only user messages
+last_5 = Format.last_n_entries(memory, 5)
+size = Format.memory_size(memory)  # Character count
+truncated = Format.truncate_memory(memory, max_size=1000)
+```
+
+### Output Formatting
+
+```python
+from l0 import Format
+
+# Request JSON output
+instruction = Format.json_output({"strict": True, "schema": "..."})
+
+# Request structured output
+instruction = Format.structured_output("yaml", {"strict": True})
+
+# Define output constraints
+constraints = Format.output_constraints({
+    "max_length": 500,
+    "format": "bullet_points",
+})
+
+# Clean model output
+cleaned = Format.clean_output("Sure! Here's the JSON: {...}")  # "{...}"
+
+# Extract JSON from output
+json_str = Format.extract_json(model_output)
+
+# Validate JSON
+is_valid, error = Format.validate_json(output)
+```
+
+### Tool Formatting
+
+```python
+from l0 import Format
+
+# Create a tool definition
+tool = Format.create_tool(
+    "search",
+    "Search the web for information",
+    [
+        Format.parameter("query", "string", "Search query", required=True),
+        Format.parameter("limit", "integer", "Max results", default=10),
+    ],
+)
+
+# Format for model
+formatted = Format.tool(tool, {"style": "json-schema"})
+
+# Format multiple tools
+formatted_tools = Format.tools([tool1, tool2])
+
+# Parse function call from output
+fn_call = Format.parse_function_call(model_output)
+if fn_call:
+    print(f"Function: {fn_call.name}, Args: {fn_call.arguments}")
+```
+
+### String Utilities
+
+```python
+from l0 import Format
+
+# Basic operations
+Format.trim("  hello  ")           # "hello"
+Format.truncate("Hello World", 8)  # "Hello..."
+Format.truncate_words("Hello World", 8)  # "Hello..."
+Format.wrap("Long text...", 80)    # Word-wrapped text
+Format.pad("hello", 10, align="center")  # "  hello   "
+
+# Escaping
+Format.escape("Hello\nWorld")      # "Hello\\nWorld"
+Format.unescape("Hello\\nWorld")   # "Hello\nWorld"
+Format.escape_html("<div>")        # "&lt;div&gt;"
+Format.unescape_html("&lt;div&gt;") # "<div>"
+Format.escape_regex("foo.*bar")    # "foo\\.\\*bar"
+Format.sanitize("text\x00here")    # "texthere" (removes control chars)
+Format.remove_ansi("\x1b[31mred\x1b[0m")  # "red"
+```
+
+---
+
 ## Stream Utilities
 
 ### consume_stream(stream)
@@ -1617,6 +2712,10 @@ class Retry:
     base_delay: float = 1.0           # Seconds
     max_delay: float = 10.0           # Seconds
     strategy: BackoffStrategy = BackoffStrategy.FIXED_JITTER
+    error_type_delays: ErrorTypeDelays | None = None  # Per-error-type delays
+    retry_on: list[RetryableErrorType] | None = None  # Which error types to retry
+    should_retry: Callable[..., bool | Coroutine] | None = None  # Veto callback
+    calculate_delay: Callable[..., float] | None = None  # Custom delay calculation
 ```
 
 ### Timeout
@@ -1624,8 +2723,8 @@ class Retry:
 ```python
 @dataclass
 class Timeout:
-    initial_token: float = 5.0        # Seconds to first token
-    inter_token: float = 10.0         # Seconds between tokens
+    initial_token: int = 5000         # Milliseconds to first token
+    inter_token: int = 10000          # Milliseconds between tokens
 ```
 
 ### GuardrailRule
@@ -1686,6 +2785,128 @@ class ErrorCategory(str, Enum):
     INTERNAL = "internal"
 ```
 
+### RuntimeState
+
+```python
+class RuntimeState(str, Enum):
+    INIT = "init"
+    WAITING_FOR_TOKEN = "waiting_for_token"
+    STREAMING = "streaming"
+    TOOL_CALL_DETECTED = "tool_call_detected"
+    CONTINUATION_MATCHING = "continuation_matching"
+    CHECKPOINT_VERIFYING = "checkpoint_verifying"
+    RETRYING = "retrying"
+    FALLBACK = "fallback"
+    FINALIZING = "finalizing"
+    COMPLETE = "complete"
+    ERROR = "error"
+```
+
+### StateTransition
+
+```python
+@dataclass
+class StateTransition:
+    from_state: RuntimeState
+    to_state: RuntimeState
+    timestamp: float
+```
+
+### StateMachine
+
+```python
+class StateMachine:
+    def transition(self, next_state: RuntimeState) -> None: ...
+    def get(self) -> RuntimeState: ...
+    def is_(self, *states: RuntimeState) -> bool: ...
+    def is_state(self, *states: RuntimeState) -> bool: ...
+    def is_terminal(self) -> bool: ...
+    def reset(self) -> None: ...
+    def get_history(self) -> list[StateTransition]: ...
+    def subscribe(self, listener: Callable[[RuntimeState], None]) -> Callable[[], None]: ...
+    
+    @classmethod
+    def create(cls) -> StateMachine: ...
+```
+
+### MetricsSnapshot
+
+```python
+@dataclass
+class MetricsSnapshot:
+    requests: int
+    tokens: int
+    retries: int
+    network_retry_count: int
+    errors: int
+    violations: int
+    drift_detections: int
+    fallbacks: int
+    completions: int
+    timeouts: int
+```
+
+### Metrics
+
+```python
+class Metrics:
+    requests: int
+    tokens: int
+    retries: int
+    network_retry_count: int
+    errors: int
+    violations: int
+    drift_detections: int
+    fallbacks: int
+    completions: int
+    timeouts: int
+    
+    def reset(self) -> None: ...
+    def snapshot(self) -> MetricsSnapshot: ...
+    def to_dict(self) -> dict[str, int]: ...
+    
+    @classmethod
+    def create(cls) -> Metrics: ...
+    @classmethod
+    def get_global(cls) -> Metrics: ...
+    @classmethod
+    def reset_global(cls) -> None: ...
+```
+
+### RetryableErrorType
+
+```python
+class RetryableErrorType(str, Enum):
+    ZERO_OUTPUT = "zero_output"
+    GUARDRAIL_VIOLATION = "guardrail_violation"
+    DRIFT = "drift"
+    INCOMPLETE = "incomplete"
+    NETWORK_ERROR = "network_error"
+    TIMEOUT = "timeout"
+    RATE_LIMIT = "rate_limit"
+    SERVER_ERROR = "server_error"
+```
+
+### ErrorTypeDelays
+
+```python
+@dataclass
+class ErrorTypeDelays:
+    connection_dropped: float | None = None
+    fetch_error: float | None = None
+    econnreset: float | None = None
+    econnrefused: float | None = None
+    sse_aborted: float | None = None
+    no_bytes: float | None = None
+    partial_chunks: float | None = None
+    runtime_killed: float | None = None
+    background_throttle: float | None = None
+    dns_error: float | None = None
+    ssl_error: float | None = None
+    timeout: float | None = None
+    unknown: float | None = None
+```
+
 ---
 
 ## Imports
@@ -1721,20 +2942,30 @@ from l0 import (
     l0,  # Alias to run()
     Stream,
     LazyStream,
+    WrappedClient,
     State,
     Event,
     EventType,
     
-    # Retry
+    # Retry & Timeout
     Retry,
     Timeout,
     TimeoutError,
     BackoffStrategy,
+    RetryableErrorType,
+    ErrorTypeDelays,
+    RETRY_DEFAULTS,
+    ERROR_TYPE_DELAY_DEFAULTS,
+    MINIMAL_RETRY,
+    RECOMMENDED_RETRY,
+    STRICT_RETRY,
+    EXPONENTIAL_RETRY,
     
     # Guardrails (scoped API - use Guardrails.json(), Guardrails.pattern(), etc.)
     Guardrails,  # Class with .recommended(), .strict(), .json(), .pattern(), etc.
     GuardrailRule,
     GuardrailViolation,
+    Violation,  # Alias for GuardrailViolation
     JsonAnalysis,
     MarkdownAnalysis,
     LatexAnalysis,
@@ -1742,17 +2973,28 @@ from l0 import (
     # Structured output
     structured,
     structured_stream,
+    structured_object,
+    structured_array,
     StructuredResult,
     StructuredStreamResult,
+    StructuredConfig,
+    StructuredState,
+    StructuredTelemetry,
     AutoCorrectInfo,
+    MINIMAL_STRUCTURED,
+    RECOMMENDED_STRUCTURED,
+    STRICT_STRUCTURED,
     
     # Parallel operations
     parallel,
     race,
     sequential,
     batched,
+    Parallel,
     ParallelResult,
     ParallelOptions,
+    RaceResult,
+    AggregatedTelemetry,
     
     # Consensus
     Consensus,
@@ -1764,13 +3006,39 @@ from l0 import (
     Agreement,
     Disagreement,
     DisagreementValue,
+    FieldAgreement,
     FieldConsensus,
     FieldConsensusInfo,
+    
+    # Pipeline
+    pipe,
+    Pipeline,
+    PipelineStep,
+    PipelineOptions,
+    PipelineResult,
+    StepContext,
+    StepResult,
+    create_pipeline,
+    create_step,
+    chain_pipelines,
+    parallel_pipelines,
+    create_branch_step,
+    FAST_PIPELINE,
+    RELIABLE_PIPELINE,
+    PRODUCTION_PIPELINE,
+    
+    # Pool
+    OperationPool,
+    PoolOptions,
+    PoolStats,
+    create_pool,
     
     # Adapters
     Adapters,
     Adapter,
+    AdaptedEvent,
     OpenAIAdapter,
+    OpenAIAdapterOptions,
     LiteLLMAdapter,
     
     # Observability
@@ -1783,7 +3051,6 @@ from l0 import (
     ErrorCode,
     ErrorContext,
     ErrorCategory,
-    ErrorTypeDelays,
     FailureType,
     RecoveryStrategy,
     RecoveryPolicy,
@@ -1796,11 +3063,93 @@ from l0 import (
     DocumentWindow,
     DocumentChunk,
     WindowConfig,
+    WindowStats,
     ChunkProcessConfig,
     ChunkResult,
+    ChunkingStrategy,
+    ProcessingStats,
+    ContextRestorationOptions,
+    ContextRestorationStrategy,
+    
+    # Continuation
+    Continuation,
+    ContinuationConfig,
+    DeduplicationOptions,
+    OverlapResult,
+    
+    # Drift
+    Drift,
+    DriftDetector,
+    DriftConfig,
+    DriftResult,
+    
+    # State Machine
+    StateMachine,
+    RuntimeState,
+    RuntimeStates,
+    StateTransition,
+    create_state_machine,
+    
+    # Metrics
+    Metrics,
+    MetricsSnapshot,
+    create_metrics,
+    get_global_metrics,
+    reset_global_metrics,
+    
+    # Event Sourcing
+    EventSourcing,
+    EventStore,
+    EventStoreWithSnapshots,
+    InMemoryEventStore,
+    EventRecorder,
+    EventReplayer,
+    EventEnvelope,
+    RecordedEvent,
+    RecordedEventType,
+    Snapshot,
+    SerializedError,
+    ReplayResult,
+    ReplayCallbacks,
+    ReplayedState,
+    ReplayComparison,
+    StreamMetadata,
+    
+    # Monitoring
+    Monitoring,
+    OpenTelemetry,
+    OpenTelemetryConfig,
+    Sentry,
+    SentryConfig,
+    SemanticAttributes,
     
     # Formatting
     Format,
+    
+    # Text
+    Text,
+    NormalizeOptions,
+    WhitespaceOptions,
+    
+    # Comparison
+    Compare,
+    Difference,
+    DifferenceSeverity,
+    DifferenceType,
+    StringComparisonOptions,
+    ObjectComparisonOptions,
+    
+    # JSON
+    JSON,
+    AutoCorrectResult,
+    CorrectionType,
+    
+    # JSON Schema
+    JSONSchema,
+    JSONSchemaAdapter,
+    JSONSchemaDefinition,
+    JSONSchemaValidationError,
+    UnifiedSchema,
     
     # Multimodal
     Multimodal,
@@ -1812,6 +3161,9 @@ from l0 import (
     consume_stream,
     get_text,
     enable_debug,
+    
+    # Version
+    __version__,
 )
 ```
 
@@ -1820,19 +3172,30 @@ from l0 import (
 | Category | Exports |
 | -------- | ------- |
 | Core | `wrap`, `run`, `l0` (alias), `Stream`, `LazyStream`, `WrappedClient`, `State`, `Event`, `EventType` |
-| Config | `Retry`, `Timeout`, `TimeoutError`, `BackoffStrategy`, `ErrorCategory`, `ErrorTypeDelays` |
-| Continuation | `ContinuationConfig`, `DeduplicationOptions`, `OverlapResult`, `detect_overlap`, `deduplicate_continuation` |
-| Errors | `Error`, `ErrorCode`, `ErrorContext`, `FailureType`, `RecoveryStrategy`, `RecoveryPolicy`, `NetworkError`, `NetworkErrorType`, `NetworkErrorAnalysis` |
-| Guardrails | `Guardrails`, `GuardrailRule`, `GuardrailViolation`, `JsonAnalysis`, `MarkdownAnalysis`, `LatexAnalysis` |
-| Structured | `structured`, `structured_stream`, `StructuredResult`, `StructuredStreamResult`, `AutoCorrectInfo` |
-| Parallel | `parallel`, `race`, `sequential`, `batched`, `ParallelResult`, `ParallelOptions` |
-| Consensus | `Consensus`, `consensus`, `ConsensusResult`, `ConsensusOutput`, `ConsensusAnalysis`, `ConsensusPreset`, `Agreement`, `Disagreement`, `DisagreementValue`, `FieldConsensus`, `FieldConsensusInfo` |
-| Adapters | `Adapters`, `Adapter`, `OpenAIAdapter`, `LiteLLMAdapter` |
+| Retry & Timeout | `Retry`, `Timeout`, `TimeoutError`, `BackoffStrategy`, `RetryableErrorType`, `ErrorTypeDelays`, `RETRY_DEFAULTS`, `ERROR_TYPE_DELAY_DEFAULTS`, `MINIMAL_RETRY`, `RECOMMENDED_RETRY`, `STRICT_RETRY`, `EXPONENTIAL_RETRY` |
+| Continuation | `Continuation`, `ContinuationConfig`, `DeduplicationOptions`, `OverlapResult` |
+| Errors | `Error`, `ErrorCode`, `ErrorContext`, `ErrorCategory`, `FailureType`, `RecoveryStrategy`, `RecoveryPolicy`, `NetworkError`, `NetworkErrorType`, `NetworkErrorAnalysis` |
+| Guardrails | `Guardrails`, `GuardrailRule`, `GuardrailViolation`, `Violation`, `JsonAnalysis`, `MarkdownAnalysis`, `LatexAnalysis` |
+| Structured | `structured`, `structured_stream`, `structured_object`, `structured_array`, `StructuredResult`, `StructuredStreamResult`, `StructuredConfig`, `StructuredState`, `StructuredTelemetry`, `AutoCorrectInfo`, `MINIMAL_STRUCTURED`, `RECOMMENDED_STRUCTURED`, `STRICT_STRUCTURED` |
+| Parallel | `parallel`, `race`, `sequential`, `batched`, `Parallel`, `ParallelResult`, `ParallelOptions`, `RaceResult`, `AggregatedTelemetry` |
+| Pipeline | `pipe`, `Pipeline`, `PipelineStep`, `PipelineOptions`, `PipelineResult`, `StepContext`, `StepResult`, `create_pipeline`, `create_step`, `chain_pipelines`, `parallel_pipelines`, `create_branch_step`, `FAST_PIPELINE`, `RELIABLE_PIPELINE`, `PRODUCTION_PIPELINE` |
+| Pool | `OperationPool`, `PoolOptions`, `PoolStats`, `create_pool` |
+| Consensus | `Consensus`, `consensus`, `ConsensusResult`, `ConsensusOutput`, `ConsensusAnalysis`, `ConsensusPreset`, `Agreement`, `Disagreement`, `DisagreementValue`, `FieldAgreement`, `FieldConsensus`, `FieldConsensusInfo` |
+| Adapters | `Adapters`, `Adapter`, `AdaptedEvent`, `OpenAIAdapter`, `OpenAIAdapterOptions`, `LiteLLMAdapter` |
 | Observability | `EventBus`, `ObservabilityEvent`, `ObservabilityEventType` |
-| Window | `Window`, `DocumentWindow`, `DocumentChunk`, `WindowConfig`, `ChunkProcessConfig`, `ChunkResult` |
-| Utilities | `consume_stream`, `get_text`, `enable_debug` |
+| Window | `Window`, `DocumentWindow`, `DocumentChunk`, `WindowConfig`, `WindowStats`, `ChunkProcessConfig`, `ChunkResult`, `ChunkingStrategy`, `ProcessingStats`, `ContextRestorationOptions`, `ContextRestorationStrategy` |
+| Drift | `Drift`, `DriftDetector`, `DriftConfig`, `DriftResult` |
+| State Machine | `StateMachine`, `RuntimeState`, `RuntimeStates`, `StateTransition`, `create_state_machine` |
+| Metrics | `Metrics`, `MetricsSnapshot`, `create_metrics`, `get_global_metrics`, `reset_global_metrics` |
+| Event Sourcing | `EventSourcing`, `EventStore`, `EventStoreWithSnapshots`, `InMemoryEventStore`, `EventRecorder`, `EventReplayer`, `EventEnvelope`, `RecordedEvent`, `RecordedEventType`, `Snapshot`, `SerializedError`, `ReplayResult`, `ReplayCallbacks`, `ReplayedState`, `ReplayComparison`, `StreamMetadata` |
+| Monitoring | `Monitoring`, `OpenTelemetry`, `OpenTelemetryConfig`, `Sentry`, `SentryConfig`, `SemanticAttributes` |
 | Formatting | `Format` |
+| Text | `Text`, `NormalizeOptions`, `WhitespaceOptions` |
+| Comparison | `Compare`, `Difference`, `DifferenceSeverity`, `DifferenceType`, `StringComparisonOptions`, `ObjectComparisonOptions` |
+| JSON | `JSON`, `AutoCorrectResult`, `CorrectionType` |
+| JSON Schema | `JSONSchema`, `JSONSchemaAdapter`, `JSONSchemaDefinition`, `JSONSchemaValidationError`, `UnifiedSchema` |
 | Multimodal | `Multimodal`, `ContentType`, `DataPayload`, `Progress` |
+| Utilities | `consume_stream`, `get_text`, `enable_debug` |
 | Version | `__version__` |
 
 ---
@@ -1840,4 +3203,4 @@ from l0 import (
 ## See Also
 
 - [README.md](./README.md) - Quick start guide
-- [PLAN.md](./PLAN.md) - Implementation plan and design decisions
+- [ADVANCED.md](./ADVANCED.md) - Advanced usage and full examples
