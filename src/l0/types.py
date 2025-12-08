@@ -747,9 +747,11 @@ class CheckIntervals:
         intervals = CheckIntervals(guardrails=50, drift=100, checkpoint=50)
     """
 
-    guardrails: int = 5  # Check guardrails every N tokens
-    drift: int = 10  # Check drift every N tokens
-    checkpoint: int = 10  # Save checkpoint every N tokens
+    guardrails: int = (
+        15  # Check guardrails every N tokens (optimized for high throughput)
+    )
+    drift: int = 25  # Check drift every N tokens (optimized for high throughput)
+    checkpoint: int = 20  # Save checkpoint every N tokens
 
 
 # ─────────────────────────────────────────────────────────────────────────────

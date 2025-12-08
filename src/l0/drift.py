@@ -71,6 +71,9 @@ class DriftConfig:
     entropy_window: int = 50
     """Window size for entropy calculation."""
 
+    sliding_window_size: int = 500
+    """Size of sliding window for content analysis (chars). Only the last N chars are analyzed."""
+
 
 @dataclass
 class _DriftHistory:
@@ -108,6 +111,16 @@ class DriftDetector:
         self.config = config or DriftConfig()
         self._history = _DriftHistory()
 
+    def _get_window(self, content: str) -> str:
+        """Get sliding window of content for analysis.
+
+        Uses only the last N characters to avoid O(content_length) scanning.
+        """
+        window_size = self.config.sliding_window_size
+        if len(content) <= window_size:
+            return content
+        return content[-window_size:]
+
     def check(self, content: str, delta: str | None = None) -> DriftResult:
         """Check content for drift.
 
@@ -122,29 +135,33 @@ class DriftDetector:
         confidence = 0.0
         details: list[str] = []
 
+        # Use sliding window for content analysis (O(window_size) instead of O(content_length))
+        window = self._get_window(content)
+        last_window = self._get_window(self._history.last_content)
+
         # Update history
         if delta:
             self._history.tokens.append(delta)
             if len(self._history.tokens) > self.config.entropy_window:
                 self._history.tokens.pop(0)
 
-        # Check for meta commentary
+        # Check for meta commentary (on window only)
         if self.config.detect_meta_commentary:
-            if self._detect_meta_commentary(content):
+            if self._detect_meta_commentary(window):
                 types.append("meta_commentary")
                 confidence = max(confidence, 0.9)
                 details.append("Meta commentary detected")
 
-        # Check for tone shift
+        # Check for tone shift (on windows only)
         if self.config.detect_tone_shift:
-            if self._detect_tone_shift(content, self._history.last_content):
+            if self._detect_tone_shift(window, last_window):
                 types.append("tone_shift")
                 confidence = max(confidence, 0.7)
                 details.append("Tone shift detected")
 
-        # Check for repetition
+        # Check for repetition (on window only)
         if self.config.detect_repetition:
-            if self._detect_repetition(content):
+            if self._detect_repetition(window):
                 types.append("repetition")
                 confidence = max(confidence, 0.8)
                 details.append("Excessive repetition detected")
@@ -161,19 +178,19 @@ class DriftDetector:
                 confidence = max(confidence, 0.6)
                 details.append("Entropy spike detected")
 
-        # Check for format collapse
+        # Check for format collapse (already uses first 100 chars)
         if self._detect_format_collapse(content):
             types.append("format_collapse")
             confidence = max(confidence, 0.8)
             details.append("Format collapse detected")
 
-        # Check for markdown collapse
-        if self._detect_markdown_collapse(content, self._history.last_content):
+        # Check for markdown collapse (on windows only)
+        if self._detect_markdown_collapse(window, last_window):
             types.append("markdown_collapse")
             confidence = max(confidence, 0.7)
             details.append("Markdown formatting collapse detected")
 
-        # Check for excessive hedging
+        # Check for excessive hedging (already uses first line only)
         if self._detect_excessive_hedging(content):
             types.append("hedging")
             confidence = max(confidence, 0.5)

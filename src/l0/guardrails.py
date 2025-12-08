@@ -658,6 +658,63 @@ BAD_PATTERNS = BadPatterns()
 
 
 @dataclass
+class IncrementalJsonState:
+    """State for incremental JSON parsing (O(delta) per token instead of O(content))."""
+
+    open_braces: int = 0
+    close_braces: int = 0
+    open_brackets: int = 0
+    close_brackets: int = 0
+    in_string: bool = False
+    escape_next: bool = False
+    processed_length: int = 0
+
+
+def update_json_state_incremental(
+    state: IncrementalJsonState,
+    delta: str,
+) -> IncrementalJsonState:
+    """Update JSON state incrementally with new delta content.
+
+    Only processes the delta, not the full content - O(delta) per call.
+
+    Args:
+        state: Current incremental state
+        delta: New content to process
+
+    Returns:
+        Updated state (mutates and returns the same object)
+    """
+    for char in delta:
+        if state.escape_next:
+            state.escape_next = False
+            continue
+
+        if char == "\\" and state.in_string:
+            state.escape_next = True
+            continue
+
+        if char == '"' and not state.escape_next:
+            state.in_string = not state.in_string
+            continue
+
+        if state.in_string:
+            continue
+
+        if char == "{":
+            state.open_braces += 1
+        elif char == "}":
+            state.close_braces += 1
+        elif char == "[":
+            state.open_brackets += 1
+        elif char == "]":
+            state.close_brackets += 1
+
+    state.processed_length += len(delta)
+    return state
+
+
+@dataclass
 class JsonAnalysis:
     """Result of JSON structure analysis."""
 
@@ -1493,9 +1550,17 @@ def json_rule() -> GuardrailRule:
     - Unclosed strings
     - Multiple consecutive commas
     - Malformed patterns like {, or [,
+
+    Uses incremental state tracking for O(delta) per-token updates instead of
+    O(content) full scans during streaming. Only does full analysis at completion.
     """
+    # Incremental state for O(delta) streaming checks
+    incremental_state = IncrementalJsonState()
+    last_content_length = 0
 
     def check(state: State) -> list[GuardrailViolation]:
+        nonlocal incremental_state, last_content_length
+
         content = state.content
         if not content.strip():
             return []
@@ -1504,13 +1569,18 @@ def json_rule() -> GuardrailRule:
         if not looks_like_json(content):
             return []
 
-        analysis = analyze_json_structure(content)
         violations = []
 
-        # During streaming, only report critical issues
+        # During streaming, use incremental state tracking (O(delta) instead of O(content))
         if not state.completed:
-            # Too many closes is always bad
-            if analysis.close_braces > analysis.open_braces:
+            # Get delta since last check
+            if len(content) > last_content_length:
+                delta = content[last_content_length:]
+                update_json_state_incremental(incremental_state, delta)
+                last_content_length = len(content)
+
+            # Check for critical issues using incremental state
+            if incremental_state.close_braces > incremental_state.open_braces:
                 violations.append(
                     GuardrailViolation(
                         rule="json",
@@ -1519,7 +1589,7 @@ def json_rule() -> GuardrailRule:
                         suggestion="Check JSON structure",
                     )
                 )
-            if analysis.close_brackets > analysis.open_brackets:
+            if incremental_state.close_brackets > incremental_state.open_brackets:
                 violations.append(
                     GuardrailViolation(
                         rule="json",
@@ -1528,18 +1598,11 @@ def json_rule() -> GuardrailRule:
                         suggestion="Check JSON structure",
                     )
                 )
-            # Report malformed patterns immediately
-            for issue in analysis.issues:
-                if "Malformed pattern" in issue or "consecutive commas" in issue:
-                    violations.append(
-                        GuardrailViolation(
-                            rule="json",
-                            message=issue,
-                            severity="error",
-                        )
-                    )
         else:
-            # On completion, check for both extra closes AND missing closes
+            # On completion, do full analysis for comprehensive check
+            analysis = analyze_json_structure(content)
+
+            # Check for both extra closes AND missing closes
             if analysis.close_braces > analysis.open_braces:
                 violations.append(
                     GuardrailViolation(
@@ -1582,6 +1645,10 @@ def json_rule() -> GuardrailRule:
                             severity="error",
                         )
                     )
+
+            # Reset incremental state for potential reuse
+            incremental_state = IncrementalJsonState()
+            last_content_length = 0
 
         return violations
 
