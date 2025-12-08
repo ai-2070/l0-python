@@ -23,10 +23,9 @@
 > This breaks retries. It breaks supervision. It breaks reproducibility.
 > It makes reliable AI systems impossible to build on top of raw provider streams.
 >
-> **L0 is the deterministic execution substrate that fixes the transport -
-> with guardrails designed for the streaming layer itself: stream-neutral, pattern-based, loop-safe, and timing-aware.**
-
-L0 adds deterministic execution, fallbacks, retries, network protection, guardrails, drift detection, and tool tracking to any LLM stream - turning raw model output into production-grade behavior.
+> **L0 is the deterministic execution substrate that fixes the transport - with guardrails designed specifically for the streaming layer: stream-neutral, pattern-based, loop-safe, and timing-aware.**  
+>  
+> **The result: production-grade, integrity-preserving, deterministic AI streams you can finally build real systems on.**
 
 It works with **OpenAI** and **LiteLLM** (100+ providers including Anthropic, Cohere, Bedrock, Vertex, Gemini). Supports **tool calls** and provides full observability.
 
