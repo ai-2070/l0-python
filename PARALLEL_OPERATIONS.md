@@ -60,7 +60,7 @@ result = await Parallel.run(
     on_error=lambda error, index: print(f"Task {index} failed: {error}"),
 )
 
-print(f"Success: {result.success_count}/{len(tasks)}")
+print(f"Success: {result.success_count}/{len(result.results)}")
 print(f"Failed: {result.failure_count}")
 print(f"Duration: {result.duration:.2f}s")
 print(f"All succeeded: {result.all_succeeded}")
