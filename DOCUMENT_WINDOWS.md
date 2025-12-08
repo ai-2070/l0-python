@@ -445,7 +445,7 @@ text = Window.merge_chunks(chunks)
 text = Window.merge_chunks(chunks, preserve_overlap=True)
 ```
 
-### get_processing_stats
+### get_stats
 
 Get processing statistics from results:
 
