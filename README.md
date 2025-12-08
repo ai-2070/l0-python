@@ -77,6 +77,7 @@ L0 includes 1,800+ tests covering all major reliability features.
 | **🔧 Own Retry Logic**                         | No external dependencies (no tenacity). L0 controls all retry behavior for predictable execution.                                                                                                     |
 | **📝 Type-Safe**                               | Full type hints with `py.typed` marker. Passes mypy strict mode.                                                                                                                                      |
 | **📦 Minimal Dependencies**                    | Only httpx, pydantic, orjson, typing-extensions, uuid6. No heavy abstractions.                                                                                                                        |
+| **🚀 Blackwell-Ready**                         | Optimized for 1000+ tokens/s streaming with incremental guardrails, sliding window drift detection, and tunable check intervals. Ready for next-gen GPU inference speeds.                             |
 | **🧪 Battle-Tested**                           | 1,800+ unit tests and 100+ integration tests validating real streaming, retries, and advanced behavior.                                                                                               |
 
 > **Know what you're doing?** [Skip the tutorial](./ADVANCED.md)
@@ -339,6 +340,17 @@ uv add ai2070-l0 --extra litellm
 | `observability` | All of the above (convenience) |
 | `speed` | `uvloop` (Unix only) |
 | `dev` | `pytest`, `pytest-asyncio`, `pytest-cov`, `mypy`, `ruff` |
+
+## Benchmarks
+
+L0 sustains **90K+ tokens/s** with full guardrails, drift detection, and checkpointing - ready for Nvidia Blackwell's 1000+ tokens/s streaming.
+
+| Scenario | Tokens/s | Overhead |
+|----------|----------|----------|
+| Baseline | 1,077,345 | - |
+| L0 Full Stack | 92,878 | 1058% |
+
+See [BENCHMARKS.md](./BENCHMARKS.md) for full results and methodology.
 
 ## License
 
