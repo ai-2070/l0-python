@@ -284,6 +284,7 @@ for prompt, result in zip(prompts, results):
 | [EVENT_SOURCING.md](./EVENT_SOURCING.md)         | Record/replay, audit trails              |
 | [MONITORING.md](./MONITORING.md)                 | OpenTelemetry and Sentry integrations    |
 | [FORMATTING.md](./FORMATTING.md)                 | Context, memory, output, and tool formatting |
+| [PARALLEL_OPERATIONS.md](./PARALLEL_OPERATIONS.md) | Parallel, race, batch, and pool operations |
 
 ## Installation
 
