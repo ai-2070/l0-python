@@ -276,6 +276,7 @@ for prompt, result in zip(prompts, results):
 | [GUARDRAILS.md](./GUARDRAILS.md)                 | Guardrails and validation                |
 | [STRUCTURED_OUTPUT.md](./STRUCTURED_OUTPUT.md)   | Structured output guide                  |
 | [CONSENSUS.md](./CONSENSUS.md)                   | Multi-generation consensus               |
+| [DETERMINISTIC_LIFECYCLE.md](./DETERMINISTIC_LIFECYCLE.md) | Lifecycle specification and events |
 | [NETWORK_ERRORS.md](./NETWORK_ERRORS.md)         | Network error handling                   |
 | [ERROR_HANDLING.md](./ERROR_HANDLING.md)         | Error handling guide                     |
 | [CUSTOM_ADAPTERS.md](./CUSTOM_ADAPTERS.md)       | Build your own adapters                  |
