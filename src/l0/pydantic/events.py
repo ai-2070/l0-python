@@ -104,8 +104,9 @@ class ObservabilityEventModel(BaseModel):
     """Pydantic model for observability event."""
 
     model_config = ConfigDict(
-        extra="allow"
-    )  # Allow extra fields for event-specific data
+        extra="allow",  # Allow extra fields for event-specific data
+        populate_by_name=True,  # Accept both "ts" and "timestamp"
+    )
 
     type: ObservabilityEventTypeModel
     ts: float = Field(alias="timestamp")
