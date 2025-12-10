@@ -127,10 +127,10 @@ class ObservabilityEventModel(BaseModel):
 class SessionStartEventModel(BaseModel):
     """Pydantic model for session start event."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
     type: ObservabilityEventTypeModel = ObservabilityEventTypeModel.SESSION_START
-    ts: float
+    ts: float = Field(alias="timestamp")
     stream_id: str
     context: dict[str, Any] = Field(default_factory=dict)
     attempt: int
@@ -141,10 +141,10 @@ class SessionStartEventModel(BaseModel):
 class SessionEndEventModel(BaseModel):
     """Pydantic model for session end event."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
     type: ObservabilityEventTypeModel = ObservabilityEventTypeModel.SESSION_END
-    ts: float
+    ts: float = Field(alias="timestamp")
     stream_id: str
     context: dict[str, Any] = Field(default_factory=dict)
     duration_ms: float
@@ -155,10 +155,10 @@ class SessionEndEventModel(BaseModel):
 class RetryAttemptEventModel(BaseModel):
     """Pydantic model for retry attempt event."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
     type: ObservabilityEventTypeModel = ObservabilityEventTypeModel.RETRY_ATTEMPT
-    ts: float
+    ts: float = Field(alias="timestamp")
     stream_id: str
     context: dict[str, Any] = Field(default_factory=dict)
     index: int | None = None
@@ -174,10 +174,10 @@ class RetryAttemptEventModel(BaseModel):
 class CompleteEventModel(BaseModel):
     """Pydantic model for complete event."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
     type: ObservabilityEventTypeModel = ObservabilityEventTypeModel.COMPLETE
-    ts: float
+    ts: float = Field(alias="timestamp")
     stream_id: str
     context: dict[str, Any] = Field(default_factory=dict)
     token_count: int
@@ -189,10 +189,10 @@ class CompleteEventModel(BaseModel):
 class ErrorEventModel(BaseModel):
     """Pydantic model for error event."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
     type: ObservabilityEventTypeModel = ObservabilityEventTypeModel.ERROR
-    ts: float
+    ts: float = Field(alias="timestamp")
     stream_id: str
     context: dict[str, Any] = Field(default_factory=dict)
     error: str
