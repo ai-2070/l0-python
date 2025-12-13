@@ -4,7 +4,7 @@ Performance benchmarks measuring L0 overhead on high-throughput streaming.
 
 ## Test Environment
 
-- **CPU**: AMD Ryzen 9 5950X (16 cores, 32 threads)
+- **CPU**: Apple M1 Pro
 - **Runtime**: Python 3.13 with pytest-asyncio
 - **Methodology**: Mock token streams with zero inter-token delay to measure pure L0 overhead
 
@@ -12,12 +12,12 @@ Performance benchmarks measuring L0 overhead on high-throughput streaming.
 
 | Scenario | Tokens/s | Avg Duration | TTFT | Overhead |
 |----------|----------|--------------|------|----------|
-| Baseline (raw streaming) | 1,100,911 | 1.82 ms | 0.02 ms | - |
-| L0 Core (no features) | 382,389 | 5.23 ms | 0.09 ms | 188% |
-| L0 + JSON Guardrail | 329,869 | 6.06 ms | 0.08 ms | 234% |
-| L0 + All Guardrails | 266,112 | 7.52 ms | 0.09 ms | 314% |
-| L0 + Drift Detection | 107,501 | 18.61 ms | 0.09 ms | 924% |
-| L0 Full Stack | 92,952 | 21.52 ms | 0.09 ms | 1084% |
+| Baseline (raw streaming) | 1,486,663 | 1.35 ms | 0.01 ms | - |
+| L0 Core (no features) | 643,240 | 3.11 ms | 0.06 ms | 131% |
+| L0 + JSON Guardrail | 525,381 | 3.81 ms | 0.07 ms | 183% |
+| L0 + All Guardrails | 400,643 | 4.99 ms | 0.07 ms | 271% |
+| L0 + Drift Detection | 125,256 | 15.97 ms | 0.08 ms | 1086% |
+| L0 Full Stack | 112,414 | 17.79 ms | 0.06 ms | 1221% |
 
 **Legend:**
 - **Tokens/s** = Throughput (higher is better)
@@ -60,12 +60,12 @@ result = await l0.run(
 
 ## Blackwell Ready
 
-Even with full guardrails, drift detection, and checkpointing enabled, L0 sustains **90K+ tokens/s** - well above current LLM inference speeds and ready for Nvidia Blackwell's 1000+ tokens/s streaming.
+Even with full guardrails, drift detection, and checkpointing enabled, L0 sustains **112K+ tokens/s** - well above current LLM inference speeds and ready for Nvidia Blackwell's 1000+ tokens/s streaming.
 
 | GPU Generation | Expected Tokens/s | L0 Headroom |
 |----------------|-------------------|-------------|
-| Current (H100) | ~100-200 | 450-900x |
-| Blackwell (B200) | ~1000+ | 90x |
+| Current (H100) | ~100-200 | 560-1120x |
+| Blackwell (B200) | ~1000+ | 112x |
 
 ## Running Benchmarks
 
