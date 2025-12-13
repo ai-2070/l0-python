@@ -262,9 +262,14 @@ class BackoffStrategy(str, Enum):
 
 @dataclass
 class State:
-    """Runtime state tracking."""
+    """Runtime state tracking.
 
-    content: str = ""
+    Uses an internal buffer for O(1) token appends instead of O(n) string concatenation.
+    Access `content` property to get the accumulated string (flushes buffer automatically).
+    """
+
+    _content: str = ""
+    _content_buffer: list[str] = field(default_factory=list)
     checkpoint: str = ""  # Last known good slice for continuation
     token_count: int = 0
     model_retry_count: int = 0
@@ -288,6 +293,24 @@ class State:
     continuation_used: bool = False  # Whether continuation was actually used
     deduplication_applied: bool = False  # Whether deduplication removed overlap
     overlap_removed: str | None = None  # The overlapping text that was removed
+
+    @property
+    def content(self) -> str:
+        """Get accumulated content, flushing buffer if needed."""
+        if self._content_buffer:
+            self._content = self._content + "".join(self._content_buffer)
+            self._content_buffer.clear()
+        return self._content
+
+    @content.setter
+    def content(self, value: str) -> None:
+        """Set content directly, clearing any buffered tokens."""
+        self._content = value
+        self._content_buffer.clear()
+
+    def append_content(self, token: str) -> None:
+        """Append token to content buffer (O(1) amortized)."""
+        self._content_buffer.append(token)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
