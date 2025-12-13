@@ -12,12 +12,12 @@ Performance benchmarks measuring L0 overhead on high-throughput streaming.
 
 | Scenario                 | Tokens/s  | Avg Duration | TTFT    | Overhead |
 | ------------------------ | --------- | ------------ | ------- | -------- |
-| Baseline (raw streaming) | 1,509,861 | 1.33 ms      | 0.01 ms | -        |
-| L0 Core (no features)    | 553,386   | 3.61 ms      | 0.06 ms | 173%     |
-| L0 + JSON Guardrail      | 478,376   | 4.18 ms      | 0.07 ms | 216%     |
-| L0 + All Guardrails      | 379,363   | 5.27 ms      | 0.06 ms | 298%     |
-| L0 + Drift Detection     | 136,582   | 14.64 ms     | 0.09 ms | 1005%    |
-| L0 Full Stack            | 121,742   | 16.43 ms     | 0.08 ms | 1140%    |
+| Baseline (raw streaming) | 1,518,271 | 1.32 ms      | 0.02 ms | -        |
+| L0 Core (no features)    | 551,696   | 3.63 ms      | 0.08 ms | 175%     |
+| L0 + JSON Guardrail      | 469,922   | 4.26 ms      | 0.07 ms | 223%     |
+| L0 + All Guardrails      | 367,328   | 5.44 ms      | 0.08 ms | 313%     |
+| L0 + Drift Detection     | 119,758   | 16.70 ms     | 0.08 ms | 1166%    |
+| L0 Full Stack            | 108,257   | 18.48 ms     | 0.07 ms | 1301%    |
 
 **Legend:**
 - **Tokens/s** = Throughput (higher is better)
@@ -60,12 +60,12 @@ result = await l0.run(
 
 ## Nvidia Blackwell Ready
 
-Even with full guardrails, drift detection, and checkpointing enabled, L0 sustains **120K+ tokens/s** - well above current LLM inference speeds and ready for Nvidia Blackwell's 1000+ tokens/s streaming.
+Even with full guardrails, drift detection, and checkpointing enabled, L0 sustains **108K+ tokens/s** - well above current LLM inference speeds and ready for Nvidia Blackwell's 1000+ tokens/s streaming.
 
 | GPU Generation   | Expected Tokens/s | L0 Headroom |
 | ---------------- | ----------------- | ----------- |
-| Current (H100)   | ~100-200          | 600-1200x   |
-| Blackwell (B200) | ~1000+            | 120x        |
+| Current (H100)   | ~100-200          | 540-1080x   |
+| Blackwell (B200) | ~1000+            | 108x        |
 
 ## Python Version Note
 
