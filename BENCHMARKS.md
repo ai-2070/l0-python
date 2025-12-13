@@ -1,6 +1,6 @@
 # Benchmarks
 
-Performance benchmarks measuring L0 overhead on high-throughput streaming.
+Performance benchmarks measuring L0 (Python) overhead on high-throughput streaming.
 
 ## Test Environment
 
