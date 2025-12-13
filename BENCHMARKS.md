@@ -5,7 +5,7 @@ Performance benchmarks measuring L0 (Python) overhead on high-throughput streami
 ## Test Environment
 
 - **CPU**: Apple M1 Max (10 cores)
-- **Runtime**: Python 3.13 with pytest-asyncio
+- **Runtime**: Python 3.13, pytest 9 with pytest-asyncio 1.3.0
 - **Methodology**: Mock token streams with zero inter-token delay to measure pure L0 overhead
 
 ## Results
