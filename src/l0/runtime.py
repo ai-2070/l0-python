@@ -39,6 +39,23 @@ class TimeoutError(Exception):
         self.timeout_seconds = timeout_seconds
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Fast callback ID generation using UUIDv7 (time-ordered, faster than UUIDv4)
+# ─────────────────────────────────────────────────────────────────────────────
+
+import uuid6
+
+
+def _next_callback_id() -> str:
+    """Generate a callback ID using UUIDv7.
+
+    UUIDv7 is time-ordered and faster than UUIDv4 since it uses
+    timestamp + random bits instead of pure crypto-random.
+    Provides global uniqueness for distributed tracing.
+    """
+    return f"cb_{uuid6.uuid7().hex[:12]}"
+
+
 if TYPE_CHECKING:
     from .events import ObservabilityEvent
     from .guardrails import GuardrailRule, GuardrailViolation
@@ -676,8 +693,6 @@ async def _internal_run(
                                 state.token_count % guardrail_interval == 0
                                 and guardrails
                             ):
-                                import uuid
-
                                 phase_start_time = time.perf_counter()
                                 event_bus.emit(
                                     ObservabilityEventType.GUARDRAIL_PHASE_START,
@@ -687,7 +702,7 @@ async def _internal_run(
 
                                 all_violations = []
                                 for idx, rule in enumerate(guardrails):
-                                    callback_id = f"cb_{uuid.uuid4().hex[:12]}"
+                                    callback_id = _next_callback_id()
                                     rule_start_time = time.perf_counter()
                                     event_bus.emit(
                                         ObservabilityEventType.GUARDRAIL_RULE_START,
@@ -857,8 +872,6 @@ async def _internal_run(
 
                     # Run final guardrail check (for completion-only rules)
                     if guardrails:
-                        import uuid
-
                         final_phase_start_time = time.perf_counter()
                         event_bus.emit(
                             ObservabilityEventType.GUARDRAIL_PHASE_START,
@@ -868,7 +881,7 @@ async def _internal_run(
 
                         all_violations = []
                         for idx, rule in enumerate(guardrails):
-                            callback_id = f"cb_{uuid.uuid4().hex[:12]}"
+                            callback_id = _next_callback_id()
                             rule_start_time = time.perf_counter()
                             event_bus.emit(
                                 ObservabilityEventType.GUARDRAIL_RULE_START,
