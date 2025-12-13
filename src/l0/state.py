@@ -18,15 +18,12 @@ def update_checkpoint(state: State) -> None:
 
 
 def append_token(state: State, token: str) -> None:
-    """Append token to content and update timing.
-
-    Uses O(1) amortized buffer append instead of O(n) string concatenation.
-    """
+    """Append token to content and update timing."""
     now = time.time()
     if state.first_token_at is None:
         state.first_token_at = now
     state.last_token_at = now
-    state.append_content(token)  # O(1) amortized
+    state.content += token
     state.token_count += 1
 
 
