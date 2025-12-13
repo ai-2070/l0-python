@@ -63,6 +63,7 @@ L0 includes 1,800+ tests covering all major reliability features.
 | **📍 Last-Known-Good Token Resumption**        | `continue_from_last_good_token` resumes from the last checkpoint on timeout or failure. No lost tokens.                                                                                              |
 | **🧠 Drift Detection**                         | Detects repetition, stalls, and format drift before corruption propagates.                                                                                                                            |
 | **🧱 Structured Output**                       | Guaranteed-valid JSON with Pydantic. Auto-corrects missing braces, commas, and markdown fences.                                                                                                       |
+| **📋 Pydantic Validation Models**              | All L0 types available as Pydantic models for runtime validation, JSON serialization, and schema generation via `l0.pydantic`.                                                                       |
 | **🩹 JSON Auto-Healing**                       | Automatic correction of truncated or malformed JSON (missing braces, brackets, quotes), and repair of broken Markdown code fences.                                                                   |
 | **🛡️ Guardrails**                              | JSON, Markdown, and pattern validation with fast streaming checks. Delta-only checks run sync; full-content scans defer to async.                                                                    |
 | **⚡ Race: Fastest-Model Wins**                | Run multiple models or providers in parallel and return the fastest valid stream. Ideal for ultra-low-latency chat.                                                                                  |
@@ -257,6 +258,25 @@ results = await l0.parallel(
 for prompt, result in zip(prompts, results):
     print(f"{prompt}: {result.state.content.strip()}")
 ```
+
+### Pydantic Validation Models
+
+L0 provides Pydantic models for all its types, enabling runtime validation, JSON serialization, and schema generation:
+
+```python
+from l0.pydantic import StateModel, RetryModel, DriftResultModel
+
+# Validate external data
+state = StateModel(content="Hello", token_count=5, completed=True)
+
+# Serialize to JSON
+json_data = state.model_dump_json()
+
+# Generate JSON schema for documentation or APIs
+schema = StateModel.model_json_schema()
+```
+
+All L0 types have corresponding Pydantic models: `StateModel`, `RetryModel`, `TimeoutModel`, `ConsensusResultModel`, `DriftResultModel`, `MetricsSnapshotModel`, and more.
 
 ## Philosophy
 

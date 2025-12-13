@@ -4,20 +4,20 @@ Performance benchmarks measuring L0 overhead on high-throughput streaming.
 
 ## Test Environment
 
-- **CPU**: Apple M1 Pro
+- **CPU**: Apple M1 Max (10 cores)
 - **Runtime**: Python 3.13 with pytest-asyncio
 - **Methodology**: Mock token streams with zero inter-token delay to measure pure L0 overhead
 
 ## Results
 
-| Scenario | Tokens/s | Avg Duration | TTFT | Overhead |
-|----------|----------|--------------|------|----------|
-| Baseline (raw streaming) | 1,486,663 | 1.35 ms | 0.01 ms | - |
-| L0 Core (no features) | 643,240 | 3.11 ms | 0.06 ms | 131% |
-| L0 + JSON Guardrail | 525,381 | 3.81 ms | 0.07 ms | 183% |
-| L0 + All Guardrails | 400,643 | 4.99 ms | 0.07 ms | 271% |
-| L0 + Drift Detection | 125,256 | 15.97 ms | 0.08 ms | 1086% |
-| L0 Full Stack | 112,414 | 17.79 ms | 0.06 ms | 1221% |
+| Scenario                 | Tokens/s  | Avg Duration | TTFT    | Overhead |
+| ------------------------ | --------- | ------------ | ------- | -------- |
+| Baseline (raw streaming) | 1,509,861 | 1.33 ms      | 0.01 ms | -        |
+| L0 Core (no features)    | 553,386   | 3.61 ms      | 0.06 ms | 173%     |
+| L0 + JSON Guardrail      | 478,376   | 4.18 ms      | 0.07 ms | 216%     |
+| L0 + All Guardrails      | 379,363   | 5.27 ms      | 0.06 ms | 298%     |
+| L0 + Drift Detection     | 136,582   | 14.64 ms     | 0.09 ms | 1005%    |
+| L0 Full Stack            | 121,742   | 16.43 ms     | 0.08 ms | 1140%    |
 
 **Legend:**
 - **Tokens/s** = Throughput (higher is better)
@@ -58,19 +58,23 @@ result = await l0.run(
 )
 ```
 
-## Blackwell Ready
+## Nvidia Blackwell Ready
 
-Even with full guardrails, drift detection, and checkpointing enabled, L0 sustains **112K+ tokens/s** - well above current LLM inference speeds and ready for Nvidia Blackwell's 1000+ tokens/s streaming.
+Even with full guardrails, drift detection, and checkpointing enabled, L0 sustains **120K+ tokens/s** - well above current LLM inference speeds and ready for Nvidia Blackwell's 1000+ tokens/s streaming.
 
-| GPU Generation | Expected Tokens/s | L0 Headroom |
-|----------------|-------------------|-------------|
-| Current (H100) | ~100-200 | 560-1120x |
-| Blackwell (B200) | ~1000+ | 112x |
+| GPU Generation   | Expected Tokens/s | L0 Headroom |
+| ---------------- | ----------------- | ----------- |
+| Current (H100)   | ~100-200          | 600-1200x   |
+| Blackwell (B200) | ~1000+            | 120x        |
+
+## Python Version Note
+
+Benchmarks are run on Python 3.13. Python 3.14 shows ~30% slower async iteration performance when pydantic is imported, which affects L0's benchmark results. This appears to be a pydantic + Python 3.14 compatibility issue rather than a Python regression - raw async iteration without pydantic is nearly identical between versions. This will likely be resolved as pydantic adds better 3.14 support.
 
 ## Running Benchmarks
 
 ```bash
-uv run pytest tests/test_benchmark.py::TestComprehensiveReport -v -s
+uv run --python 3.13 pytest tests/test_benchmark.py::TestComprehensiveReport -v -s
 ```
 
 To run all benchmark tests:
