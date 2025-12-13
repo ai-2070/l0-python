@@ -260,7 +260,6 @@ class BackoffStrategy(str, Enum):
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-@dataclass
 class State:
     """Runtime state tracking.
 
@@ -268,31 +267,80 @@ class State:
     Access `content` property to get the accumulated string (flushes buffer automatically).
     """
 
-    _content: str = ""
-    _content_buffer: list[str] = field(default_factory=list)
-    checkpoint: str = ""  # Last known good slice for continuation
-    token_count: int = 0
-    model_retry_count: int = 0
-    network_retry_count: int = 0
-    fallback_index: int = 0
-    violations: "list[GuardrailViolation]" = field(default_factory=list)
-    drift_detected: bool = False
-    completed: bool = False
-    aborted: bool = False
-    first_token_at: float | None = None
-    last_token_at: float | None = None
-    duration: float | None = None
-    resumed: bool = False  # Whether stream was resumed from checkpoint
-    network_errors: "list[NetworkError]" = field(default_factory=list)
-    # Multimodal state
-    data_outputs: list[DataPayload] = field(default_factory=list)
-    last_progress: Progress | None = None
-    # Continuation state (for observability)
-    resume_point: str | None = None  # The checkpoint content used for resume
-    resume_from: int | None = None  # Character offset where resume occurred
-    continuation_used: bool = False  # Whether continuation was actually used
-    deduplication_applied: bool = False  # Whether deduplication removed overlap
-    overlap_removed: str | None = None  # The overlapping text that was removed
+    __slots__ = (
+        "_content",
+        "_content_buffer",
+        "checkpoint",
+        "token_count",
+        "model_retry_count",
+        "network_retry_count",
+        "fallback_index",
+        "violations",
+        "drift_detected",
+        "completed",
+        "aborted",
+        "first_token_at",
+        "last_token_at",
+        "duration",
+        "resumed",
+        "network_errors",
+        "data_outputs",
+        "last_progress",
+        "resume_point",
+        "resume_from",
+        "continuation_used",
+        "deduplication_applied",
+        "overlap_removed",
+    )
+
+    def __init__(
+        self,
+        content: str = "",
+        checkpoint: str = "",
+        token_count: int = 0,
+        model_retry_count: int = 0,
+        network_retry_count: int = 0,
+        fallback_index: int = 0,
+        violations: "list[GuardrailViolation] | None" = None,
+        drift_detected: bool = False,
+        completed: bool = False,
+        aborted: bool = False,
+        first_token_at: float | None = None,
+        last_token_at: float | None = None,
+        duration: float | None = None,
+        resumed: bool = False,
+        network_errors: "list[NetworkError] | None" = None,
+        data_outputs: list[DataPayload] | None = None,
+        last_progress: Progress | None = None,
+        resume_point: str | None = None,
+        resume_from: int | None = None,
+        continuation_used: bool = False,
+        deduplication_applied: bool = False,
+        overlap_removed: str | None = None,
+    ) -> None:
+        self._content = content
+        self._content_buffer: list[str] = []
+        self.checkpoint = checkpoint
+        self.token_count = token_count
+        self.model_retry_count = model_retry_count
+        self.network_retry_count = network_retry_count
+        self.fallback_index = fallback_index
+        self.violations = violations if violations is not None else []
+        self.drift_detected = drift_detected
+        self.completed = completed
+        self.aborted = aborted
+        self.first_token_at = first_token_at
+        self.last_token_at = last_token_at
+        self.duration = duration
+        self.resumed = resumed
+        self.network_errors = network_errors if network_errors is not None else []
+        self.data_outputs = data_outputs if data_outputs is not None else []
+        self.last_progress = last_progress
+        self.resume_point = resume_point
+        self.resume_from = resume_from
+        self.continuation_used = continuation_used
+        self.deduplication_applied = deduplication_applied
+        self.overlap_removed = overlap_removed
 
     @property
     def content(self) -> str:
