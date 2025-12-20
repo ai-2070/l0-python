@@ -265,19 +265,15 @@ async def structured(
         for attempt in range(max_attempts):
             try:
                 # _internal_run expects a callable factory
-                # Handle both direct async iterators and factory functions
-                def make_stream_factory(
-                    src: AwaitableStreamSource,
-                ) -> AwaitableStreamFactory:
-                    if callable(src) and not hasattr(src, "__anext__"):
-                        # It's already a factory
-                        return src
-                    else:
-                        # It's a direct async iterator - wrap in factory
-                        # Note: This only works once per stream!
-                        return lambda: cast(RawStream, src)
-
-                stream_factory = make_stream_factory(stream_source)
+                # For factory functions, pass them directly so _internal_run can call fresh on retries
+                # For direct async iterators (already wrapped in buffering factory above),
+                # wrap in a lambda - the buffering factory handles replay
+                if callable(stream_source) and not hasattr(stream_source, "__anext__"):
+                    # It's a factory - pass it directly to _internal_run
+                    stream_factory = cast(AwaitableStreamFactory, stream_source)
+                else:
+                    # It's a direct async iterator (wrapped in buffering factory)
+                    stream_factory = lambda src=stream_source: cast(RawStream, src)
 
                 # Run through L0 runtime
                 result = await _internal_run(
@@ -890,17 +886,18 @@ async def structured_array(
     for stream_source in all_streams:
         for attempt in range(max_attempts):
             try:
+                # _internal_run expects a callable factory
+                # For factory functions, pass them directly so _internal_run can call fresh on retries
+                # For direct async iterators (already wrapped in buffering factory above),
+                # wrap in a lambda - the buffering factory handles replay
+                if callable(stream_source) and not hasattr(stream_source, "__anext__"):
+                    # It's a factory - pass it directly to _internal_run
+                    stream_factory = cast(AwaitableStreamFactory, stream_source)
+                else:
+                    # It's a direct async iterator (wrapped in buffering factory)
+                    stream_factory = lambda src=stream_source: cast(RawStream, src)
 
-                def make_stream_factory(
-                    src: AwaitableStreamSource,
-                ) -> AwaitableStreamFactory:
-                    if callable(src) and not hasattr(src, "__anext__"):
-                        return src
-                    else:
-                        return lambda: cast(RawStream, src)
-
-                stream_factory = make_stream_factory(stream_source)
-
+                # Run through L0 runtime
                 result = await _internal_run(
                     stream=stream_factory,
                     on_event=on_event,
