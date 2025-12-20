@@ -265,23 +265,15 @@ async def structured(
         for attempt in range(max_attempts):
             try:
                 # _internal_run expects a callable factory
-                # For factory functions, we call them fresh on each attempt to get a new stream
-                # This is critical for retry logic - streams can only be consumed once
+                # For factory functions, pass them directly so _internal_run can call fresh on retries
+                # For direct async iterators (already wrapped in buffering factory above),
+                # wrap in a lambda - the buffering factory handles replay
                 if callable(stream_source) and not hasattr(stream_source, "__anext__"):
-                    # It's a factory - call it to get a fresh stream for this attempt
-                    stream_for_attempt = stream_source()
+                    # It's a factory - pass it directly to _internal_run
+                    stream_factory = cast(AwaitableStreamFactory, stream_source)
                 else:
-                    # It's a direct async iterator (already wrapped in buffering factory above)
-                    # The buffering factory handles replay for us
-                    stream_for_attempt = cast(RawStream, stream_source)
-
-                # Wrap in a factory for _internal_run
-                def make_stream_factory(
-                    s: RawStream = stream_for_attempt,
-                ) -> AwaitableStreamFactory:
-                    return lambda: s
-
-                stream_factory = make_stream_factory()
+                    # It's a direct async iterator (wrapped in buffering factory)
+                    stream_factory = lambda src=stream_source: cast(RawStream, src)
 
                 # Run through L0 runtime
                 result = await _internal_run(
@@ -895,24 +887,17 @@ async def structured_array(
         for attempt in range(max_attempts):
             try:
                 # _internal_run expects a callable factory
-                # For factory functions, we call them fresh on each attempt to get a new stream
-                # This is critical for retry logic - streams can only be consumed once
+                # For factory functions, pass them directly so _internal_run can call fresh on retries
+                # For direct async iterators (already wrapped in buffering factory above),
+                # wrap in a lambda - the buffering factory handles replay
                 if callable(stream_source) and not hasattr(stream_source, "__anext__"):
-                    # It's a factory - call it to get a fresh stream for this attempt
-                    stream_for_attempt = stream_source()
+                    # It's a factory - pass it directly to _internal_run
+                    stream_factory = cast(AwaitableStreamFactory, stream_source)
                 else:
-                    # It's a direct async iterator (already wrapped in buffering factory above)
-                    # The buffering factory handles replay for us
-                    stream_for_attempt = cast(RawStream, stream_source)
+                    # It's a direct async iterator (wrapped in buffering factory)
+                    stream_factory = lambda src=stream_source: cast(RawStream, src)
 
-                # Wrap in a factory for _internal_run
-                def make_stream_factory(
-                    s: RawStream = stream_for_attempt,
-                ) -> AwaitableStreamFactory:
-                    return lambda: s
-
-                stream_factory = make_stream_factory()
-
+                # Run through L0 runtime
                 result = await _internal_run(
                     stream=stream_factory,
                     on_event=on_event,
