@@ -101,8 +101,12 @@ text = await result.read()
 | `timeout` | `Timeout` | `None` | Timeout configuration |
 | `continue_from_last_good_token` | `bool \| ContinuationConfig` | `False` | Resume from checkpoint on failure |
 | `adapter` | `str \| Adapter` | `None` | Adapter hint or instance |
-| `on_event` | `Callable` | `None` | Observability callback |
+| `on_event` | `Callable[[ObservabilityEvent], None]` | `None` | Observability callback |
+| `on_token` | `Callable[[str], None]` | `None` | Callback for each token received |
+| `on_tool_call` | `Callable[[str, str, dict[str, Any]], None]` | `None` | Callback for tool calls (name, id, args) |
+| `on_violation` | `Callable[[GuardrailViolation], None]` | `None` | Callback for guardrail violations |
 | `context` | `dict` | `None` | User context attached to all events |
+| `buffer_tool_calls` | `bool` | `False` | Buffer tool call arguments until complete |
 | `build_continuation_prompt` | `Callable[[str], str]` | `None` | Modify prompt for continuation |
 
 **Returns:** 
@@ -111,7 +115,7 @@ text = await result.read()
 
 ---
 
-### run(stream, *, fallbacks, guardrails, retry, timeout, adapter, on_event, context, continue_from_last_good_token)
+### run(stream, *, fallbacks, guardrails, drift_detector, retry, timeout, check_intervals, adapter, on_event, context, buffer_tool_calls, continue_from_last_good_token, callbacks, on_start, on_complete, on_error, on_stream_event, on_violation, on_retry, on_fallback, on_resume, on_checkpoint, on_timeout, on_abort, on_drift, on_tool_call)
 
 Run L0 with a stream factory. Use when you need **retries or fallbacks** (which require re-creating the stream).
 
@@ -197,13 +201,30 @@ print(result.state.duration)      # Duration in seconds
 | `stream` | `Callable[[], AsyncIterator]` | required | Factory returning async LLM stream |
 | `fallbacks` | `list[Callable]` | `None` | Fallback stream factories |
 | `guardrails` | `list[GuardrailRule]` | `None` | Guardrail rules to apply |
+| `drift_detector` | `DriftDetector` | `None` | Drift detector for detecting model derailment |
 | `retry` | `Retry` | `None` | Retry configuration |
 | `timeout` | `Timeout` | `None` | Timeout configuration |
-| `continue_from_last_good_token` | `bool \| ContinuationConfig` | `False` | Resume from checkpoint on failure |
+| `check_intervals` | `CheckIntervals` | `None` | Check intervals for guardrails/drift/checkpoint |
 | `adapter` | `str \| Adapter` | `None` | Adapter hint or instance |
-| `on_event` | `Callable` | `None` | Observability callback |
+| `on_event` | `Callable[[ObservabilityEvent], None]` | `None` | Observability callback |
 | `context` | `dict` | `None` | User context attached to all events |
+| `buffer_tool_calls` | `bool` | `False` | Buffer tool call arguments until complete |
+| `continue_from_last_good_token` | `bool \| ContinuationConfig` | `False` | Resume from checkpoint on failure |
 | `build_continuation_prompt` | `Callable[[str], str]` | `None` | Modify prompt for continuation |
+| `callbacks` | `LifecycleCallbacks` | `None` | Lifecycle callbacks object (alternative to individual params) |
+| `on_start` | `Callable[[int, bool, bool], None]` | `None` | Called when execution attempt begins (attempt, is_retry, is_fallback) |
+| `on_complete` | `Callable[[State], None]` | `None` | Called when stream completes (state) |
+| `on_error` | `Callable[[Exception, bool, bool], None]` | `None` | Called when error occurs (error, will_retry, will_fallback) |
+| `on_stream_event` | `Callable[[Event], None]` | `None` | Called for every L0 event (event) |
+| `on_violation` | `Callable[[GuardrailViolation], None]` | `None` | Called when guardrail violation detected (violation) |
+| `on_retry` | `Callable[[int, str], None]` | `None` | Called when retry triggered (attempt, reason) |
+| `on_fallback` | `Callable[[int, str], None]` | `None` | Called when switching to fallback (index, reason) |
+| `on_resume` | `Callable[[str, int], None]` | `None` | Called when resuming from checkpoint (checkpoint, token_count) |
+| `on_checkpoint` | `Callable[[str, int], None]` | `None` | Called when checkpoint saved (checkpoint, token_count) |
+| `on_timeout` | `Callable[[str, float], None]` | `None` | Called when timeout occurs (type, elapsed_seconds) |
+| `on_abort` | `Callable[[int, int], None]` | `None` | Called when stream aborted (token_count, content_length) |
+| `on_drift` | `Callable[[list[str], float \| None], None]` | `None` | Called when drift detected (drift_types, confidence) |
+| `on_tool_call` | `Callable[[str, str, dict[str, Any]], None]` | `None` | Called when tool call detected (name, id, args) |
 
 **Returns:** `Stream` - Async iterator with attached state
 
@@ -355,25 +376,88 @@ L0 provides lifecycle callbacks for monitoring and responding to runtime events.
 
 | Event Type | Description |
 | ---------- | ----------- |
+| **Session** | |
 | `SESSION_START` | New execution session begins |
+| `ATTEMPT_START` | New attempt within session begins |
 | `SESSION_END` | Session completed |
+| `SESSION_SUMMARY` | Session summary with aggregated stats |
+| **Stream** | |
 | `STREAM_INIT` | Stream initialized |
 | `STREAM_READY` | Stream ready for tokens |
+| `TOKEN` | Token received |
+| **Adapter** | |
+| `ADAPTER_DETECTED` | Adapter auto-detected for stream |
+| `ADAPTER_WRAP_START` | Adapter wrap starting |
+| `ADAPTER_WRAP_END` | Adapter wrap completed |
+| **Timeout** | |
+| `TIMEOUT_START` | Timeout timer started |
+| `TIMEOUT_RESET` | Timeout timer reset (token received) |
+| `TIMEOUT_TRIGGERED` | Timeout threshold exceeded |
+| **Network** | |
+| `NETWORK_ERROR` | Network error occurred |
+| `NETWORK_RECOVERY` | Recovered from network error |
+| `CONNECTION_DROPPED` | Connection dropped mid-stream |
+| `CONNECTION_RESTORED` | Connection restored after drop |
+| **Abort** | |
+| `ABORT_REQUESTED` | Abort requested by user |
+| `ABORT_COMPLETED` | Abort completed |
+| **Tool** | |
+| `TOOL_REQUESTED` | Tool call requested |
+| `TOOL_START` | Tool execution starting |
+| `TOOL_RESULT` | Tool returned result |
+| `TOOL_ERROR` | Tool execution failed |
+| `TOOL_COMPLETED` | Tool call completed |
+| **Guardrail** | |
+| `GUARDRAIL_PHASE_START` | Guardrail check phase starting |
+| `GUARDRAIL_PHASE_END` | Guardrail check phase completed |
+| `GUARDRAIL_RULE_START` | Individual rule check starting |
+| `GUARDRAIL_RULE_RESULT` | Individual rule result |
+| `GUARDRAIL_RULE_END` | Individual rule check completed |
+| `GUARDRAIL_CALLBACK_START` | Guardrail callback starting |
+| `GUARDRAIL_CALLBACK_END` | Guardrail callback completed |
+| **Drift** | |
+| `DRIFT_CHECK_RESULT` | Drift detection result |
+| `DRIFT_CHECK_SKIPPED` | Drift check skipped |
+| **Checkpoint** | |
+| `CHECKPOINT_SAVED` | Checkpoint saved |
+| **Resume** | |
+| `RESUME_START` | Resuming from checkpoint |
+| **Retry** | |
 | `RETRY_START` | Retry sequence starting |
 | `RETRY_ATTEMPT` | Individual retry attempt |
 | `RETRY_END` | Retry sequence completed |
 | `RETRY_GIVE_UP` | All retries exhausted |
+| `RETRY_FN_START` | Custom retry function starting |
+| `RETRY_FN_RESULT` | Custom retry function result |
+| `RETRY_FN_ERROR` | Custom retry function error |
+| **Fallback** | |
 | `FALLBACK_START` | Switching to fallback model |
+| `FALLBACK_MODEL_SELECTED` | Fallback model selected |
 | `FALLBACK_END` | Fallback sequence completed |
-| `GUARDRAIL_PHASE_START` | Guardrail check starting |
-| `GUARDRAIL_RULE_RESULT` | Individual rule result |
-| `GUARDRAIL_PHASE_END` | Guardrail check completed |
-| `DRIFT_CHECK_RESULT` | Drift detection result |
-| `NETWORK_ERROR` | Network error occurred |
-| `NETWORK_RECOVERY` | Recovered from network error |
-| `CHECKPOINT_SAVED` | Checkpoint saved |
+| **Completion** | |
+| `FINALIZATION_START` | Finalization phase starting |
+| `FINALIZATION_END` | Finalization phase completed |
 | `COMPLETE` | Stream completed successfully |
 | `ERROR` | Error occurred |
+| **Consensus** | |
+| `CONSENSUS_START` | Consensus operation starting |
+| `CONSENSUS_STREAM_START` | Individual consensus stream starting |
+| `CONSENSUS_STREAM_END` | Individual consensus stream completed |
+| `CONSENSUS_OUTPUT_COLLECTED` | Output collected for consensus |
+| `CONSENSUS_ANALYSIS` | Consensus analysis performed |
+| `CONSENSUS_RESOLUTION` | Consensus resolved |
+| `CONSENSUS_END` | Consensus operation completed |
+| **Structured Output** | |
+| `PARSE_START` | JSON parsing starting |
+| `PARSE_END` | JSON parsing completed |
+| `PARSE_ERROR` | JSON parsing error |
+| `SCHEMA_VALIDATION_START` | Schema validation starting |
+| `SCHEMA_VALIDATION_END` | Schema validation completed |
+| `SCHEMA_VALIDATION_ERROR` | Schema validation error |
+| `AUTO_CORRECT_START` | JSON auto-correction starting |
+| `AUTO_CORRECT_END` | JSON auto-correction completed |
+| **Continuation** | |
+| `CONTINUATION_START` | Continuation starting |
 
 ### Usage Example
 
@@ -424,6 +508,8 @@ class Event:
     type: EventType                           # Event type
     text: str | None = None                   # Token content
     data: dict[str, Any] | None = None        # Tool call / misc data
+    payload: DataPayload | None = None        # Multimodal data payload
+    progress: Progress | None = None          # Progress update
     error: Exception | None = None            # Error (for error events)
     usage: dict[str, int] | None = None       # Token usage
     timestamp: float | None = None            # Event timestamp
@@ -508,6 +594,8 @@ state.first_token_at    # Timestamp of first token
 state.last_token_at     # Timestamp of last token
 state.duration          # Total duration (seconds)
 state.resumed           # Resumed from checkpoint
+state.data_outputs      # List of DataPayload from multimodal outputs
+state.last_progress     # Last Progress update received
 ```
 
 ---
@@ -521,12 +609,18 @@ All delays are in **seconds** (float), matching Python conventions like `asyncio
 ```python
 @dataclass
 class Retry:
-    attempts: int = 3                 # Model errors only
-    max_retries: int = 6              # Absolute cap (all errors)
-    base_delay: float = 1.0           # Starting delay (seconds)
-    max_delay: float = 10.0           # Maximum delay (seconds)
-    strategy: BackoffStrategy = BackoffStrategy.FIXED_JITTER
+    attempts: int | None = None                   # Model errors only
+    max_retries: int | None = None                # Absolute cap (all errors)
+    base_delay: float | None = None               # Starting delay (seconds)
+    max_delay: float | None = None                # Maximum delay (seconds)
+    strategy: BackoffStrategy | None = None       # Backoff strategy
+    error_type_delays: ErrorTypeDelays | None = None  # Per-error-type delays
+    retry_on: list[RetryableErrorType] | None = None  # Which error types to retry
+    should_retry: Callable[..., bool | Coroutine] | None = None  # Veto callback
+    calculate_delay: Callable[..., float] | None = None  # Custom delay calculation
 ```
+
+> **Note:** All fields default to `None` and are populated via `__post_init__` from `RETRY_DEFAULTS`. Effective defaults: `attempts=3`, `max_retries=6`, `base_delay=1.0`, `max_delay=10.0`, `strategy=BackoffStrategy.FIXED_JITTER`.
 
 ### BackoffStrategy
 
@@ -804,7 +898,7 @@ Enable with `continue_from_last_good_token=True`:
 client = l0.wrap(
     AsyncOpenAI(),
     continue_from_last_good_token=True,
-    timeout=l0.Timeout(inter_token=30.0),
+    timeout=l0.Timeout(inter_token=30000),
 )
 
 # If the stream times out after "Hello wor", L0 will:
@@ -1472,9 +1566,14 @@ print(result.data.tags)    # list[str]
 | `stream` | `AsyncIterator \| Callable[[], AsyncIterator]` | required | Async LLM stream or factory returning one |
 | `fallbacks` | `list[AsyncIterator \| Callable]` | `None` | Fallback streams to try if primary fails |
 | `auto_correct` | `bool` | `True` | Auto-fix common JSON errors |
+| `strict_mode` | `bool` | `False` | Reject unknown fields in output |
 | `retry` | `Retry` | `None` | Retry configuration for validation failures |
+| `timeout` | `Timeout` | `None` | Timeout configuration (initial_token, inter_token) |
+| `detect_zero_tokens` | `bool` | `False` | Detect zero-token outputs |
+| `monitoring` | `bool` | `False` | Enable telemetry collection |
 | `on_validation_error` | `Callable[[ValidationError, int], None]` | `None` | Callback when validation fails (error, attempt) |
 | `on_auto_correct` | `Callable[[AutoCorrectInfo], None]` | `None` | Callback when auto-correction is applied |
+| `on_retry` | `Callable[[int, str], None]` | `None` | Callback when retry occurs (attempt, reason) |
 | `on_event` | `Callable[[ObservabilityEvent], None]` | `None` | Callback for observability events |
 | `adapter` | `Any \| str` | `None` | Adapter hint ("openai", "litellm", or instance) |
 
@@ -1696,8 +1795,14 @@ result = await l0.consensus(
 
 | Parameter | Type | Default | Description |
 | --------- | ---- | ------- | ----------- |
-| `tasks` | `list[Callable[[], Awaitable[T]]]` | required | Async callables |
-| `strategy` | `Strategy` | `"majority"` | Consensus strategy |
+| `tasks` | `list[Callable[[], Awaitable[T]]]` | required | Async callables (minimum 2) |
+| `strategy` | `Strategy` | `"majority"` | Consensus strategy (`"unanimous"`, `"majority"`, `"weighted"`, `"best"`) |
+| `threshold` | `float` | `0.8` | Similarity threshold for matching |
+| `resolve_conflicts` | `ConflictResolution` | `"vote"` | How to resolve disagreements (`"vote"`, `"merge"`, `"best"`, `"fail"`) |
+| `weights` | `list[float]` | `None` | Weights for each task (for weighted strategy) |
+| `minimum_agreement` | `float` | `0.6` | Minimum agreement ratio required |
+| `schema` | `type[BaseModel]` | `None` | Pydantic schema for structured consensus |
+| `on_event` | `Callable[[ObservabilityEvent], None]` | `None` | Callback for observability events |
 
 ### Strategies
 
@@ -1762,9 +1867,14 @@ results = await l0.parallel(
 | Parameter | Type | Default | Description |
 | --------- | ---- | ------- | ----------- |
 | `tasks` | `list[Callable[[], Awaitable[T]]]` | required | Async callables |
+| `options` | `ParallelOptions` | `None` | Options object (alternative to kwargs) |
 | `concurrency` | `int` | `5` | Max concurrent tasks |
+| `fail_fast` | `bool` | `False` | Stop on first error |
+| `on_progress` | `Callable[[int, int], None]` | `None` | Progress callback (completed, total) |
+| `on_complete` | `Callable[[T, int], None]` | `None` | Task complete callback (result, index) |
+| `on_error` | `Callable[[Exception, int], None]` | `None` | Task error callback (error, index) |
 
-**Returns:** `list[T]` - Results in same order as tasks
+**Returns:** `ParallelResult[T]` - Results, errors, and statistics
 
 ### race(tasks)
 
@@ -1812,7 +1922,7 @@ embeddings = await l0.batched(
 | Parameter | Type | Default | Description |
 | --------- | ---- | ------- | ----------- |
 | `items` | `list[T]` | required | Items to process |
-| `handler` | `Callable[[T], Awaitable[R]]` | required | Async handler |
+| `handler` | `Callable[[T], Awaitable[T]]` | required | Async handler |
 | `batch_size` | `int` | `10` | Batch size |
 
 ### Pattern Comparison
@@ -1832,18 +1942,26 @@ embeddings = await l0.batched(
 ### Adapter Protocol
 
 ```python
-from typing import Protocol, Any
+from typing import Protocol, Any, TypeVar
 from collections.abc import AsyncIterator
+from l0 import AdaptedEvent
 
-class Adapter(Protocol):
+AdapterChunkT = TypeVar("AdapterChunkT", covariant=True)
+AdapterOptionsT = TypeVar("AdapterOptionsT", contravariant=True)
+
+class Adapter(Protocol[AdapterChunkT, AdapterOptionsT]):
     name: str
-    
+
     def detect(self, stream: Any) -> bool:
         """Return True if this adapter can handle the stream."""
         ...
-    
-    def wrap(self, stream: Any) -> AsyncIterator[Event]:
-        """Wrap raw stream into Event stream."""
+
+    def wrap(
+        self,
+        stream: AsyncIterator[Any],
+        options: AdapterOptionsT | None = None,
+    ) -> AsyncIterator[AdaptedEvent[Any]]:
+        """Wrap raw stream into AdaptedEvent stream."""
         ...
 ```
 
@@ -1997,40 +2115,111 @@ class ObservabilityEvent:
 class ObservabilityEventType(str, Enum):
     # Session
     SESSION_START = "SESSION_START"
+    ATTEMPT_START = "ATTEMPT_START"
     SESSION_END = "SESSION_END"
-    
+    SESSION_SUMMARY = "SESSION_SUMMARY"
+
     # Stream
     STREAM_INIT = "STREAM_INIT"
     STREAM_READY = "STREAM_READY"
-    
+    TOKEN = "TOKEN"
+
+    # Adapter
+    ADAPTER_DETECTED = "ADAPTER_DETECTED"
+    ADAPTER_WRAP_START = "ADAPTER_WRAP_START"
+    ADAPTER_WRAP_END = "ADAPTER_WRAP_END"
+
+    # Timeout
+    TIMEOUT_START = "TIMEOUT_START"
+    TIMEOUT_RESET = "TIMEOUT_RESET"
+    TIMEOUT_TRIGGERED = "TIMEOUT_TRIGGERED"
+
+    # Network
+    NETWORK_ERROR = "NETWORK_ERROR"
+    NETWORK_RECOVERY = "NETWORK_RECOVERY"
+    CONNECTION_DROPPED = "CONNECTION_DROPPED"
+    CONNECTION_RESTORED = "CONNECTION_RESTORED"
+
+    # Abort
+    ABORT_REQUESTED = "ABORT_REQUESTED"
+    ABORT_COMPLETED = "ABORT_COMPLETED"
+
+    # Tool
+    TOOL_REQUESTED = "TOOL_REQUESTED"
+    TOOL_START = "TOOL_START"
+    TOOL_RESULT = "TOOL_RESULT"
+    TOOL_ERROR = "TOOL_ERROR"
+    TOOL_COMPLETED = "TOOL_COMPLETED"
+
+    # Guardrail
+    GUARDRAIL_PHASE_START = "GUARDRAIL_PHASE_START"
+    GUARDRAIL_PHASE_END = "GUARDRAIL_PHASE_END"
+    GUARDRAIL_RULE_START = "GUARDRAIL_RULE_START"
+    GUARDRAIL_RULE_RESULT = "GUARDRAIL_RULE_RESULT"
+    GUARDRAIL_RULE_END = "GUARDRAIL_RULE_END"
+    GUARDRAIL_CALLBACK_START = "GUARDRAIL_CALLBACK_START"
+    GUARDRAIL_CALLBACK_END = "GUARDRAIL_CALLBACK_END"
+
+    # Drift
+    DRIFT_CHECK_RESULT = "DRIFT_CHECK_RESULT"
+    DRIFT_CHECK_SKIPPED = "DRIFT_CHECK_SKIPPED"
+
+    # Checkpoint
+    CHECKPOINT_SAVED = "CHECKPOINT_SAVED"
+
+    # Resume
+    RESUME_START = "RESUME_START"
+
     # Retry
     RETRY_START = "RETRY_START"
     RETRY_ATTEMPT = "RETRY_ATTEMPT"
     RETRY_END = "RETRY_END"
     RETRY_GIVE_UP = "RETRY_GIVE_UP"
-    
+    RETRY_FN_START = "RETRY_FN_START"
+    RETRY_FN_RESULT = "RETRY_FN_RESULT"
+    RETRY_FN_ERROR = "RETRY_FN_ERROR"
+
     # Fallback
     FALLBACK_START = "FALLBACK_START"
+    FALLBACK_MODEL_SELECTED = "FALLBACK_MODEL_SELECTED"
     FALLBACK_END = "FALLBACK_END"
-    
-    # Guardrail
-    GUARDRAIL_PHASE_START = "GUARDRAIL_PHASE_START"
-    GUARDRAIL_RULE_RESULT = "GUARDRAIL_RULE_RESULT"
-    GUARDRAIL_PHASE_END = "GUARDRAIL_PHASE_END"
-    
-    # Drift
-    DRIFT_CHECK_RESULT = "DRIFT_CHECK_RESULT"
-    
-    # Network
-    NETWORK_ERROR = "NETWORK_ERROR"
-    NETWORK_RECOVERY = "NETWORK_RECOVERY"
-    
-    # Checkpoint
-    CHECKPOINT_SAVED = "CHECKPOINT_SAVED"
-    
+
     # Completion
+    FINALIZATION_START = "FINALIZATION_START"
+    FINALIZATION_END = "FINALIZATION_END"
     COMPLETE = "COMPLETE"
     ERROR = "ERROR"
+
+    # Consensus
+    CONSENSUS_START = "CONSENSUS_START"
+    CONSENSUS_STREAM_START = "CONSENSUS_STREAM_START"
+    CONSENSUS_STREAM_END = "CONSENSUS_STREAM_END"
+    CONSENSUS_OUTPUT_COLLECTED = "CONSENSUS_OUTPUT_COLLECTED"
+    CONSENSUS_ANALYSIS = "CONSENSUS_ANALYSIS"
+    CONSENSUS_RESOLUTION = "CONSENSUS_RESOLUTION"
+    CONSENSUS_END = "CONSENSUS_END"
+
+    # Structured output
+    PARSE_START = "PARSE_START"
+    PARSE_END = "PARSE_END"
+    PARSE_ERROR = "PARSE_ERROR"
+    SCHEMA_VALIDATION_START = "SCHEMA_VALIDATION_START"
+    SCHEMA_VALIDATION_END = "SCHEMA_VALIDATION_END"
+    SCHEMA_VALIDATION_ERROR = "SCHEMA_VALIDATION_ERROR"
+    AUTO_CORRECT_START = "AUTO_CORRECT_START"
+    AUTO_CORRECT_END = "AUTO_CORRECT_END"
+    # TS compatibility aliases
+    STRUCTURED_PARSE_START = "STRUCTURED_PARSE_START"
+    STRUCTURED_PARSE_END = "STRUCTURED_PARSE_END"
+    STRUCTURED_PARSE_ERROR = "STRUCTURED_PARSE_ERROR"
+    STRUCTURED_VALIDATION_START = "STRUCTURED_VALIDATION_START"
+    STRUCTURED_VALIDATION_END = "STRUCTURED_VALIDATION_END"
+    STRUCTURED_VALIDATION_ERROR = "STRUCTURED_VALIDATION_ERROR"
+    STRUCTURED_AUTO_CORRECT_START = "STRUCTURED_AUTO_CORRECT_START"
+    STRUCTURED_AUTO_CORRECT_END = "STRUCTURED_AUTO_CORRECT_END"
+
+    # Continuation
+    CONTINUATION_START = "CONTINUATION_START"
 ```
 
 ---
@@ -2345,142 +2534,6 @@ async def process_with_async_guardrails(content: str, state: State):
 
 ---
 
-## Formatting Helpers
-
-Utilities for formatting prompts, context, memory, and tool definitions.
-
-### Context Formatting
-
-```python
-from l0 import Format
-
-# Wrap content with delimiters
-context = Format.context(
-    "User manual content here",
-    label="documentation",
-    delimiter="xml",  # "xml" | "markdown" | "brackets" | "none"
-)
-# Output: <documentation>\nUser manual content here\n</documentation>
-
-# Format multiple contexts
-contexts = Format.contexts([
-    {"content": "Doc 1", "label": "doc1"},
-    {"content": "Doc 2", "label": "doc2"},
-])
-
-# Format a document with metadata
-doc = Format.document(content, {"title": "Report", "author": "User"})
-
-# Format instructions
-instructions = Format.instructions("You are a helpful assistant")
-```
-
-### Memory Formatting
-
-```python
-from l0 import Format
-
-# Format conversation history
-memory = [
-    {"role": "user", "content": "Hello"},
-    {"role": "assistant", "content": "Hi there!"},
-    {"role": "user", "content": "How are you?"},
-]
-
-formatted = Format.memory(memory, {"style": "conversational", "max_entries": 10})
-# Output:
-# User: Hello
-# Assistant: Hi there!
-# User: How are you?
-
-# Create timestamped memory entries
-entry = Format.memory_entry("user", "New message")
-
-# Memory utilities
-filtered = Format.filter_memory(memory, "user")  # Only user messages
-last_5 = Format.last_n_entries(memory, 5)
-size = Format.memory_size(memory)  # Character count
-truncated = Format.truncate_memory(memory, max_size=1000)
-```
-
-### Output Formatting
-
-```python
-from l0 import Format
-
-# Request JSON output
-instruction = Format.json_output({"strict": True, "schema": "..."})
-
-# Request structured output
-instruction = Format.structured_output("yaml", {"strict": True})
-
-# Define output constraints
-constraints = Format.output_constraints({
-    "max_length": 500,
-    "format": "bullet_points",
-})
-
-# Clean model output
-cleaned = Format.clean_output("Sure! Here's the JSON: {...}")  # "{...}"
-
-# Extract JSON from output
-json_str = Format.extract_json(model_output)
-
-# Validate JSON
-is_valid, error = Format.validate_json(output)
-```
-
-### Tool Formatting
-
-```python
-from l0 import Format
-
-# Create a tool definition
-tool = Format.create_tool(
-    "search",
-    "Search the web for information",
-    [
-        Format.parameter("query", "string", "Search query", required=True),
-        Format.parameter("limit", "integer", "Max results", default=10),
-    ],
-)
-
-# Format for model
-formatted = Format.tool(tool, {"style": "json-schema"})
-
-# Format multiple tools
-formatted_tools = Format.tools([tool1, tool2])
-
-# Parse function call from output
-fn_call = Format.parse_function_call(model_output)
-if fn_call:
-    print(f"Function: {fn_call.name}, Args: {fn_call.arguments}")
-```
-
-### String Utilities
-
-```python
-from l0 import Format
-
-# Basic operations
-Format.trim("  hello  ")           # "hello"
-Format.truncate("Hello World", 8)  # "Hello..."
-Format.truncate_words("Hello World", 8)  # "Hello..."
-Format.wrap("Long text...", 80)    # Word-wrapped text
-Format.pad("hello", 10, align="center")  # "  hello   "
-
-# Escaping
-Format.escape("Hello\nWorld")      # "Hello\\nWorld"
-Format.unescape("Hello\\nWorld")   # "Hello\nWorld"
-Format.escape_html("<div>")        # "&lt;div&gt;"
-Format.unescape_html("&lt;div&gt;") # "<div>"
-Format.escape_regex("foo.*bar")    # "foo\\.\\*bar"
-Format.sanitize("text\x00here")    # "texthere" (removes control chars)
-Format.remove_ansi("\x1b[31mred\x1b[0m")  # "red"
-```
-
----
-
 ## Stream Utilities
 
 ### consume_stream(stream)
@@ -2651,7 +2704,10 @@ class State:
     duration: float | None = None
     resumed: bool = False                     # Whether stream was resumed from checkpoint
     network_errors: list[Any] = field(default_factory=list)
-    
+    # Multimodal state
+    data_outputs: list[DataPayload] = field(default_factory=list)
+    last_progress: Progress | None = None
+
     # Continuation state (for observability)
     resume_point: str | None = None           # The checkpoint content used for resume
     resume_from: int | None = None            # Character offset where resume occurred
@@ -2668,6 +2724,8 @@ class Event:
     type: EventType
     text: str | None = None                   # Token content
     data: dict[str, Any] | None = None        # Tool call / misc data
+    payload: DataPayload | None = None        # Multimodal data payload
+    progress: Progress | None = None          # Progress update
     error: Exception | None = None            # Error (for error events)
     usage: dict[str, int] | None = None       # Token usage
     timestamp: float | None = None            # Event timestamp
@@ -2707,16 +2765,18 @@ class EventType(str, Enum):
 ```python
 @dataclass
 class Retry:
-    attempts: int = 3                 # Model errors only
-    max_retries: int = 6              # Absolute cap
-    base_delay: float = 1.0           # Seconds
-    max_delay: float = 10.0           # Seconds
-    strategy: BackoffStrategy = BackoffStrategy.FIXED_JITTER
+    attempts: int | None = None                   # Model errors only
+    max_retries: int | None = None                # Absolute cap
+    base_delay: float | None = None               # Seconds
+    max_delay: float | None = None                # Seconds
+    strategy: BackoffStrategy | None = None       # Backoff strategy
     error_type_delays: ErrorTypeDelays | None = None  # Per-error-type delays
     retry_on: list[RetryableErrorType] | None = None  # Which error types to retry
     should_retry: Callable[..., bool | Coroutine] | None = None  # Veto callback
     calculate_delay: Callable[..., float] | None = None  # Custom delay calculation
 ```
+
+> **Note:** All fields default to `None` and are populated via `__post_init__` from `RETRY_DEFAULTS`. Effective defaults: `attempts=3`, `max_retries=6`, `base_delay=1.0`, `max_delay=10.0`, `strategy=BackoffStrategy.FIXED_JITTER`.
 
 ### Timeout
 
@@ -2949,11 +3009,15 @@ from l0 import (
     
     # Retry & Timeout
     Retry,
+    RetryDefaults,
     Timeout,
     TimeoutError,
     BackoffStrategy,
     RetryableErrorType,
     ErrorTypeDelays,
+    ErrorTypeDelayDefaults,
+    CheckIntervals,
+    LifecycleCallbacks,
     RETRY_DEFAULTS,
     ERROR_TYPE_DELAY_DEFAULTS,
     MINIMAL_RETRY,
@@ -2966,6 +3030,8 @@ from l0 import (
     GuardrailRule,
     GuardrailViolation,
     Violation,  # Alias for GuardrailViolation
+    pattern_rule,
+    custom_pattern_rule,
     JsonAnalysis,
     MarkdownAnalysis,
     LatexAnalysis,
@@ -3119,8 +3185,12 @@ from l0 import (
     Monitoring,
     OpenTelemetry,
     OpenTelemetryConfig,
+    OpenTelemetryExporter,
+    OpenTelemetryExporterConfig,
     Sentry,
     SentryConfig,
+    SentryExporter,
+    SentryExporterConfig,
     SemanticAttributes,
     
     # Formatting
@@ -3149,6 +3219,9 @@ from l0 import (
     JSONSchemaAdapter,
     JSONSchemaDefinition,
     JSONSchemaValidationError,
+    JSONSchemaValidationFailure,
+    JSONSchemaValidationSuccess,
+    SimpleJSONSchemaAdapter,
     UnifiedSchema,
     
     # Multimodal
@@ -3172,10 +3245,10 @@ from l0 import (
 | Category | Exports |
 | -------- | ------- |
 | Core | `wrap`, `run`, `l0` (alias), `Stream`, `LazyStream`, `WrappedClient`, `State`, `Event`, `EventType` |
-| Retry & Timeout | `Retry`, `Timeout`, `TimeoutError`, `BackoffStrategy`, `RetryableErrorType`, `ErrorTypeDelays`, `RETRY_DEFAULTS`, `ERROR_TYPE_DELAY_DEFAULTS`, `MINIMAL_RETRY`, `RECOMMENDED_RETRY`, `STRICT_RETRY`, `EXPONENTIAL_RETRY` |
+| Retry & Timeout | `Retry`, `RetryDefaults`, `Timeout`, `TimeoutError`, `BackoffStrategy`, `RetryableErrorType`, `ErrorTypeDelays`, `ErrorTypeDelayDefaults`, `CheckIntervals`, `LifecycleCallbacks`, `RETRY_DEFAULTS`, `ERROR_TYPE_DELAY_DEFAULTS`, `MINIMAL_RETRY`, `RECOMMENDED_RETRY`, `STRICT_RETRY`, `EXPONENTIAL_RETRY` |
 | Continuation | `Continuation`, `ContinuationConfig`, `DeduplicationOptions`, `OverlapResult` |
 | Errors | `Error`, `ErrorCode`, `ErrorContext`, `ErrorCategory`, `FailureType`, `RecoveryStrategy`, `RecoveryPolicy`, `NetworkError`, `NetworkErrorType`, `NetworkErrorAnalysis` |
-| Guardrails | `Guardrails`, `GuardrailRule`, `GuardrailViolation`, `Violation`, `JsonAnalysis`, `MarkdownAnalysis`, `LatexAnalysis` |
+| Guardrails | `Guardrails`, `GuardrailRule`, `GuardrailViolation`, `Violation`, `pattern_rule`, `custom_pattern_rule`, `JsonAnalysis`, `MarkdownAnalysis`, `LatexAnalysis` |
 | Structured | `structured`, `structured_stream`, `structured_object`, `structured_array`, `StructuredResult`, `StructuredStreamResult`, `StructuredConfig`, `StructuredState`, `StructuredTelemetry`, `AutoCorrectInfo`, `MINIMAL_STRUCTURED`, `RECOMMENDED_STRUCTURED`, `STRICT_STRUCTURED` |
 | Parallel | `parallel`, `race`, `sequential`, `batched`, `Parallel`, `ParallelResult`, `ParallelOptions`, `RaceResult`, `AggregatedTelemetry` |
 | Pipeline | `pipe`, `Pipeline`, `PipelineStep`, `PipelineOptions`, `PipelineResult`, `StepContext`, `StepResult`, `create_pipeline`, `create_step`, `chain_pipelines`, `parallel_pipelines`, `create_branch_step`, `FAST_PIPELINE`, `RELIABLE_PIPELINE`, `PRODUCTION_PIPELINE` |
@@ -3188,12 +3261,12 @@ from l0 import (
 | State Machine | `StateMachine`, `RuntimeState`, `RuntimeStates`, `StateTransition`, `create_state_machine` |
 | Metrics | `Metrics`, `MetricsSnapshot`, `create_metrics`, `get_global_metrics`, `reset_global_metrics` |
 | Event Sourcing | `EventSourcing`, `EventStore`, `EventStoreWithSnapshots`, `InMemoryEventStore`, `EventRecorder`, `EventReplayer`, `EventEnvelope`, `RecordedEvent`, `RecordedEventType`, `Snapshot`, `SerializedError`, `ReplayResult`, `ReplayCallbacks`, `ReplayedState`, `ReplayComparison`, `StreamMetadata` |
-| Monitoring | `Monitoring`, `OpenTelemetry`, `OpenTelemetryConfig`, `Sentry`, `SentryConfig`, `SemanticAttributes` |
+| Monitoring | `Monitoring`, `OpenTelemetry`, `OpenTelemetryConfig`, `OpenTelemetryExporter`, `OpenTelemetryExporterConfig`, `Sentry`, `SentryConfig`, `SentryExporter`, `SentryExporterConfig`, `SemanticAttributes` |
 | Formatting | `Format` |
 | Text | `Text`, `NormalizeOptions`, `WhitespaceOptions` |
 | Comparison | `Compare`, `Difference`, `DifferenceSeverity`, `DifferenceType`, `StringComparisonOptions`, `ObjectComparisonOptions` |
 | JSON | `JSON`, `AutoCorrectResult`, `CorrectionType` |
-| JSON Schema | `JSONSchema`, `JSONSchemaAdapter`, `JSONSchemaDefinition`, `JSONSchemaValidationError`, `UnifiedSchema` |
+| JSON Schema | `JSONSchema`, `JSONSchemaAdapter`, `JSONSchemaDefinition`, `JSONSchemaValidationError`, `JSONSchemaValidationFailure`, `JSONSchemaValidationSuccess`, `SimpleJSONSchemaAdapter`, `UnifiedSchema` |
 | Multimodal | `Multimodal`, `ContentType`, `DataPayload`, `Progress` |
 | Utilities | `consume_stream`, `get_text`, `enable_debug` |
 | Version | `__version__` |
