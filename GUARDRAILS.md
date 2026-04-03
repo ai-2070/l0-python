@@ -266,6 +266,19 @@ context = GuardrailContext(
 )
 ```
 
+> **Note:** `GuardrailContext` is the TypeScript-compatible context type used when calling the engine directly (e.g., `engine.check(context)`). However, rule `check` functions receive a `State` object — not a `GuardrailContext`. The engine converts `GuardrailContext` to `State` internally before dispatching to rules.
+>
+> ```python
+> from l0.guardrails import GuardrailRule, GuardrailViolation
+> from l0.types import State
+>
+> def my_check(state: State) -> list[GuardrailViolation]:
+>     # state.content, state.completed, state.token_count, etc.
+>     ...
+>
+> rule = GuardrailRule(name="my-rule", check=my_check)
+> ```
+
 ---
 
 ## Guardrail Engine

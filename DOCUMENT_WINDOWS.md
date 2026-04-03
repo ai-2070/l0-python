@@ -212,7 +212,9 @@ results = await window.process_all(
 ### Parallel with Concurrency Limit
 
 ```python
-# Limit to 3 concurrent streams (default is 5)
+# Limit to 3 concurrent streams
+# Note: window.process_all() and process_with_window() default to concurrency=5,
+# while Window.process() (the static helper) defaults to concurrency=3.
 results = await window.process_all(
     lambda chunk: ChunkProcessConfig(
         stream=lambda c=chunk: client.chat.completions.create(

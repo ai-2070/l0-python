@@ -33,14 +33,15 @@ complete_event = Multimodal.complete()
 
 L0 extends the standard event system with multimodal-specific events:
 
-| Event Type | Description                                            |
-| ---------- | ------------------------------------------------------ |
-| `token`    | Text token (standard LLM streaming)                    |
-| `message`  | Structured message (tool calls, etc.)                  |
-| `data`     | Multimodal content (images, audio, video, files, JSON) |
-| `progress` | Progress updates for long-running operations           |
-| `error`    | Error event                                            |
-| `complete` | Stream completion                                      |
+| Event Type  | Description                                            |
+| ----------- | ------------------------------------------------------ |
+| `token`     | Text token (standard LLM streaming)                    |
+| `message`   | Structured message (tool calls, etc.)                  |
+| `data`      | Multimodal content (images, audio, video, files, JSON) |
+| `progress`  | Progress updates for long-running operations           |
+| `tool_call` | Tool/function call invocation                          |
+| `error`     | Error event                                            |
+| `complete`  | Stream completion                                      |
 
 ```python
 from l0.types import EventType
@@ -50,6 +51,7 @@ EventType.TOKEN      # "token"
 EventType.MESSAGE    # "message"
 EventType.DATA       # "data"
 EventType.PROGRESS   # "progress"
+EventType.TOOL_CALL  # "tool_call"
 EventType.ERROR      # "error"
 EventType.COMPLETE   # "complete"
 ```
@@ -228,9 +230,11 @@ event = Multimodal.data(DataPayload(
 
 # Create token event
 event = Multimodal.token("Hello")
+event = Multimodal.token("Hello", timestamp=1234567890.0)  # Optional timestamp
 
 # Create message event
 event = Multimodal.message(value="Tool response", role="assistant")
+event = Multimodal.message(value="Tool response", role="assistant", timestamp=1234567890.0)  # Optional timestamp
 
 # Create complete event
 event = Multimodal.complete(usage={"input_tokens": 100, "output_tokens": 50})
@@ -623,8 +627,8 @@ async def wrap(stream):
 | `Multimodal.binary(...)` | Create binary data event |
 | `Multimodal.data(payload)` | Create data event with full payload |
 | `Multimodal.progress(...)` | Create progress event |
-| `Multimodal.token(text)` | Create token event |
-| `Multimodal.message(value, role)` | Create message event |
+| `Multimodal.token(text, timestamp=None)` | Create token event |
+| `Multimodal.message(value, role, timestamp=None)` | Create message event |
 | `Multimodal.complete(usage)` | Create complete event |
 | `Multimodal.error(error)` | Create error event |
 | `Multimodal.to_events(stream, ...)` | Convert stream to events with extractors |
@@ -635,7 +639,7 @@ async def wrap(stream):
 | Type | Description |
 | ---- | ----------- |
 | `ContentType` | Enum: `TEXT`, `IMAGE`, `AUDIO`, `VIDEO`, `FILE`, `JSON`, `BINARY` |
-| `EventType` | Enum: `TOKEN`, `MESSAGE`, `DATA`, `PROGRESS`, `ERROR`, `COMPLETE` |
+| `EventType` | Enum: `TOKEN`, `MESSAGE`, `DATA`, `PROGRESS`, `TOOL_CALL`, `ERROR`, `COMPLETE` |
 | `DataPayload` | Multimodal data payload dataclass |
 | `Progress` | Progress update dataclass |
 | `Event` | Unified event dataclass |

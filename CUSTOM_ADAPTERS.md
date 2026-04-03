@@ -8,6 +8,7 @@ L0 provides **official first-party adapters** for:
 
 - **OpenAI SDK** - `OpenAIAdapter` (also works with LiteLLM)
 - **LiteLLM** - Uses OpenAI-compatible format via `LiteLLMAdapter` (alias for OpenAI)
+- **Anthropic SDK** - `AnthropicAdapter` (reference implementation for Anthropic SDK streams)
 
 These are the only integrations maintained within the core project.
 Support for additional providers is out of scope - use custom adapters.
@@ -48,32 +49,32 @@ For other providers, create a custom adapter.
 ```python
 from typing import Any, Protocol, AsyncIterator
 from l0 import Event
-from l0.adapters import AdaptedEvent
+from l0.adapters import AdaptedEvent, AdapterChunkT, AdapterOptionsT
 
-class Adapter(Protocol):
+class Adapter(Protocol[AdapterChunkT, AdapterOptionsT]):
     """Protocol for stream adapters."""
-    
+
     name: str
     """Unique identifier for this adapter."""
 
     def detect(self, stream: Any) -> bool:
         """Check if this adapter can handle the given stream.
-        
+
         Optional - only required for auto-detection via Adapters.register().
         Not needed for explicit `adapter=my_adapter` usage.
-        
+
         Args:
             stream: The stream to check
-            
+
         Returns:
             True if this adapter can handle the stream
         """
         ...
 
-    async def wrap(
+    def wrap(
         self,
         stream: AsyncIterator[Any],
-        options: Any | None = None,
+        options: AdapterOptionsT | None = None,
     ) -> AsyncIterator[AdaptedEvent[Any]]:
         """Wrap raw stream into AdaptedEvent stream.
         
@@ -436,8 +437,8 @@ async def my_adapter_wrap(stream):
 
 `to_l0_events` handles:
 
-- Error conversion to error events
-- Automatic complete event emission
+- Error conversion to error events (on error, only an error event is emitted - no complete event follows)
+- Automatic complete event emission at the end of a successful stream
 - None/null filtering
 
 ### to_l0_events_with_messages
@@ -495,6 +496,7 @@ error_event = Adapters.error_event(Exception("Stream failed"))
 
 # Multimodal events
 image_event = Adapters.image_event(
+    url=None,
     base64="...",
     mime_type="image/png",
     width=512,
@@ -502,6 +504,7 @@ image_event = Adapters.image_event(
 )
 
 audio_event = Adapters.audio_event(
+    url=None,
     base64="...",
     mime_type="audio/mp3",
     duration=30.5,
@@ -558,8 +561,8 @@ Adapters.reset()
 | `Adapters.registered()`                 | List all registered adapter names             |
 | `Adapters.clear()`                      | Remove all adapters                           |
 | `Adapters.reset()`                      | Reset to default adapters                     |
-| `Adapters.detect(stream, hint=None)`    | Detect or lookup adapter for stream           |
-| `Adapters.detect_adapter(stream)`       | Auto-detect adapter (returns None if not found) |
+| `Adapters.detect(stream, hint=None)`    | Detect or lookup adapter for stream; raises `ValueError` if no adapter found or hint is unknown |
+| `Adapters.detect_adapter(stream)`       | Auto-detect adapter; returns `None` if no adapter found (never raises) |
 | `Adapters.has_matching(stream)`         | Check if exactly one adapter matches          |
 
 ### DX Warning
@@ -636,6 +639,21 @@ class OpenAIAdapterOptions:
     include_tool_calls: bool = True      # Include tool calls as events
     emit_function_calls_as_tokens: bool = False  # Emit function args as tokens
     choice_index: int | str = 0          # Which choice to use when n > 1 (0 or "all")
+```
+
+### EventPassthroughAdapter
+
+`EventPassthroughAdapter` (name: `"event"`) is a built-in fallback adapter that handles async iterators yielding `Event` objects directly. It wraps each `Event` in an `AdaptedEvent` for consistency with the runtime. It is registered by default and acts as a catch-all for any async iterator, so it is checked last in the detection order.
+
+```python
+from l0.adapters import EventPassthroughAdapter
+
+# Used automatically when your stream already yields Event objects
+async def my_event_stream():
+    yield Event(type=EventType.TOKEN, text="Hello")
+    yield Event(type=EventType.COMPLETE)
+
+result = await l0.run(stream=my_event_stream, adapter="event")
 ```
 
 ### LiteLLM Adapter

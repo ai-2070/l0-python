@@ -39,17 +39,16 @@ This document specifies the **deterministic lifecycle behavior** of the L0 Pytho
               ┌────────────────────────────────────────┼────────────────┐
               │                    │                   │                │
               ▼                    ▼                   ▼                ▼
-        ┌─────────┐          ┌───────────┐      ┌──────────┐      ┌─────────┐
-        │ SUCCESS │          │   ERROR   │      │VIOLATION │      │  ABORT  │
-        └────┬────┘          └─────┬─────┘      └────┬─────┘      └────┬────┘
-             │                     │                 │                 │
-             │                     │                 ▼                 ▼
-             │                     │          ┌─────────────┐   ┌───────────┐
-             │                     │          │on_violation │   │ on_abort  │
-             │                     │          └──────┬──────┘   │(token_cnt,│
-             │                     │                 │          │content_len)│
-             │                     ▼                 ▼          └───────────┘
-             │              ┌────────────────────────────────┐
+        ┌─────────┐          ┌───────────┐                        ┌─────────┐
+        │ SUCCESS │          │   ERROR   │                        │  ABORT  │
+        └────┬────┘          └─────┬─────┘                        └────┬────┘
+             │                     │                                   │
+             │     During STREAMING/FINALIZING, violations fire        ▼
+             │     on_violation(violation) as an event within     ┌───────────┐
+             │     the current state (no separate VIOLATION state) │ on_abort  │
+             │                     │                              │(token_cnt,│
+             │                     ▼                              │content_len)│
+             │              ┌────────────────────────────────┐    └───────────┘
              │              │ on_error(error, will_retry,    │
              │              │         will_fallback)         │
              │              └──────────────┬─────────────────┘
@@ -312,6 +311,8 @@ The following `ObservabilityEventType` values are emitted during the lifecycle:
 | `STREAM_INIT`     | Stream initialization started         | -                                    |
 | `STREAM_READY`    | Stream ready to consume               | -                                    |
 | `TOKEN`           | Token received                        | `text`                               |
+| `FINALIZATION_START` | Finalization phase started         | -                                    |
+| `FINALIZATION_END`   | Finalization phase ended           | -                                    |
 | `COMPLETE`        | Stream completed successfully         | `tokenCount`, `contentLength`        |
 | `ERROR`           | Error occurred                        | `error`, `code`, `recoveryStrategy`  |
 | `SESSION_END`     | Session ended                         | `success`, `totalAttempts`           |
@@ -331,7 +332,7 @@ The following `ObservabilityEventType` values are emitted during the lifecycle:
 | ------------------- | ---------------------------------------------- | ----------------------------------- |
 | `TIMEOUT_START`     | Timeout timer started                          | `timeoutType`, `configuredMs`       |
 | `TIMEOUT_RESET`     | Timeout timer reset after token                | `timeoutType`, `configuredMs`, `tokenIndex` |
-| `TIMEOUT_TRIGGERED` | Timeout occurred                               | `timeoutType`, `elapsedMs`, `configuredMs` |
+| `TIMEOUT_TRIGGERED` | Timeout occurred                               | `timeoutType`, `elapsedMs` (configured timeout value in ms), `configuredMs` |
 
 ### Network Events
 
@@ -410,14 +411,22 @@ The following `ObservabilityEventType` values are emitted during the lifecycle:
 
 | Event Type                  | Description                      | Meta Fields              |
 | --------------------------- | -------------------------------- | ------------------------ |
-| `PARSE_START`               | JSON parsing started             | -                        |
-| `PARSE_END`                 | JSON parsing completed           | `durationMs`             |
-| `PARSE_ERROR`               | JSON parsing failed              | `error`                  |
-| `SCHEMA_VALIDATION_START`   | Schema validation started        | -                        |
-| `SCHEMA_VALIDATION_END`     | Schema validation completed      | `durationMs`             |
-| `SCHEMA_VALIDATION_ERROR`   | Schema validation failed         | `error`                  |
-| `AUTO_CORRECT_START`        | Auto-correction started          | -                        |
-| `AUTO_CORRECT_END`          | Auto-correction completed        | `durationMs`, `fixed`    |
+| `PARSE_START`                    | JSON parsing started                        | -                        |
+| `PARSE_END`                      | JSON parsing completed                      | `durationMs`             |
+| `PARSE_ERROR`                    | JSON parsing failed                         | `error`                  |
+| `SCHEMA_VALIDATION_START`        | Schema validation started                   | -                        |
+| `SCHEMA_VALIDATION_END`          | Schema validation completed                 | `durationMs`             |
+| `SCHEMA_VALIDATION_ERROR`        | Schema validation failed                    | `error`                  |
+| `AUTO_CORRECT_START`             | Auto-correction started                     | -                        |
+| `AUTO_CORRECT_END`               | Auto-correction completed                   | `durationMs`, `fixed`    |
+| `STRUCTURED_PARSE_START`         | JSON parsing started (TS compat alias)      | -                        |
+| `STRUCTURED_PARSE_END`           | JSON parsing completed (TS compat alias)    | `durationMs`             |
+| `STRUCTURED_PARSE_ERROR`         | JSON parsing failed (TS compat alias)       | `error`                  |
+| `STRUCTURED_VALIDATION_START`    | Schema validation started (TS compat alias) | -                        |
+| `STRUCTURED_VALIDATION_END`      | Schema validation completed (TS compat alias) | `durationMs`           |
+| `STRUCTURED_VALIDATION_ERROR`    | Schema validation failed (TS compat alias)  | `error`                  |
+| `STRUCTURED_AUTO_CORRECT_START`  | Auto-correction started (TS compat alias)   | -                        |
+| `STRUCTURED_AUTO_CORRECT_END`    | Auto-correction completed (TS compat alias) | `durationMs`, `fixed`    |
 
 ### Consensus Events
 
@@ -454,12 +463,18 @@ bus.emit(ObservabilityEventType.SESSION_START, attempt=1, isRetry=False, isFallb
 
 ### State Machine
 
-The runtime uses implicit state machine logic with these states:
+The runtime uses a `StateMachine` with these `RuntimeState` values and transitions:
 
-- `INIT` → `STREAMING` → `COMPLETE`
+- `INIT` → `WAITING_FOR_TOKEN` → `STREAMING`
+- `STREAMING` → `TOOL_CALL_DETECTED` → `STREAMING`
+- `STREAMING` → `CONTINUATION_MATCHING` → `CHECKPOINT_VERIFYING` → `STREAMING`
+- `STREAMING` → `FINALIZING` → `COMPLETE`
 - `STREAMING` → `RETRYING` → `STREAMING`
 - `STREAMING` → `FALLBACK` → `STREAMING`
 - `STREAMING` → `ERROR` (terminal)
+- `FINALIZING` → `ERROR` (terminal)
+
+Violations (guardrail failures) are handled as events **within** the `STREAMING` or `FINALIZING` states; there is no separate `VIOLATION` state.
 
 ### Callback Wrapper
 

@@ -289,9 +289,14 @@ result = await Consensus.lenient(tasks)
 result = await Consensus.best(tasks)
 # Equivalent to:
 # strategy="best", threshold=0.5, resolve_conflicts="best", minimum_agreement=0.0
+# Note: Consensus.best() uses threshold=0.5 and minimum_agreement=0.0,
+# which differs from the Consensus.BEST preset (threshold=0.8, minimum_agreement=0.5).
 ```
 
 ### Preset Configurations
+
+These values reflect the `Consensus.BEST` class attribute (a `ConsensusPreset` config object).
+The `Consensus.best()` method uses different defaults: `threshold=0.5, minimum_agreement=0.0`.
 
 | Preset | Strategy | Threshold | Resolve Conflicts | Min Agreement |
 | ------ | -------- | --------- | ----------------- | ------------- |
