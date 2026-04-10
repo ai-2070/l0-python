@@ -12,22 +12,18 @@ def create_state() -> State:
     return State()
 
 
-def flush_content(state: State) -> None:
-    """Materialize content buffer into content string. Call before reading state.content."""
-    buf = state._content_buffer
-    if buf:
-        state.content = state.content + "".join(buf)
-        buf.clear()
-
-
 def update_checkpoint(state: State) -> None:
     """Save current content as checkpoint."""
-    flush_content(state)
     state.checkpoint = state.content
 
 
 def append_token(state: State, token: str) -> None:
-    """Append token to content buffer and update timing."""
+    """Append token to content buffer and update timing.
+
+    Tokens are buffered in _content_buffer and joined lazily via the
+    _ContentDescriptor when state.content is read. This gives O(n) total
+    cost instead of O(n^2) from repeated string concatenation.
+    """
     now = time.time()
     if state.first_token_at is None:
         state.first_token_at = now
@@ -38,7 +34,6 @@ def append_token(state: State, token: str) -> None:
 
 def mark_completed(state: State) -> None:
     """Mark stream as completed and calculate duration."""
-    flush_content(state)
     state.completed = True
     if state.first_token_at is not None:
         state.duration = (state.last_token_at or time.time()) - state.first_token_at

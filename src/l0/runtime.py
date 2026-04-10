@@ -16,7 +16,7 @@ from .errors import Error, ErrorCode, ErrorContext, FailureType, RecoveryStrateg
 from .events import EventBus, ObservabilityEventType
 from .logging import logger
 from .retry import RetryManager
-from .state import append_token, create_state, flush_content, mark_completed, update_checkpoint
+from .state import append_token, create_state, mark_completed, update_checkpoint
 from .types import (
     AwaitableStreamFactory,
     CheckIntervals,
@@ -730,7 +730,7 @@ async def _internal_run(
                                 state.token_count % guardrail_interval == 0
                                 and guardrails
                             ):
-                                flush_content(state)
+
                                 _has_obs = event_bus._handler is not None
 
                                 if _has_obs:
@@ -806,7 +806,7 @@ async def _internal_run(
                                 drift_detector is not None
                                 and state.token_count % drift_interval == 0
                             ):
-                                flush_content(state)
+
                                 drift_result = drift_detector.check(
                                     state.content, token_text
                                 )
