@@ -1587,6 +1587,7 @@ def json_rule() -> GuardrailRule:
         if len(content) < last_content_length:
             incremental_state = IncrementalJsonState()
             last_content_length = 0
+            is_json_content = None
 
         violations = []
 
@@ -1887,7 +1888,7 @@ def pattern_rule(
 
     # Pre-compile all patterns into a single combined regex for O(1) pass
     combined = re.compile(
-        "|".join(f"(?:{p})" for p in patterns),
+        "|".join(f"(?:{p})" for p in patterns) if patterns else r"(?!x)x",
         re.IGNORECASE | re.MULTILINE,
     )
     last_scanned_length = 0
@@ -1900,8 +1901,13 @@ def pattern_rule(
         if len(content) < last_scanned_length:
             last_scanned_length = 0
 
-        # Only scan new content since last check (delta scanning)
-        scan_start = max(0, last_scanned_length - 50)  # small overlap for boundary matches
+        # On completion, do a full scan to catch anything delta scanning might miss
+        # (e.g. ^-anchored patterns that span chunk boundaries).
+        # During streaming, only scan new content + overlap for performance.
+        if state.completed:
+            scan_start = 0
+        else:
+            scan_start = max(0, last_scanned_length - 50)  # overlap for boundary matches
         scan_region = content[scan_start:]
         last_scanned_length = len(content)
 
