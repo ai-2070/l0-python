@@ -61,10 +61,10 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/ai-2070/l0"
-Documentation = "https://github.com/ai-2070/l0/tree/main/l0-python#readme"
-Repository = "https://github.com/ai-2070/l0"
-Changelog = "https://github.com/ai-2070/l0/releases"
+Homepage = "https://github.com/ai-2070/reliable-ai-streams-py"
+Documentation = "https://github.com/ai-2070/reliable-ai-streams-py/blob/master/README.md"
+Repository = "https://github.com/ai-2070/reliable-ai-streams-py"
+Changelog = "https://github.com/ai-2070/reliable-ai-streams-py/releases"
 Issues = "https://github.com/ai-2070/l0/issues"
 
 [build-system]

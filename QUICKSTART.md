@@ -5,20 +5,20 @@ Get started with L0 in 5 minutes.
 ## Installation
 
 ```bash
-pip install ai2070-l0
+pip install reliable-ai-streams-py
 ```
 
 **With provider support:**
 
 ```bash
 # With OpenAI
-pip install ai2070-l0[openai]
+pip install reliable-ai-streams-py[openai]
 
 # With LiteLLM (100+ providers)
-pip install ai2070-l0[litellm]
+pip install reliable-ai-streams-py[litellm]
 
 # With all extras
-pip install ai2070-l0[all]
+pip install reliable-ai-streams-py[all]
 ```
 
 ## Basic Usage

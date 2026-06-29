@@ -1,5 +1,3 @@
-> **Rename note:** This project was previously called L0-Python. The package/repository is being renamed to reliable-ai-streams-py. Existing imports remain supported. Install: `pip install reliable-ai-streams-py`
-
 # L0 - Deterministic Streaming Execution Substrate (DSES) for AI
 
 ### The missing reliability and observability layer for all AI streams.
@@ -32,7 +30,7 @@
 It works with **OpenAI** and **LiteLLM** (100+ providers including Anthropic, Cohere, Bedrock, Vertex, Gemini). Supports **tool calls** and provides full observability.
 
 ```bash
-pip install ai2070-l0
+pip install reliable-ai-streams-py
 ```
 
 **Also available in TypeScript:** [@ai-2070/l0](https://github.com/ai-2070/l0) `npm install @ai2070/l0` - native implementation with full lifecycle and event signature parity.
@@ -333,19 +331,19 @@ Full stack = JSON + Markdown + zero-output guardrails + drift detection + checkp
 
 ```bash
 # Basic installation
-pip install ai2070-l0
+pip install reliable-ai-streams-py
 
 # With OpenAI support
-pip install ai2070-l0[openai]
+pip install reliable-ai-streams-py[openai]
 
 # With LiteLLM (100+ providers)
-pip install ai2070-l0[litellm]
+pip install reliable-ai-streams-py[litellm]
 
 # With OpenTelemetry
-pip install ai2070-l0[otel]
+pip install reliable-ai-streams-py[otel]
 
 # With Sentry
-pip install ai2070-l0[sentry]
+pip install reliable-ai-streams-py[sentry]
 
 # Development (dev is a dependency-group, not a pip extra)
 uv sync --group dev

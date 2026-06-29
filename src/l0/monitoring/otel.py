@@ -851,7 +851,7 @@ class OpenTelemetryExporter:
         except ImportError as e:
             raise ImportError(
                 "OpenTelemetry packages not installed. "
-                "Install with: pip install ai2070-l0[observability]"
+                "Install with: pip install reliable-ai-streams-py[observability]"
             ) from e
 
         # Build resource
