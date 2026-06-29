@@ -1,5 +1,5 @@
 [project]
-name = "ai2070-l0"
+name = "reliable-ai-streams-py"
 version = "0.22.0"
 description = "Reliability layer for AI/LLM streaming with retry, guardrails, and observability"
 readme = "README.md"
