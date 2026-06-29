@@ -352,9 +352,9 @@ uv sync --group dev
 Or with uv:
 
 ```bash
-uv add ai2070-l0
-uv add ai2070-l0 --extra openai
-uv add ai2070-l0 --extra litellm
+uv add reliable-ai-streams-py
+uv add reliable-ai-streams-py --extra openai
+uv add reliable-ai-streams-py --extra litellm
 ```
 
 ### Dependencies

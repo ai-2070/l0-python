@@ -14,7 +14,7 @@ Modern LLM applications increasingly depend on _streaming_ responses: chat UIs, 
 
 L0 is provider-agnostic. Built-in adapters support OpenAI, Anthropic, and LiteLLM (100+ providers), with an extensible adapter registry for custom providers. It handles text, structured JSON, and multimodal streams (image, audio, video) under the same deterministic contract.
 
-Available in Python (`uv add ai2070-l0`) and TypeScript (`npm install @ai2070/l0`) with full lifecycle and event signature parity.
+Available in Python (`uv add reliable-ai-streams-py`) and TypeScript (`npm install @ai2070/l0`) with full lifecycle and event signature parity.
 
 ---
 
